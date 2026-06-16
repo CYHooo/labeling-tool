@@ -478,7 +478,8 @@ class MainWindow(QMainWindow):
             origin_bgr = _cv2.imread(origin_path)
             if origin_bgr is None:
                 raise RuntimeError(f"failed to read origin: {origin_path}")
-            guided, _, _ = process_one(origin_bgr, coarse_gray)
+            guided, _, _ = process_one(origin_bgr, coarse_gray,
+                                       compute_length=False)
             rgb = np.zeros((*guided.shape, 3), dtype=np.uint8)
             rgb[..., 2] = guided
 
@@ -657,7 +658,8 @@ class MainWindow(QMainWindow):
                     if origin_bgr_rb is None:
                         raise RuntimeError(
                             f"cv2.imread returned None for {origin_path}")
-                    guided, _, _ = process_one(origin_bgr_rb, coarse_gray)
+                    guided, _, _ = process_one(origin_bgr_rb, coarse_gray,
+                                               compute_length=False)
                     if self.rebuilt_dir is not None:
                         self.rebuilt_dir.mkdir(parents=True, exist_ok=True)
                         out_name = Path(coarse_path).name

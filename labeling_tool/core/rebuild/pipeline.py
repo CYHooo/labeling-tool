@@ -45,13 +45,18 @@ def process_one(
     img: np.ndarray, coarse_mask: np.ndarray,
     search_radius: int | None = None, block_size: int | None = None, C: int = 8,
     min_area: int | None = None, min_branch: int | None = None,
-    gap_max: int | None = None,
-) -> tuple[np.ndarray, np.ndarray, float]:
+    gap_max: int | None = None, compute_length: bool = True,
+) -> tuple[np.ndarray, np.ndarray | None, float]:
     """
     Returns:
         guided_mask: width-fitted crack mask (0/255), clipped to coarse.
-        centerline:  continuous 1-px centerline (0/255) for length measurement.
-        length_px:   centerline length in pixels.
+        centerline:  continuous 1-px centerline (0/255), or None if
+                     compute_length=False.
+        length_px:   centerline length in pixels (0.0 if not computed).
+
+    compute_length=False skips the (expensive) gap-bridged centerline + length,
+    which every caller that only needs `guided` (Rebuilt cache prebuild, on-load
+    rebuild) discards anyway — roughly a third of the per-image cost.
     """
     import cv2
     if coarse_mask.shape[:2] != img.shape[:2]:
@@ -72,6 +77,8 @@ def process_one(
         img, coarse_skel, bin_mask,
         search_radius=sr, block_size=bs, C=C, clip_to_coarse=True,
     )
+    if not compute_length:
+        return guided, None, 0.0
     centerline = build_length_centerline(
         coarse_mask, min_area=ma, min_branch=mb, gap_max=gm,
     )

@@ -59,3 +59,19 @@ def test_prebuild_records_failure_on_missing_input(tmp_path):
     assert len(failures) == 1
     assert failures[0]["timestamp"] == 99
     assert not (r / naming.detected_mask_filename(99)).exists()
+
+
+def test_prebuild_parallel_multiple(tmp_path):
+    o, d, r = _dirs(tmp_path)
+    ts_list = [1, 2, 3, 4]
+    for ts in ts_list:
+        _make_pair(o, d, ts)
+    seen = []
+    failures = prebuild_rebuilt(
+        o, d, r, ts_list,
+        progress=lambda done, total: seen.append((done, total)),
+        workers=2)                      # force the process-pool path
+    assert failures == []
+    for ts in ts_list:
+        assert (r / naming.detected_mask_filename(ts)).exists()
+    assert seen[-1] == (4, 4)
