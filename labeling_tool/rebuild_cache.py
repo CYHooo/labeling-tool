@@ -26,9 +26,7 @@ from pathlib import Path
 from typing import Callable
 
 import cv2
-import numpy as np
 
-from labeling_tool.core.rebuild import process_one
 from labeling_tool.session import naming
 from labeling_tool.session import mask_store
 

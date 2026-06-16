@@ -22,7 +22,6 @@ from labeling_tool.core.bbox import (
     ScaleTracker, save_bboxes, load_bboxes,
     scale_from_two_points, MARKER_PHYSICAL_CM,
 )
-from labeling_tool.core.rebuild import process_one
 from labeling_tool.session import mask_store
 from labeling_tool.core.result import export_result
 from labeling_tool.core.window.styles import STYLESHEET
