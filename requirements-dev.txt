@@ -1,0 +1,4 @@
+# 테스트용 추가 의존성 (pytest 실행 시에만 필요)
+-r requirements.txt
+pytest>=7.0
+responses>=0.23

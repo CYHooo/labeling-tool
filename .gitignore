@@ -1,0 +1,16 @@
+# 중국어 README 는 원격 저장소에 올리지 않음 (내부 참고용)
+README_zhCN.md
+
+# 런타임 데이터 / 자격증명 / 세션 산출물
+labeling_tool/data/
+labeling_tool/config.json
+
+# 가상환경 / 캐시
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 로그
+*.log
