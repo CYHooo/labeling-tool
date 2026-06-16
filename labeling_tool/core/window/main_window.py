@@ -16,13 +16,14 @@ from labeling_tool.core.constants import (
     IMAGE_EXTENSIONS, MASK_NAME_SUFFIXES,
 )
 from labeling_tool.core.i18n import TRANSLATIONS, LANG_DISPLAY_NAMES, DEFAULT_LANG
-from labeling_tool.core.mask_io import find_mask_path, load_origin_and_masks
+from labeling_tool.core.mask_io import load_origin_and_masks
 from labeling_tool.core.canvas import ImageCanvas
 from labeling_tool.core.bbox import (
     ScaleTracker, save_bboxes, load_bboxes,
     scale_from_two_points, MARKER_PHYSICAL_CM,
 )
 from labeling_tool.core.rebuild import process_one
+from labeling_tool.session import mask_store
 from labeling_tool.core.result import export_result
 from labeling_tool.core.window.styles import STYLESHEET
 from labeling_tool.core.window.ui_builder import build_side_panel
@@ -57,7 +58,6 @@ class MainWindow(QMainWindow):
         self.image_files: list[str] = []
         self.current_idx: int = -1
         self._edited: dict[str, bool] = {}
-        self._mask_filename: dict[str, str | None] = {}
 
         # ----- new state for bbox / rebuild / result -----
         self.scale_tracker = ScaleTracker()
@@ -327,14 +327,11 @@ class MainWindow(QMainWindow):
             if ms is not None:
                 bgr[..., 1] = ms
             self.output_dir.mkdir(parents=True, exist_ok=True)
-            out_name = self._mask_filename.get(filename)
-            if not out_name:
-                out_name = f"{Path(filename).stem}.png"
-            mask_out = self.output_dir / out_name
+            mask_out = self.output_dir / mask_store.mask_name(filename)
             _cv2.imwrite(str(mask_out), bgr)
 
         # ----- 2. BBox JSON -----
-        bbox_path = self.output_dir / f"{Path(filename).stem}.bbox.json"
+        bbox_path = self.output_dir / mask_store.bbox_name(filename)
         save_bboxes(
             bbox_path,
             filename,
@@ -450,65 +447,42 @@ class MainWindow(QMainWindow):
         if ans != QMessageBox.Yes:
             return
 
-        # Pick coarse source: prefer Labeling/ over Detected/
+        # Coarse source: prefer current edits in Labeling/, else Detected/.
+        name = mask_store.mask_name(filename)
         coarse_path = None
-        if self.output_dir is not None and self.output_dir.exists():
-            coarse_path = find_mask_path(filename, str(self.output_dir))
-        if coarse_path is None and self.detected_dir is not None:
-            coarse_path = find_mask_path(filename, str(self.detected_dir))
+        if self.output_dir is not None and (self.output_dir / name).exists():
+            coarse_path = self.output_dir / name
+        elif self.detected_dir is not None and (self.detected_dir / name).exists():
+            coarse_path = self.detected_dir / name
         if coarse_path is None:
-            self.status.showMessage(
-                self.tr_("rebuild_failed", err="no coarse mask"))
+            self.status.showMessage(self.tr_("rebuild_failed", err="no coarse mask"))
             return
 
         origin_path = str(self.origin_dir / filename)
-        mask_name = self._mask_filename.get(filename) or Path(coarse_path).name
-
         self.status.showMessage(self.tr_("status_rebuilding"))
         QApplication.processEvents()
         try:
             import cv2 as _cv2
-            raw = _cv2.imread(coarse_path, _cv2.IMREAD_UNCHANGED)
-            if raw is None:
+            coarse_raw = _cv2.imread(str(coarse_path), _cv2.IMREAD_UNCHANGED)
+            if coarse_raw is None:
                 raise RuntimeError(f"failed to read coarse mask: {coarse_path}")
-            if raw.ndim == 3:
-                coarse_gray = raw[..., 2]
-                coarse_other = raw[..., 1]   # non-crack class (G)
-            else:
-                coarse_gray = raw
-                coarse_other = None
             origin_bgr = _cv2.imread(origin_path)
             if origin_bgr is None:
                 raise RuntimeError(f"failed to read origin: {origin_path}")
-            guided, _, _ = process_one(origin_bgr, coarse_gray,
-                                       compute_length=False)
-            rgb = np.zeros((*guided.shape, 3), dtype=np.uint8)
-            rgb[..., 2] = guided
-            # Preserve the non-crack (G) class through the rebuild so it stays
-            # visible; only the crack channel is intensity-refined.
-            if coarse_other is not None:
-                if coarse_other.shape != guided.shape:
-                    coarse_other = _cv2.resize(
-                        coarse_other, (guided.shape[1], guided.shape[0]),
-                        interpolation=_cv2.INTER_NEAREST)
-                rgb[..., 1] = np.where(coarse_other > 0, 255, 0).astype(np.uint8)
-
-            # Cache to Rebuilt/<mask_name>
+            rgb = mask_store.build_rebuilt_rgb(origin_bgr, coarse_raw)
             if self.rebuilt_dir is not None:
                 self.rebuilt_dir.mkdir(parents=True, exist_ok=True)
-                _cv2.imwrite(str(self.rebuilt_dir / mask_name), rgb)
-            # Overwrite Labeling/<mask_name> so the rebuild result becomes
-            # the new editing baseline.
+                _cv2.imwrite(str(self.rebuilt_dir / name), rgb)
             if self.output_dir is not None:
                 self.output_dir.mkdir(parents=True, exist_ok=True)
-                _cv2.imwrite(str(self.output_dir / mask_name), rgb)
+                _cv2.imwrite(str(self.output_dir / name), rgb)
         except Exception as e:
             self.status.showMessage(self.tr_("rebuild_failed", err=str(e)))
             return
 
         self._edited.pop(filename, None)
         self._bbox_edited.pop(filename, None)
-        self.status.showMessage(self.tr_("rebuild_done", name=mask_name))
+        self.status.showMessage(self.tr_("rebuild_done", name=name))
         self._show_image(self.current_idx, force_reload=True)
 
     # ------------------------------------------------------------------
@@ -554,7 +528,6 @@ class MainWindow(QMainWindow):
         self.image_files = []
         self.current_idx = -1
         self._edited.clear()
-        self._mask_filename.clear()
         self.file_list.clear()
         self.canvas.clear()
         if self.origin_dir is not None:
@@ -616,93 +589,47 @@ class MainWindow(QMainWindow):
         import sys as _sys
 
         mask_path = None
-        mask_source = "none"
+        source = "none"
 
-        # Step 0: the user's saved edits in Labeling/ are authoritative and must
-        # win over the (Detected-derived) Rebuilt/ cache — otherwise a prebuilt
-        # Rebuilt entry keeps showing the unedited mask after the user saves.
-        if self.output_dir is not None and self.output_dir.exists():
-            mask_path = find_mask_path(filename, str(self.output_dir))
-            if mask_path is not None:
-                mask_source = "labeling"
+        resolved, source = mask_store.resolve_display_mask(
+            labeling_dir=self.output_dir, rebuilt_dir=self.rebuilt_dir,
+            detected_dir=self.detected_dir, origin_filename=filename)
+        mask_path = str(resolved) if resolved is not None else None
 
-        # Step 1: else use the cached Rebuilt/<mask> (refined Detected).
-        if (mask_path is None and self.rebuilt_dir is not None
-                and self.rebuilt_dir.exists()):
-            mask_path = find_mask_path(filename, str(self.rebuilt_dir))
-            if mask_path is not None:
-                mask_source = "rebuilt"
-
-        # Step 2: Rebuilt/ missing -> run rebuild to populate it.
-        # Coarse source priority: Labeling/ (preserves existing edits) > Detected/.
-        if mask_path is None:
-            coarse_path = None
-            coarse_from = None
-            if self.output_dir is not None and self.output_dir.exists():
-                coarse_path = find_mask_path(filename, str(self.output_dir))
-                if coarse_path is not None:
-                    coarse_from = "labeling"
-            if coarse_path is None and self.detected_dir is not None:
-                coarse_path = find_mask_path(filename, str(self.detected_dir))
-                if coarse_path is not None:
-                    coarse_from = "detected"
-
-            if coarse_path is None:
-                print(f"[load] {filename}: no mask in Rebuilt/, Labeling/, or "
-                      f"Detected/", file=_sys.stderr)
-                self.status.showMessage(
-                    f"No mask found for {filename} in any folder")
+        if source == "needs_rebuild":
+            import cv2 as _cv2
+            name = mask_store.mask_name(filename)
+            det_path = (self.detected_dir / name
+                        if self.detected_dir is not None else None)
+            coarse_raw = (_cv2.imread(str(det_path), _cv2.IMREAD_UNCHANGED)
+                          if det_path is not None and det_path.exists() else None)
+            if coarse_raw is None:
+                print(f"[load] {filename}: no mask in any folder", file=_sys.stderr)
+                self.status.showMessage(f"No mask found for {filename}")
             else:
-                print(f"[rebuild] {filename}: coarse source = "
-                      f"{coarse_from}/{Path(coarse_path).name}", file=_sys.stderr)
                 self.status.showMessage(self.tr_("status_rebuilding"))
                 QApplication.processEvents()
                 try:
-                    import cv2 as _cv2
-                    raw = _cv2.imread(coarse_path, _cv2.IMREAD_UNCHANGED)
-                    if raw is None:
-                        raise RuntimeError(
-                            f"cv2.imread returned None for {coarse_path}")
-                    coarse_gray = raw[..., 2] if raw.ndim == 3 else raw
-                    coarse_other = raw[..., 1] if raw.ndim == 3 else None
                     origin_bgr_rb = _cv2.imread(origin_path)
                     if origin_bgr_rb is None:
-                        raise RuntimeError(
-                            f"cv2.imread returned None for {origin_path}")
-                    guided, _, _ = process_one(origin_bgr_rb, coarse_gray,
-                                               compute_length=False)
+                        raise RuntimeError(f"cannot read origin {origin_path}")
+                    rgb = mask_store.build_rebuilt_rgb(origin_bgr_rb, coarse_raw)
                     if self.rebuilt_dir is not None:
                         self.rebuilt_dir.mkdir(parents=True, exist_ok=True)
-                        out_name = Path(coarse_path).name
-                        rebuilt_path = self.rebuilt_dir / out_name
-                        rgb = np.zeros((*guided.shape, 3), dtype=np.uint8)
-                        rgb[..., 2] = guided
-                        # Keep the non-crack (G) class visible through rebuild.
-                        if coarse_other is not None:
-                            if coarse_other.shape != guided.shape:
-                                coarse_other = _cv2.resize(
-                                    coarse_other,
-                                    (guided.shape[1], guided.shape[0]),
-                                    interpolation=_cv2.INTER_NEAREST)
-                            rgb[..., 1] = np.where(
-                                coarse_other > 0, 255, 0).astype(np.uint8)
+                        rebuilt_path = self.rebuilt_dir / name
                         _cv2.imwrite(str(rebuilt_path), rgb)
                         mask_path = str(rebuilt_path)
-                        mask_source = f"rebuilt(from {coarse_from})"
-                        self.status.showMessage(
-                            self.tr_("rebuild_done", name=out_name))
+                        source = "rebuilt(from detected)"
+                        self.status.showMessage(self.tr_("rebuild_done", name=name))
                 except Exception as e:
                     import traceback as _tb
                     print(f"[rebuild] {filename}: FAILED {e}", file=_sys.stderr)
                     _tb.print_exc()
-                    self.status.showMessage(
-                        self.tr_("rebuild_failed", err=str(e)))
-                    # Fallback: load coarse source as-is so user can still work
-                    mask_path = coarse_path
-                    mask_source = f"{coarse_from}(rebuild_failed)"
+                    self.status.showMessage(self.tr_("rebuild_failed", err=str(e)))
+                    mask_path = str(det_path)
+                    source = "detected(rebuild_failed)"
 
-        print(f"[load] {filename} -> {mask_source}: {mask_path}",
-              file=_sys.stderr)
+        print(f"[load] {filename} -> {source}: {mask_path}", file=_sys.stderr)
 
         try:
             origin, crack_mask, spalling_mask = load_origin_and_masks(
@@ -713,9 +640,6 @@ class MainWindow(QMainWindow):
 
         self.current_idx = idx
         self.canvas.set_image(origin, crack_mask, spalling_mask)
-        self._mask_filename[filename] = (
-            Path(mask_path).name if mask_path else None
-        )
 
         # ----- ArUco scale + outline overlay -----
         scale, source, aruco_corners = self.scale_tracker.update_for_image(origin)
@@ -730,7 +654,7 @@ class MainWindow(QMainWindow):
 
         # ----- BBox JSON -----
         if self.output_dir is not None:
-            bbox_path = self.output_dir / f"{Path(filename).stem}.bbox.json"
+            bbox_path = self.output_dir / mask_store.bbox_name(filename)
             self.canvas.bbox_interaction.boxes = load_bboxes(bbox_path)
         else:
             self.canvas.bbox_interaction.boxes = []
@@ -776,7 +700,7 @@ class MainWindow(QMainWindow):
         """True if a mask for this image already exists in Labeling/."""
         if self.output_dir is None or not self.output_dir.exists():
             return False
-        return find_mask_path(filename, str(self.output_dir)) is not None
+        return (self.output_dir / mask_store.mask_name(filename)).exists()
 
     def _refresh_list_colors(self):
         """

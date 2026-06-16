@@ -30,6 +30,7 @@ import numpy as np
 
 from labeling_tool.core.rebuild import process_one
 from labeling_tool.session import naming
+from labeling_tool.session import mask_store
 
 ProgressFn = Callable[[int, int], None]
 
@@ -48,19 +49,7 @@ def _prebuild_one(origin_path: str, detected_path: str, out_path: str) -> str | 
         raw = cv2.imread(detected_path, cv2.IMREAD_UNCHANGED)
         if origin_bgr is None or raw is None:
             return "missing origin or detected mask"
-        coarse_gray = raw[..., 2] if raw.ndim == 3 else raw
-        coarse_other = raw[..., 1] if raw.ndim == 3 else None   # non-crack (G)
-        guided, _, _ = process_one(origin_bgr, coarse_gray, compute_length=False)
-        rgb = np.zeros((*guided.shape, 3), dtype=np.uint8)
-        rgb[..., 2] = guided
-        # Preserve the non-crack class (G) so it stays visible after rebuild;
-        # only the crack channel (R) is intensity-refined.
-        if coarse_other is not None:
-            if coarse_other.shape != guided.shape:
-                coarse_other = cv2.resize(
-                    coarse_other, (guided.shape[1], guided.shape[0]),
-                    interpolation=cv2.INTER_NEAREST)
-            rgb[..., 1] = np.where(coarse_other > 0, 255, 0).astype(np.uint8)
+        rgb = mask_store.build_rebuilt_rgb(origin_bgr, raw)
         cv2.imwrite(out_path, rgb)
         return None
     except Exception as e:  # noqa: BLE001 - reported back to the caller
@@ -75,7 +64,8 @@ def prebuild_rebuilt(origin_dir, detected_dir, rebuilt_dir,
 
     Runs in a process pool (CPU-bound). Returns per-photo failures
     `[{"timestamp", "error"}]`; one bad photo never aborts the batch.
-    Idempotent: an existing cache file is left untouched (resumable).
+    A cache entry is reused only when it is fresh (exists and not older than
+    its Detected source); a re-downloaded (newer) Detected mask regenerates it.
     """
     origin_dir = Path(origin_dir)
     detected_dir = Path(detected_dir)
@@ -86,8 +76,10 @@ def prebuild_rebuilt(origin_dir, detected_dir, rebuilt_dir,
     jobs = []   # (ts, origin_path, detected_path, out_path)
     for ts in timestamps:
         out_path = rebuilt_dir / naming.detected_mask_filename(ts)
-        if out_path.exists():
-            continue
+        det_path = detected_dir / naming.detected_mask_filename(ts)
+        if out_path.exists() and (not det_path.exists()
+                                  or out_path.stat().st_mtime >= det_path.stat().st_mtime):
+            continue   # fresh cache, skip
         jobs.append((
             ts,
             str(origin_dir / naming.stitched_filename(ts)),

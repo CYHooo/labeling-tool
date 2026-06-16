@@ -90,3 +90,33 @@ def test_prebuild_preserves_non_crack_channel(tmp_path):
     prebuild_rebuilt(o, d, r, [ts], workers=1)
     out = cv2.imread(str(r / naming.detected_mask_filename(ts)), cv2.IMREAD_UNCHANGED)
     assert int((out[..., 1] > 0).sum()) > 0     # non-crack (G) preserved
+
+
+def test_prebuild_regenerates_when_detected_newer(tmp_path):
+    import os, time
+    o, d, r = _dirs(tmp_path)
+    _make_pair(o, d, 1)
+    prebuild_rebuilt(o, d, r, [1], workers=1)
+    out = r / naming.detected_mask_filename(1)
+    assert out.exists()
+    # Make the cached Rebuilt look OLDER than its Detected source (stale).
+    det_mtime = (d / naming.detected_mask_filename(1)).stat().st_mtime
+    stale = det_mtime - 100
+    os.utime(out, (stale, stale))
+    stale_ns = out.stat().st_mtime_ns          # capture AFTER making it stale
+    time.sleep(0.01)
+    prebuild_rebuilt(o, d, r, [1], workers=1)   # must regenerate (Detected newer)
+    assert out.stat().st_mtime_ns != stale_ns   # rewritten -> mtime changed
+
+
+def test_prebuild_skips_when_fresh(tmp_path):
+    import os
+    o, d, r = _dirs(tmp_path)
+    _make_pair(o, d, 1)
+    prebuild_rebuilt(o, d, r, [1], workers=1)
+    out = r / naming.detected_mask_filename(1)
+    newer = d.joinpath(naming.detected_mask_filename(1)).stat().st_mtime + 100
+    os.utime(out, (newer, newer))                          # Rebuilt newer -> fresh
+    before = out.stat().st_mtime_ns
+    prebuild_rebuilt(o, d, r, [1], workers=1)
+    assert out.stat().st_mtime_ns == before                # not regenerated

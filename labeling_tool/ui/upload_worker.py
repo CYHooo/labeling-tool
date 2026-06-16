@@ -17,7 +17,7 @@ from pathlib import Path
 import cv2
 from PyQt5.QtCore import QThread, pyqtSignal
 
-from labeling_tool.core.mask_io import find_mask_path
+from labeling_tool.session import mask_store
 from labeling_tool.core.bbox import load_bboxes, load_scale
 from labeling_tool.session import naming
 from labeling_tool.annotation_payload import build_annotation_item
@@ -51,21 +51,20 @@ class UploadWorker(QThread):
         for i, spec in enumerate(self._specs, start=1):
             fn = spec["filename"]
             ts = spec["timestamp"]
-            mask_path = find_mask_path(fn, str(ldir))
-            if mask_path is None:
+            mask_path = ldir / mask_store.mask_name(fn)
+            if not mask_path.exists():
                 vlog().warning("prepare skip ts=%s: no mask in Labeling/", ts)
                 continue
             t = time.perf_counter()
-            bgr = cv2.imread(mask_path, cv2.IMREAD_UNCHANGED)
+            bgr = cv2.imread(str(mask_path), cv2.IMREAD_UNCHANGED)
             crack = bgr[..., 2] if bgr is not None and bgr.ndim == 3 else None
             spall = bgr[..., 1] if bgr is not None and bgr.ndim == 3 else None
-            stem = Path(fn).stem
-            boxes = load_bboxes(ldir / f"{stem}.bbox.json")
-            measured = load_scale(ldir / f"{stem}.bbox.json")
+            boxes = load_bboxes(ldir / mask_store.bbox_name(fn))
+            measured = load_scale(ldir / mask_store.bbox_name(fn))
             px = measured if measured else (spec.get("px_per_cm") or 0.0)
             if px <= 0:
                 continue
-            mask_cache[ts] = Path(mask_path).read_bytes()
+            mask_cache[ts] = mask_path.read_bytes()
             item = build_annotation_item(
                 timestamp=ts,
                 mask_s3_key=naming.mask_s3_key(self._session_id, ts),

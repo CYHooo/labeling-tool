@@ -7,7 +7,6 @@ single "Upload to EC2" action that runs V2->V3->V4 for edited photos.
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
 from PyQt5.QtWidgets import (
     QPushButton, QMessageBox, QProgressBar,
@@ -15,7 +14,7 @@ from PyQt5.QtWidgets import (
 
 from labeling_tool.core.window.main_window import MainWindow as CoreMainWindow
 from labeling_tool.core.bbox import load_scale
-from labeling_tool.core.mask_io import find_mask_path
+from labeling_tool.session import mask_store
 from labeling_tool.session.workspace import Workspace
 from labeling_tool.session.manifest import Manifest
 from labeling_tool.api.client import ViewerApiClient
@@ -75,7 +74,7 @@ class ViewerMainWindow(CoreMainWindow):
         """Photos with a saved edited mask in Labeling/ this session."""
         out = []
         for fn in self._manifest.filenames_in_order():
-            if find_mask_path(fn, str(self.output_dir)) is not None:
+            if (self.output_dir / mask_store.mask_name(fn)).exists():
                 out.append(fn)
         return out
 
@@ -97,8 +96,7 @@ class ViewerMainWindow(CoreMainWindow):
         specs = []
         for fn in filenames:
             entry = self._manifest.get(fn)
-            stem = Path(fn).stem
-            measured = load_scale(self.output_dir / f"{stem}.bbox.json")
+            measured = load_scale(self.output_dir / mask_store.bbox_name(fn))
             px_per_cm = measured if measured else (entry.px_per_cm or 0.0)
             if px_per_cm <= 0:
                 continue                  # V4 requires pxPerCm
