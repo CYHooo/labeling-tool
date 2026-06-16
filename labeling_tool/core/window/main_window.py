@@ -473,8 +473,10 @@ class MainWindow(QMainWindow):
                 raise RuntimeError(f"failed to read coarse mask: {coarse_path}")
             if raw.ndim == 3:
                 coarse_gray = raw[..., 2]
+                coarse_other = raw[..., 1]   # non-crack class (G)
             else:
                 coarse_gray = raw
+                coarse_other = None
             origin_bgr = _cv2.imread(origin_path)
             if origin_bgr is None:
                 raise RuntimeError(f"failed to read origin: {origin_path}")
@@ -482,6 +484,14 @@ class MainWindow(QMainWindow):
                                        compute_length=False)
             rgb = np.zeros((*guided.shape, 3), dtype=np.uint8)
             rgb[..., 2] = guided
+            # Preserve the non-crack (G) class through the rebuild so it stays
+            # visible; only the crack channel is intensity-refined.
+            if coarse_other is not None:
+                if coarse_other.shape != guided.shape:
+                    coarse_other = _cv2.resize(
+                        coarse_other, (guided.shape[1], guided.shape[0]),
+                        interpolation=_cv2.INTER_NEAREST)
+                rgb[..., 1] = np.where(coarse_other > 0, 255, 0).astype(np.uint8)
 
             # Cache to Rebuilt/<mask_name>
             if self.rebuilt_dir is not None:
@@ -654,6 +664,7 @@ class MainWindow(QMainWindow):
                         raise RuntimeError(
                             f"cv2.imread returned None for {coarse_path}")
                     coarse_gray = raw[..., 2] if raw.ndim == 3 else raw
+                    coarse_other = raw[..., 1] if raw.ndim == 3 else None
                     origin_bgr_rb = _cv2.imread(origin_path)
                     if origin_bgr_rb is None:
                         raise RuntimeError(
@@ -666,6 +677,15 @@ class MainWindow(QMainWindow):
                         rebuilt_path = self.rebuilt_dir / out_name
                         rgb = np.zeros((*guided.shape, 3), dtype=np.uint8)
                         rgb[..., 2] = guided
+                        # Keep the non-crack (G) class visible through rebuild.
+                        if coarse_other is not None:
+                            if coarse_other.shape != guided.shape:
+                                coarse_other = _cv2.resize(
+                                    coarse_other,
+                                    (guided.shape[1], guided.shape[0]),
+                                    interpolation=_cv2.INTER_NEAREST)
+                            rgb[..., 1] = np.where(
+                                coarse_other > 0, 255, 0).astype(np.uint8)
                         _cv2.imwrite(str(rebuilt_path), rgb)
                         mask_path = str(rebuilt_path)
                         mask_source = f"rebuilt(from {coarse_from})"

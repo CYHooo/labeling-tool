@@ -49,9 +49,18 @@ def _prebuild_one(origin_path: str, detected_path: str, out_path: str) -> str | 
         if origin_bgr is None or raw is None:
             return "missing origin or detected mask"
         coarse_gray = raw[..., 2] if raw.ndim == 3 else raw
+        coarse_other = raw[..., 1] if raw.ndim == 3 else None   # non-crack (G)
         guided, _, _ = process_one(origin_bgr, coarse_gray, compute_length=False)
         rgb = np.zeros((*guided.shape, 3), dtype=np.uint8)
         rgb[..., 2] = guided
+        # Preserve the non-crack class (G) so it stays visible after rebuild;
+        # only the crack channel (R) is intensity-refined.
+        if coarse_other is not None:
+            if coarse_other.shape != guided.shape:
+                coarse_other = cv2.resize(
+                    coarse_other, (guided.shape[1], guided.shape[0]),
+                    interpolation=cv2.INTER_NEAREST)
+            rgb[..., 1] = np.where(coarse_other > 0, 255, 0).astype(np.uint8)
         cv2.imwrite(out_path, rgb)
         return None
     except Exception as e:  # noqa: BLE001 - reported back to the caller

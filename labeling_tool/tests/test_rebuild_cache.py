@@ -75,3 +75,18 @@ def test_prebuild_parallel_multiple(tmp_path):
     for ts in ts_list:
         assert (r / naming.detected_mask_filename(ts)).exists()
     assert seen[-1] == (4, 4)
+
+
+def test_prebuild_preserves_non_crack_channel(tmp_path):
+    o, d, r = _dirs(tmp_path)
+    ts = 7
+    img = np.full((80, 80, 3), 30, dtype=np.uint8)
+    img[38:43, 10:70] = 220
+    cv2.imwrite(str(o / naming.stitched_filename(ts)), img)
+    mask = np.zeros((80, 80, 3), dtype=np.uint8)
+    mask[38:43, 10:70, 2] = 255      # crack (R)
+    mask[10:30, 10:60, 1] = 255      # non-crack class (G)
+    cv2.imwrite(str(d / naming.detected_mask_filename(ts)), mask)
+    prebuild_rebuilt(o, d, r, [ts], workers=1)
+    out = cv2.imread(str(r / naming.detected_mask_filename(ts)), cv2.IMREAD_UNCHANGED)
+    assert int((out[..., 1] > 0).sum()) > 0     # non-crack (G) preserved
