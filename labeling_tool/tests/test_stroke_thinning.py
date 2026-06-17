@@ -1,6 +1,6 @@
 import numpy as np
 
-from labeling_tool.core.rebuild.thinning import thin_stroke_into
+from labeling_tool.core.canvas.stroke_thinning import thin_stroke_into
 
 
 def _max_run_per_column(mask, x0, x1):
