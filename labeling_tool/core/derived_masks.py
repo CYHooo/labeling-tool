@@ -83,3 +83,26 @@ def build_repair15(crack: np.ndarray | None,
     src = np.where(union > 0, np.uint8(0), np.uint8(255))
     dist = cv2.distanceTransform(src, cv2.DIST_L2, 5)
     return np.where(dist <= pad_px, np.uint8(255), np.uint8(0)).astype(np.uint8)
+
+
+def generate_derived_masks(crack: np.ndarray | None,
+                           spalling: np.ndarray | None,
+                           px_per_cm: float,
+                           highlight_path,
+                           repair15_path
+                           ) -> tuple[np.ndarray, np.ndarray | None]:
+    """Build the highlight (+ scale-dependent repair15) and write them to disk.
+
+    Returns (highlight, repair15_or_None). repair15 is built+written only when
+    px_per_cm is truthy. A None path skips the write but the array is still
+    returned (so the canvas can refresh). Callers ensure parent dirs exist.
+    """
+    highlight = build_highlight(crack, spalling)
+    if highlight_path is not None:
+        cv2.imwrite(str(highlight_path), highlight)
+    repair15 = None
+    if px_per_cm:
+        repair15 = build_repair15(crack, spalling, px_per_cm)
+        if repair15_path is not None:
+            cv2.imwrite(str(repair15_path), repair15)
+    return highlight, repair15
