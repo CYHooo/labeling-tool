@@ -30,6 +30,7 @@ def main() -> int:
         return 0  # user cancelled
 
     base, key = login.base, login.key
+    workspace = manifest = None  # assigned in both branches below
     if login.workspace is not None:
         # offline: a downloaded session was opened directly
         workspace, manifest = login.workspace, login.manifest

@@ -76,14 +76,10 @@ class FetchDialog(QDialog):
             return
         for s in sessions:
             sid = s["sessionId"]
-            extra = []
-            if s.get("createdAt"):
-                extra.append(str(s["createdAt"]))
+            name = s.get("inspectionName")
+            label = f"session {sid}" if not name else f"session {sid} · {name}"
             if s.get("photoCount") is not None:
-                extra.append(f"{s['photoCount']}장")
-            label = f"session {sid}"
-            if extra:
-                label += "  (" + ", ".join(extra) + ")"
+                label += f"  ({s['photoCount']}장)"
             self.cb_session.addItem(label, sid)
 
     def _selected_sid(self) -> int | None:

@@ -115,14 +115,14 @@ class ViewerApiClient:
 
     # ---- session list (endpoint PENDING: assumed contract) --------
     def list_sessions(self) -> list[dict]:
-        """List available session ids for the session dropdown.
+        """List available sessions for the session dropdown.
 
-        Endpoint is not live yet; assumed contract is
-        ``GET {base}/api/viewer/sessions/`` returning
-        ``{"sessions": [{"sessionId": int, ...}, ...]}``. A bare-int array
+        ``GET {base}/api/viewer/sessions/`` returns
+        ``{"sessions": [{"sessionId": int, "inspectionName": str,
+        "photoCount": int}, ...]}``. A bare-int array
         ``{"sessions": [18, 19]}`` is also accepted. Each returned dict is
-        normalized to carry an int ``sessionId``; other fields pass through.
-        When the real endpoint lands, only this method should need changes.
+        normalized to carry an int ``sessionId``; other fields (e.g.
+        ``inspectionName``, ``photoCount``) pass through unchanged.
         """
         url = f"{self.base_url}/api/viewer/sessions/"
         t = time.perf_counter()
