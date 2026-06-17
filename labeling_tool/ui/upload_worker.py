@@ -18,6 +18,7 @@ import cv2
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from labeling_tool.session import mask_store
+from labeling_tool.core.mask_codec import decode_mask
 from labeling_tool.core.bbox import load_bboxes, load_scale
 from labeling_tool.session import naming
 from labeling_tool.annotation_payload import build_annotation_item
@@ -56,9 +57,10 @@ class UploadWorker(QThread):
                 vlog().warning("prepare skip ts=%s: no mask in Labeling/", ts)
                 continue
             t = time.perf_counter()
-            bgr = cv2.imread(str(mask_path), cv2.IMREAD_UNCHANGED)
-            crack = bgr[..., 2] if bgr is not None and bgr.ndim == 3 else None
-            spall = bgr[..., 1] if bgr is not None and bgr.ndim == 3 else None
+            raw = cv2.imread(str(mask_path), cv2.IMREAD_UNCHANGED)
+            crack, spall = (None, None)
+            if raw is not None:
+                crack, spall = decode_mask(raw, mask_path=str(mask_path))
             boxes = load_bboxes(ldir / mask_store.bbox_name(fn))
             measured = load_scale(ldir / mask_store.bbox_name(fn))
             px = measured if measured else (spec.get("px_per_cm") or 0.0)

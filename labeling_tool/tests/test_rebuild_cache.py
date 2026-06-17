@@ -34,7 +34,7 @@ def test_prebuild_writes_cache_resolvable_by_core(tmp_path):
     out = r / naming.detected_mask_filename(1)
     assert out.exists()
     cached = cv2.imread(str(out), cv2.IMREAD_UNCHANGED)
-    assert cached.ndim == 3                       # 3-channel (R=crack) like on-demand rebuild
+    assert cached.ndim == 2                       # single-channel integer label
     # The core resolver must find it for the origin filename.
     assert find_mask_path(naming.stitched_filename(1), str(r)) == str(out)
     assert seen[-1] == (1, 1)
@@ -89,7 +89,7 @@ def test_prebuild_preserves_non_crack_channel(tmp_path):
     cv2.imwrite(str(d / naming.detected_mask_filename(ts)), mask)
     prebuild_rebuilt(o, d, r, [ts], workers=1)
     out = cv2.imread(str(r / naming.detected_mask_filename(ts)), cv2.IMREAD_UNCHANGED)
-    assert int((out[..., 1] > 0).sum()) > 0     # non-crack (G) preserved
+    assert int((out == 2).sum()) > 0            # spalling (label 2) preserved
 
 
 def test_prebuild_regenerates_when_detected_newer(tmp_path):

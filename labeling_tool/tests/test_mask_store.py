@@ -57,22 +57,22 @@ def test_resolve_nothing(tmp_path):
     assert src == "needs_rebuild" and path is None
 
 
-def test_build_rebuilt_rgb_refines_crack_and_keeps_g():
+def test_build_rebuilt_label_refines_crack_and_keeps_spalling():
     origin = np.full((80, 200, 3), 30, np.uint8)
     origin[38:43, 10:190] = 20
     coarse = np.zeros((80, 200, 3), np.uint8)
-    coarse[38:43, 10:190, 2] = 255
-    coarse[10:25, 10:60, 1] = 255
-    rgb = mask_store.build_rebuilt_rgb(origin, coarse)
-    assert rgb.ndim == 3 and rgb.shape[2] == 3
-    assert int((rgb[..., 2] > 0).sum()) > 0
-    assert int((rgb[..., 1] > 0).sum()) > 0
+    coarse[38:43, 10:190, 2] = 255      # R = crack
+    coarse[10:25, 10:60, 1] = 255       # G = spalling
+    label = mask_store.build_rebuilt_label_mask(origin, coarse)
+    assert label.ndim == 2
+    assert int((label == 1).sum()) > 0      # crack
+    assert int((label == 2).sum()) > 0      # spalling
 
 
-def test_build_rebuilt_rgb_resizes_g_to_guided(tmp_path):
+def test_build_rebuilt_label_resizes_spalling_to_guided():
     origin = np.full((60, 120, 3), 30, np.uint8)
     coarse = np.zeros((30, 60, 3), np.uint8)
     coarse[10:20, 5:55, 1] = 255
-    rgb = mask_store.build_rebuilt_rgb(origin, coarse)
-    assert rgb.shape[:2] == origin.shape[:2]
-    assert int((rgb[..., 1] > 0).sum()) > 0
+    label = mask_store.build_rebuilt_label_mask(origin, coarse)
+    assert label.shape[:2] == origin.shape[:2]
+    assert int((label == 2).sum()) > 0

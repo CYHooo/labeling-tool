@@ -17,6 +17,7 @@ from labeling_tool.core.constants import (
 )
 from labeling_tool.core.i18n import TRANSLATIONS, LANG_DISPLAY_NAMES, DEFAULT_LANG
 from labeling_tool.core.mask_io import load_origin_and_masks
+from labeling_tool.core.mask_codec import encode_label_mask
 from labeling_tool.core.canvas import ImageCanvas
 from labeling_tool.core.bbox import (
     ScaleTracker, save_bboxes, load_bboxes,
@@ -319,18 +320,12 @@ class MainWindow(QMainWindow):
         mc = self.canvas.brush_mask_crack
         ms = self.canvas.brush_mask_spalling
 
-        # ----- 1. Mask -----
+        # ----- 1. Mask (single-channel integer label: 0=bg, 1=crack, 2=spalling) -----
         if mc is not None or ms is not None:
-            ref = mc if mc is not None else ms
-            h, w = ref.shape
-            bgr = np.zeros((h, w, 3), dtype=np.uint8)
-            if mc is not None:
-                bgr[..., 2] = mc
-            if ms is not None:
-                bgr[..., 1] = ms
+            label = encode_label_mask(mc, ms)
             self.output_dir.mkdir(parents=True, exist_ok=True)
             mask_out = self.output_dir / mask_store.mask_name(filename)
-            _cv2.imwrite(str(mask_out), bgr)
+            _cv2.imwrite(str(mask_out), label)
 
         # ----- 2. BBox JSON -----
         bbox_path = self.output_dir / mask_store.bbox_name(filename)
@@ -471,13 +466,13 @@ class MainWindow(QMainWindow):
             origin_bgr = _cv2.imread(origin_path)
             if origin_bgr is None:
                 raise RuntimeError(f"failed to read origin: {origin_path}")
-            rgb = mask_store.build_rebuilt_rgb(origin_bgr, coarse_raw)
+            label = mask_store.build_rebuilt_label_mask(origin_bgr, coarse_raw)
             if self.rebuilt_dir is not None:
                 self.rebuilt_dir.mkdir(parents=True, exist_ok=True)
-                _cv2.imwrite(str(self.rebuilt_dir / name), rgb)
+                _cv2.imwrite(str(self.rebuilt_dir / name), label)
             if self.output_dir is not None:
                 self.output_dir.mkdir(parents=True, exist_ok=True)
-                _cv2.imwrite(str(self.output_dir / name), rgb)
+                _cv2.imwrite(str(self.output_dir / name), label)
         except Exception as e:
             self.status.showMessage(self.tr_("rebuild_failed", err=str(e)))
             return
@@ -615,11 +610,11 @@ class MainWindow(QMainWindow):
                     origin_bgr_rb = _cv2.imread(origin_path)
                     if origin_bgr_rb is None:
                         raise RuntimeError(f"cannot read origin {origin_path}")
-                    rgb = mask_store.build_rebuilt_rgb(origin_bgr_rb, coarse_raw)
+                    label = mask_store.build_rebuilt_label_mask(origin_bgr_rb, coarse_raw)
                     if self.rebuilt_dir is not None:
                         self.rebuilt_dir.mkdir(parents=True, exist_ok=True)
                         rebuilt_path = self.rebuilt_dir / name
-                        _cv2.imwrite(str(rebuilt_path), rgb)
+                        _cv2.imwrite(str(rebuilt_path), label)
                         mask_path = str(rebuilt_path)
                         source = "rebuilt(from detected)"
                         self.status.showMessage(self.tr_("rebuild_done", name=name))

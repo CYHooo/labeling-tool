@@ -5,7 +5,7 @@ Single source of truth for the Viewer API tool's data loading:
     matching): Detected/Rebuilt/Labeling all use ``{origin_stem}_mask.png``;
   * which layer to display: Labeling > fresh Rebuilt > needs_rebuild, where
     "fresh" means the Rebuilt cache is not older than its Detected source;
-  * how a Rebuilt mask is built: crack (R) intensity-refined, non-crack (G) kept.
+  * how a Rebuilt mask is built: crack (label 1) intensity-refined, spalling (label 2) kept.
 """
 
 from __future__ import annotations
@@ -16,6 +16,8 @@ import cv2
 import numpy as np
 
 from labeling_tool.core.rebuild import process_one
+from labeling_tool.core.constants import CLASS_LABELS
+from labeling_tool.core.mask_codec import decode_mask
 
 
 def mask_name(origin_filename: str) -> str:
@@ -58,22 +60,25 @@ def resolve_display_mask(*, labeling_dir, rebuilt_dir, detected_dir,
     return None, "needs_rebuild"
 
 
-def build_rebuilt_rgb(origin_bgr: np.ndarray,
-                      coarse_raw: np.ndarray) -> np.ndarray:
-    """Build a Rebuilt mask: R = intensity-refined crack, G = preserved non-crack.
+def build_rebuilt_label_mask(origin_bgr: np.ndarray,
+                             coarse_raw: np.ndarray) -> np.ndarray:
+    """Build a Rebuilt label mask: crack intensity-refined, other class kept.
 
-    `coarse_raw` is the Detected/Labeling mask as read (3-ch BGR or single-ch).
-    Only the crack channel is refined via process_one; the non-crack (G) channel
-    is carried through unchanged (resized to the guided size if needed).
+    `coarse_raw` is the Detected/Labeling mask as read (3-ch BGR, integer label,
+    or single-ch). It is decoded via the codec, crack is refined via process_one,
+    and the non-crack (spalling) class is carried through (resized if needed).
+    Returns a single-channel uint8 label image (0/1/2) with crack precedence.
     """
-    coarse_gray = coarse_raw[..., 2] if coarse_raw.ndim == 3 else coarse_raw
+    crack_in, spalling_in = decode_mask(coarse_raw)
+    coarse_gray = (crack_in if crack_in is not None
+                   else np.zeros(coarse_raw.shape[:2], dtype=np.uint8))
     guided, _, _ = process_one(origin_bgr, coarse_gray, compute_length=False)
-    rgb = np.zeros((*guided.shape, 3), dtype=np.uint8)
-    rgb[..., 2] = guided
-    if coarse_raw.ndim == 3:
-        g = coarse_raw[..., 1]
+    out = np.zeros(guided.shape[:2], dtype=np.uint8)
+    if spalling_in is not None and spalling_in.max() > 0:
+        g = spalling_in
         if g.shape != guided.shape:
             g = cv2.resize(g, (guided.shape[1], guided.shape[0]),
                            interpolation=cv2.INTER_NEAREST)
-        rgb[..., 1] = np.where(g > 0, 255, 0).astype(np.uint8)
-    return rgb
+        out[g > 0] = CLASS_LABELS["spalling"]
+    out[guided > 0] = CLASS_LABELS["crack"]
+    return out
