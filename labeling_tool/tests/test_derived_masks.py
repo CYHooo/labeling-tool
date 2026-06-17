@@ -1,7 +1,9 @@
+import cv2
 import numpy as np
 import pytest
+from pathlib import Path
 
-from labeling_tool.core.derived_masks import build_highlight, build_repair15
+from labeling_tool.core.derived_masks import build_highlight, build_repair15, generate_derived_masks
 from labeling_tool.core.constants import CLASS_LABELS
 
 
@@ -64,3 +66,40 @@ def test_repair15_region_larger_than_input_mask():
 def test_repair15_both_none_raises():
     with pytest.raises(ValueError):
         build_repair15(None, None, px_per_cm=1.0)
+
+
+def test_repair15_distance_accuracy():
+    # single foreground pixel; px_per_cm=2 -> pad = round(15*2)=30 px radius
+    m = np.zeros((200, 200), np.uint8)
+    m[100, 100] = 255
+    r = build_repair15(m, None, px_per_cm=2.0)
+    assert set(np.unique(r)).issubset({0, 255})
+    assert r[100, 100] == 255                      # foreground kept
+    assert r[100, 100 + 20] == 255                 # within 30px -> set
+    assert r[100, 100 + 60] == 0                   # well beyond 30px -> clear
+
+
+def test_repair15_empty_foreground_is_blank():
+    m = np.zeros((50, 50), np.uint8)               # both layers empty (not None)
+    r = build_repair15(m, m, px_per_cm=2.0)
+    assert int(r.sum()) == 0
+
+
+# ---- generate_derived_masks -------------------------------------------------
+def test_generate_writes_both_with_scale(tmp_path):
+    crack = np.zeros((40, 40), np.uint8); crack[20, 5:35] = 255
+    hi_p = tmp_path / "hi.png"
+    r15_p = tmp_path / "r15.png"
+    hi, r15 = generate_derived_masks(crack, None, 2.0, str(hi_p), str(r15_p))
+    assert hi_p.exists() and r15_p.exists()
+    assert hi is not None and r15 is not None
+    assert set(np.unique(cv2.imread(str(r15_p), cv2.IMREAD_UNCHANGED))).issubset({0, 255})
+
+
+def test_generate_skips_repair15_without_scale(tmp_path):
+    crack = np.zeros((40, 40), np.uint8); crack[20, 5:35] = 255
+    hi_p = tmp_path / "hi.png"
+    r15_p = tmp_path / "r15.png"
+    hi, r15 = generate_derived_masks(crack, None, 0.0, str(hi_p), str(r15_p))
+    assert hi_p.exists()
+    assert r15 is None and not r15_p.exists()

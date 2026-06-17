@@ -71,6 +71,10 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(820, 560)
         self._apply_initial_geometry()
 
+        from labeling_tool.ui.derived_mask_worker import DerivedMaskSignals
+        self._derived_signals = DerivedMaskSignals()
+        self._derived_signals.done.connect(self._on_derived_ready)
+
         if self.origin_dir is not None:
             self._load_data()
 
@@ -296,7 +300,8 @@ class MainWindow(QMainWindow):
         self.status.showMessage(self.tr_("brush_reset"))
 
     def _save_all_artifacts(self, silent: bool = False,
-                            only_if_edited: bool = False) -> bool:
+                            only_if_edited: bool = False,
+                            async_derived: bool = True) -> bool:
         """
         Persist mask + bbox JSON + Result/<stem>.{png,txt}.
 
@@ -331,31 +336,33 @@ class MainWindow(QMainWindow):
             mask_out = self.output_dir / mask_store.mask_name(filename)
             _cv2.imwrite(str(mask_out), label)
 
-            # ----- 1b. Derived masks: highlight + (scale-dependent) repair15 -----
-            from labeling_tool.core.derived_masks import (
-                build_highlight, build_repair15,
-            )
-            try:
-                label_hi = build_highlight(mc, ms)
-                if self.highlight_dir is not None:
-                    self.highlight_dir.mkdir(parents=True, exist_ok=True)
-                    _cv2.imwrite(
-                        str(self.highlight_dir / mask_store.mask_name(filename)),
-                        label_hi)
-                self.canvas.set_highlight(label_hi)
-            except ValueError:
-                self.canvas.set_highlight(None)
-
-            if self.current_scale:
-                r15 = build_repair15(mc, ms, self.current_scale)
-                if self.repair15_dir is not None:
-                    self.repair15_dir.mkdir(parents=True, exist_ok=True)
-                    _cv2.imwrite(
-                        str(self.repair15_dir / mask_store.mask_name(filename)),
-                        r15)
-                self.canvas.set_repair15(r15)
+            # ----- 1b. Derived masks: highlight + (scale-dependent) repair15 --
+            # Heavy on big panoramas, so snapshot the layers and run off the UI
+            # thread (closeEvent uses async_derived=False to flush synchronously).
+            if self.highlight_dir is not None:
+                self.highlight_dir.mkdir(parents=True, exist_ok=True)
+            if self.repair15_dir is not None:
+                self.repair15_dir.mkdir(parents=True, exist_ok=True)
+            hi_path = (str(self.highlight_dir / mask_store.mask_name(filename))
+                       if self.highlight_dir is not None else None)
+            r15_path = (str(self.repair15_dir / mask_store.mask_name(filename))
+                        if self.repair15_dir is not None else None)
+            crack_snap = mc.copy() if mc is not None else None
+            spall_snap = ms.copy() if ms is not None else None
+            scale = self.current_scale or 0.0
+            if async_derived:
+                from PyQt5.QtCore import QThreadPool
+                from labeling_tool.ui.derived_mask_worker import DerivedMaskRunnable
+                QThreadPool.globalInstance().start(DerivedMaskRunnable(
+                    crack=crack_snap, spalling=spall_snap, px_per_cm=scale,
+                    highlight_path=hi_path, repair15_path=r15_path,
+                    token=filename, signals=self._derived_signals))
             else:
-                self.canvas.set_repair15(None)
+                from labeling_tool.core.derived_masks import generate_derived_masks
+                hi, r15 = generate_derived_masks(
+                    crack_snap, spall_snap, scale, hi_path, r15_path)
+                self.canvas.set_highlight(hi)
+                self.canvas.set_repair15(r15)
 
         # ----- 2. BBox JSON -----
         bbox_path = self.output_dir / mask_store.bbox_name(filename)
@@ -388,6 +395,16 @@ class MainWindow(QMainWindow):
         if not silent:
             self.status.showMessage(self.tr_("brush_saved", p=str(self.output_dir)))
         return True
+
+    def _on_derived_ready(self, token: str, hi, r15):
+        """Refresh the canvas overlays from a background derived-mask result,
+        but only if that image is still on screen (else the file is written
+        and we skip the stale overlay)."""
+        if self.current_idx < 0:
+            return
+        if token == self.image_files[self.current_idx]:
+            self.canvas.set_highlight(hi)
+            self.canvas.set_repair15(r15)
 
     def _on_brush_save(self):
         self._save_all_artifacts(silent=False)
@@ -690,5 +707,6 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         # Persist the in-flight image one last time before exit, but only
         # if the user actually edited it this session.
-        self._save_all_artifacts(silent=True, only_if_edited=True)
+        self._save_all_artifacts(silent=True, only_if_edited=True,
+                                 async_derived=False)
         super().closeEvent(event)
