@@ -58,9 +58,11 @@ def build_highlight(crack: np.ndarray | None,
 def build_repair15(crack: np.ndarray | None,
                    spalling: np.ndarray | None,
                    px_per_cm: float) -> np.ndarray:
-    """Foreground union dilated by round(15*px_per_cm) px, FILLED 0/255.
+    """Foreground union expanded by round(15*px_per_cm) px, FILLED 0/255.
 
-    Raises ValueError when both layers are None.
+    Uses a distance transform (O(N), Euclidean) instead of a giant dilation
+    kernel, so it stays fast even at large px/cm. Raises ValueError when both
+    layers are None.
     """
     cb = _binary(crack)
     sb = _binary(spalling)
@@ -73,7 +75,11 @@ def build_repair15(crack: np.ndarray | None,
         union |= cb
     if sb is not None:
         union |= sb
+    if int(union.max()) == 0:
+        return np.zeros(shape, dtype=np.uint8)
 
     pad_px = int(round(_REPAIR15_CM * float(px_per_cm)))
-    grown = cv2.dilate(union, _ellipse_kernel(pad_px)) if pad_px > 0 else union
-    return np.where(grown > 0, np.uint8(255), np.uint8(0)).astype(np.uint8)
+    # distance from each pixel to the nearest foreground pixel
+    src = np.where(union > 0, np.uint8(0), np.uint8(255))
+    dist = cv2.distanceTransform(src, cv2.DIST_L2, 5)
+    return np.where(dist <= pad_px, np.uint8(255), np.uint8(0)).astype(np.uint8)

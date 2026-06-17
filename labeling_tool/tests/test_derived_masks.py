@@ -64,3 +64,20 @@ def test_repair15_region_larger_than_input_mask():
 def test_repair15_both_none_raises():
     with pytest.raises(ValueError):
         build_repair15(None, None, px_per_cm=1.0)
+
+
+def test_repair15_distance_accuracy():
+    # single foreground pixel; px_per_cm=2 -> pad = round(15*2)=30 px radius
+    m = np.zeros((200, 200), np.uint8)
+    m[100, 100] = 255
+    r = build_repair15(m, None, px_per_cm=2.0)
+    assert set(np.unique(r)).issubset({0, 255})
+    assert r[100, 100] == 255                      # foreground kept
+    assert r[100, 100 + 20] == 255                 # within 30px -> set
+    assert r[100, 100 + 60] == 0                   # well beyond 30px -> clear
+
+
+def test_repair15_empty_foreground_is_blank():
+    m = np.zeros((50, 50), np.uint8)               # both layers empty (not None)
+    r = build_repair15(m, m, px_per_cm=2.0)
+    assert int(r.sum()) == 0
