@@ -129,9 +129,9 @@ def paint_single_color_overlay(
     resized = cv2.resize(crop, (wsw, wsh), interpolation=interp)
     binimg = np.where(resized > 0, np.uint8(255), np.uint8(0))
     rgba = np.zeros((wsh, wsw, 4), dtype=np.uint8)
-    rgba[..., 0] = rgb[2]
+    rgba[..., 0] = rgb[0]
     rgba[..., 1] = rgb[1]
-    rgba[..., 2] = rgb[0]
+    rgba[..., 2] = rgb[2]
     rgba[..., 3] = np.where(binimg > 0, np.uint8(alpha), np.uint8(0))
     qimg = QImage(rgba.data, wsw, wsh, wsw * 4, QImage.Format_RGBA8888)
     painter.drawImage(QPointF(px, py), qimg)
