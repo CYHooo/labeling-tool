@@ -41,6 +41,8 @@ class ViewerMainWindow(CoreMainWindow):
         # Override derived dirs to the workspace's explicit layout.
         self.output_dir = workspace.labeling_dir.resolve()
         self.result_dir = workspace.result_dir.resolve()
+        self.highlight_dir = workspace.highlight_dir.resolve()
+        self.repair15_dir = workspace.repair15_dir.resolve()
         self._refresh_path_labels()
         self._reload_data()
 

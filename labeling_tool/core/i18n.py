@@ -76,6 +76,8 @@ TRANSLATIONS = {
             "Del     Delete selected box",
         "bbox_need_more_clicks": "Need at least 2 clicks",
         "bbox_no_scale":         "No scale; cannot compute 15cm padding",
+        "btn_show_highlight":    "Show Highlight",
+        "btn_show_repair15":     "Show 15cm Boundary",
     },
     "zh": {
         "window_title":       "掩码编辑标注工具",
@@ -152,6 +154,8 @@ TRANSLATIONS = {
             "Del     删除选中",
         "bbox_need_more_clicks": "至少需要 2 个点",
         "bbox_no_scale":         "未检测到 scale,无法计算 15cm 余量",
+        "btn_show_highlight":    "显示高亮",
+        "btn_show_repair15":     "显示15cm边界",
     },
     "ko": {
         "window_title":       "마스크 편집 라벨링 도구",
@@ -228,6 +232,8 @@ TRANSLATIONS = {
             "Del     선택 삭제",
         "bbox_need_more_clicks": "최소 2개 점 필요",
         "bbox_no_scale":         "scale 없음, 15cm 여백 계산 불가",
+        "btn_show_highlight":    "하이라이트 표시",
+        "btn_show_repair15":     "15cm 경계 표시",
     },
 }
 LANG_DISPLAY_NAMES = {"en": "English", "zh": "中文", "ko": "한국어"}
