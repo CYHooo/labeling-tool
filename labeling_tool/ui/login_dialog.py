@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QLabel, QProgressBar, QMessageBox, QComboBox,
 )
 
-from labeling_tool.ui.dialog_helpers import load_config, save_config, run_prebuild
+from labeling_tool.ui.dialog_helpers import load_config, save_config
 from labeling_tool.session.workspace import Workspace, list_local_session_ids
 from labeling_tool.session.manifest import Manifest
 from labeling_tool.logging_setup import attach_session_log, vlog
@@ -96,8 +96,4 @@ class LoginDialog(QDialog):
         self.manifest = Manifest.load(ws.manifest_path)
         attach_session_log(ws.session_dir)
         vlog().info("=== session %s opened (local) ===", sid)
-        run_prebuild(ws, [
-            self.manifest.get(fn).timestamp
-            for fn in self.manifest.filenames_in_order()],
-            self.progress, self.lbl_status)
         self.accept()

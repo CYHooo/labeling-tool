@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
 from labeling_tool.api.client import ViewerApiClient
 from labeling_tool.api.errors import ViewerApiError
 from labeling_tool.api.downloader import download_photos
-from labeling_tool.ui.dialog_helpers import save_config, run_prebuild
+from labeling_tool.ui.dialog_helpers import save_config
 from labeling_tool.session.workspace import Workspace
 from labeling_tool.session.manifest import Manifest, PhotoEntry
 from labeling_tool.session import naming
@@ -150,9 +150,6 @@ class FetchDialog(QDialog):
 
         failures = download_photos(
             photos, ws.origin_dir, ws.detected_dir, progress=_prog)
-
-        run_prebuild(ws, [int(p["timestamp"]) for p in photos],
-                     self.progress, self.lbl_status)
 
         manifest.save(ws.manifest_path)
         save_config(self.base, self.key)
