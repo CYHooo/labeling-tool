@@ -57,14 +57,26 @@ def test_uploads_single_batch_in_order():
 
 def test_paginates_over_100():
     client = FakeClient()
-    items = [_item(i) for i in range(1, 151)]   # 150 items -> 2 batches
+    items = [_item(i) for i in range(1, 151)]   # 150 items -> 5 batches (BATCH_LIMIT=33)
     result = upload_session(
         client, session_id=43, items=items,
         bytes_for=_bytes, edit_batch_id="b")
     assert result["uploaded"] == 150
-    assert [c[2] for c in client.register_calls] == [100, 50]
-    assert {c[0] for c in client.register_calls} == {"b"}
+    assert [c[2] for c in client.register_calls] == [33, 33, 33, 33, 18]
+    assert {c[0] for c in client.register_calls} == {"b"}   # same editBatchId reused
     assert len(client.puts) == 450                     # 3 * 150
+
+
+def test_v2_presign_never_exceeds_100_files():
+    client = FakeClient()
+    items = [_item(i) for i in range(1, 41)]    # 40 items -> 2 presign calls (33, 7)
+    result = upload_session(
+        client, session_id=43, items=items,
+        bytes_for=_bytes, edit_batch_id="b")
+    assert result["uploaded"] == 40
+    assert len(client.presigned_calls) == 2      # [33, 7] batches
+    for _sid, files in client.presigned_calls:
+        assert len(files) <= 100                 # V2 file array cap never exceeded
 
 
 def test_v4_failure_recorded_per_batch():

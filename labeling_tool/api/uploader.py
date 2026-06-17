@@ -13,7 +13,9 @@ from typing import Callable
 
 from labeling_tool.session import naming
 
-BATCH_LIMIT = 100
+FILES_PER_PHOTO = 3          # mask + high + repair15 (V2/V3)
+V2_FILE_LIMIT = 100          # api-reference v1.0.8: V2 files array max 100
+BATCH_LIMIT = V2_FILE_LIMIT // FILES_PER_PHOTO   # 33 photos -> 99 files (<=100)
 
 # Returns the three byte blobs for one photo: {"mask":..,"high":..,"repair15":..}.
 BytesFn = Callable[[int], dict]

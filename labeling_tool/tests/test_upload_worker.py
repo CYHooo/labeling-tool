@@ -65,3 +65,26 @@ def test_worker_skips_missing_masks(tmp_path):
     worker.run()
     assert results and results[0]["uploaded"] == 0
     assert results[0]["timestamps"] == []
+
+
+def test_worker_skips_when_high_or_repair15_missing(tmp_path):
+    """Guard: a photo with only the Labeling mask (no HighLight/Repair15) must be skipped."""
+    labeling = tmp_path / "Labeling"
+    labeling.mkdir(parents=True)
+    ts = 55
+    fn = naming.stitched_filename(ts)
+    name = mask_store.mask_name(fn)
+    # Write only the Labeling mask — omit HighLight/ and Repair15/ entirely.
+    m = np.zeros((40, 40, 3), np.uint8)
+    cv2.imwrite(str(labeling / name), m)
+    stem = Path(fn).stem
+    save_bboxes(labeling / f"{stem}.bbox.json", fn, [], 10.0, "aruco")
+
+    specs = [{"filename": fn, "timestamp": ts, "px_per_cm": 10.0, "scale_source": "aruco"}]
+    worker = UploadWorker(FakeClient(), session_id=43, specs=specs,
+                          labeling_dir=str(labeling), edit_batch_id="b")
+    results = []
+    worker.done.connect(lambda r: results.append(r))
+    worker.run()
+    assert results and results[0]["uploaded"] == 0
+    assert results[0]["timestamps"] == []
