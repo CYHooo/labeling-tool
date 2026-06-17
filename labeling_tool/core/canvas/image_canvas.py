@@ -188,7 +188,7 @@ class ImageCanvas(QWidget):
             binu = (arr > 0).astype(np.uint8)
             cnts, _ = cv2.findContours(
                 binu, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            self.repair15_contours = cnts   # list of Nx1x2 int arrays (image px)
+            self.repair15_contours = list(cnts) if cnts else None
         self.update()
 
     # ------------------------------------------------------------------
