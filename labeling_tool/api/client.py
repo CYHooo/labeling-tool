@@ -112,3 +112,31 @@ class ViewerApiClient:
                     len(items), data.get("status"),
                     (time.perf_counter() - t) * 1000)
         return data
+
+    # ---- session list (endpoint PENDING: assumed contract) --------
+    def list_sessions(self) -> list[dict]:
+        """List available sessions for the session dropdown.
+
+        ``GET {base}/api/viewer/sessions/`` returns
+        ``{"sessions": [{"sessionId": int, "inspectionName": str,
+        "photoCount": int}, ...]}``. A bare-int array
+        ``{"sessions": [18, 19]}`` is also accepted. Each returned dict is
+        normalized to carry an int ``sessionId``; other fields (e.g.
+        ``inspectionName``, ``photoCount``) pass through unchanged.
+        """
+        url = f"{self.base_url}/api/viewer/sessions/"
+        t = time.perf_counter()
+        resp = self._s.get(url, timeout=self.timeout)
+        self._raise_for_error(resp)
+        data = resp.json()
+        raw = data.get("sessions", []) if isinstance(data, dict) else data
+        out: list[dict] = []
+        for item in raw or []:
+            if isinstance(item, dict):
+                if "sessionId" in item:
+                    out.append({**item, "sessionId": int(item["sessionId"])})
+            else:
+                out.append({"sessionId": int(item)})
+        vlog().info("list_sessions -> %d (%.0f ms)",
+                    len(out), (time.perf_counter() - t) * 1000)
+        return out

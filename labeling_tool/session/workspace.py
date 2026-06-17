@@ -55,3 +55,21 @@ class Workspace:
         for d in (self.origin_dir, self.detected_dir,
                   self.labeling_dir, self.result_dir, self.rebuilt_dir):
             d.mkdir(parents=True, exist_ok=True)
+
+
+def list_local_session_ids(root: Path = DEFAULT_DATA_ROOT) -> list[int]:
+    """Session ids already downloaded under ``root`` (have a manifest.json).
+
+    Used by the offline open dropdown. Returns ascending int ids; a missing
+    root yields an empty list.
+    """
+    if not root.exists():
+        return []
+    ids: list[int] = []
+    for d in root.glob("session_*"):
+        if not d.is_dir() or not (d / "manifest.json").exists():
+            continue
+        suffix = d.name[len("session_"):]
+        if suffix.isdigit():
+            ids.append(int(suffix))
+    return sorted(ids)

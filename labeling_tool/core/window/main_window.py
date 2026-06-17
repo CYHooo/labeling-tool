@@ -203,6 +203,9 @@ class MainWindow(QMainWindow):
     # Brush callbacks
     # ------------------------------------------------------------------
     def _on_brush_toggle(self, checked: bool):
+        # Mutually exclusive with bbox and measure modes
+        if checked and self.canvas.bbox_mode:
+            self._btn_bbox_toggle.setChecked(False)
         if checked and self._btn_measure.isChecked():
             self._btn_measure.setChecked(False)   # leave measure mode
         self.canvas.brush_mode = bool(checked)

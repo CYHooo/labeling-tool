@@ -1,4 +1,4 @@
-from labeling_tool.session.workspace import Workspace
+from labeling_tool.session.workspace import Workspace, list_local_session_ids
 
 
 def test_layout_paths(tmp_path):
@@ -26,3 +26,23 @@ def test_default_root_under_package_data():
     assert ws.root.name == "data"
     assert ws.root.parent.name == "labeling_tool"
     assert ws.session_dir == ws.root / "session_7"
+
+
+def test_list_local_session_ids(tmp_path):
+    (tmp_path / "session_1").mkdir()
+    (tmp_path / "session_1" / "manifest.json").write_text("{}")
+    (tmp_path / "session_10").mkdir()
+    (tmp_path / "session_10" / "manifest.json").write_text("{}")
+    # 缺 manifest -> 跳过
+    (tmp_path / "session_2").mkdir()
+    # 非数字后缀 -> 跳过
+    (tmp_path / "session_x").mkdir()
+    (tmp_path / "session_x" / "manifest.json").write_text("{}")
+    # 同名文件(非目录) -> 跳过
+    (tmp_path / "session_3").write_text("not a dir")
+
+    assert list_local_session_ids(tmp_path) == [1, 10]
+
+
+def test_list_local_session_ids_missing_root(tmp_path):
+    assert list_local_session_ids(tmp_path / "nope") == []
