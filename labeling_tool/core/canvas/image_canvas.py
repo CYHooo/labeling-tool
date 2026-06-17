@@ -11,7 +11,7 @@ from labeling_tool.core.qt_utils import numpy_to_qpixmap
 from labeling_tool.core.canvas.viewport import Viewport
 from labeling_tool.core.canvas.overlay_painter import paint_mask_overlay
 from labeling_tool.core.bbox import BBoxInteraction, paint_bboxes
-from labeling_tool.core.rebuild.thinning import thin_stroke_into
+from labeling_tool.core.canvas.stroke_thinning import thin_stroke_into
 
 
 class ImageCanvas(QWidget):

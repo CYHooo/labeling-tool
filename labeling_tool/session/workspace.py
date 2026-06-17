@@ -44,16 +44,12 @@ class Workspace:
         return self.session_dir / "Result"
 
     @property
-    def rebuilt_dir(self) -> Path:
-        return self.session_dir / "Rebuilt"
-
-    @property
     def manifest_path(self) -> Path:
         return self.session_dir / "manifest.json"
 
     def ensure(self) -> None:
         for d in (self.origin_dir, self.detected_dir,
-                  self.labeling_dir, self.result_dir, self.rebuilt_dir):
+                  self.labeling_dir, self.result_dir):
             d.mkdir(parents=True, exist_ok=True)
 
 

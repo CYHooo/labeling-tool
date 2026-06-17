@@ -40,7 +40,6 @@ class ViewerMainWindow(CoreMainWindow):
         self._sync_output_dir()                 # derives Labeling/ etc.
         # Override derived dirs to the workspace's explicit layout.
         self.output_dir = workspace.labeling_dir.resolve()
-        self.rebuilt_dir = workspace.rebuilt_dir.resolve()
         self.result_dir = workspace.result_dir.resolve()
         self._refresh_path_labels()
         self._reload_data()

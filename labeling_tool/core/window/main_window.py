@@ -46,7 +46,6 @@ class MainWindow(QMainWindow):
         self.origin_dir: Path | None = None
         self.detected_dir: Path | None = None
         self.output_dir: Path | None = None
-        self.rebuilt_dir: Path | None = None
         self.result_dir: Path | None = None
 
         if Path("Origin").exists():
@@ -136,7 +135,6 @@ class MainWindow(QMainWindow):
         self._btn_bbox_toggle.setText(
             self.tr_("btn_bbox_off") if self.canvas.bbox_mode
             else self.tr_("btn_bbox_on"))
-        self._btn_rebuild_force.setText(self.tr_("btn_rebuild_force"))
 
         self._grp_list.setTitle(self.tr_("group_list"))
         self._grp_nav.setTitle(self.tr_("group_nav"))
@@ -155,14 +153,13 @@ class MainWindow(QMainWindow):
     # Folder management
     # ------------------------------------------------------------------
     def _sync_output_dir(self):
-        """Derive output_dir, rebuilt_dir, result_dir from origin_dir.parent."""
+        """Derive output_dir, result_dir from origin_dir.parent."""
         if self.origin_dir is not None:
             parent = self.origin_dir.parent
             self.output_dir  = parent / OUTPUT_DIR_NAME
-            self.rebuilt_dir = parent / "Rebuilt"
             self.result_dir  = parent / "Result"
         else:
-            self.output_dir = self.rebuilt_dir = self.result_dir = None
+            self.output_dir = self.result_dir = None
 
     def _select_origin_folder(self):
         start = str(self.origin_dir) if self.origin_dir else str(Path.cwd())
@@ -420,69 +417,6 @@ class MainWindow(QMainWindow):
             self._bbox_edited[fname] = True
 
     # ------------------------------------------------------------------
-    # Rebuild callbacks
-    # ------------------------------------------------------------------
-    def _on_rebuild_force(self):
-        """Re-run intensity-guided rebuild on the current image.
-
-        Coarse source priority: Labeling/<mask> (current edits) > Detected/<mask>.
-        Using Labeling/ as input means each manual rebuild refines on top of
-        the user's edits instead of regressing to the raw AI detection.
-        The rebuild result OVERWRITES Labeling/<mask> so it becomes the new
-        editing baseline; a copy is also cached in Rebuilt/<mask>.
-        """
-        if self.current_idx < 0:
-            return
-        if self.origin_dir is None:
-            return
-        filename = self.image_files[self.current_idx]
-        ans = QMessageBox.question(
-            self,
-            self.tr_("rebuild_confirm_title"),
-            self.tr_("rebuild_confirm_msg"),
-        )
-        if ans != QMessageBox.Yes:
-            return
-
-        # Coarse source: prefer current edits in Labeling/, else Detected/.
-        name = mask_store.mask_name(filename)
-        coarse_path = None
-        if self.output_dir is not None and (self.output_dir / name).exists():
-            coarse_path = self.output_dir / name
-        elif self.detected_dir is not None and (self.detected_dir / name).exists():
-            coarse_path = self.detected_dir / name
-        if coarse_path is None:
-            self.status.showMessage(self.tr_("rebuild_failed", err="no coarse mask"))
-            return
-
-        origin_path = str(self.origin_dir / filename)
-        self.status.showMessage(self.tr_("status_rebuilding"))
-        QApplication.processEvents()
-        try:
-            import cv2 as _cv2
-            coarse_raw = _cv2.imread(str(coarse_path), _cv2.IMREAD_UNCHANGED)
-            if coarse_raw is None:
-                raise RuntimeError(f"failed to read coarse mask: {coarse_path}")
-            origin_bgr = _cv2.imread(origin_path)
-            if origin_bgr is None:
-                raise RuntimeError(f"failed to read origin: {origin_path}")
-            label = mask_store.build_rebuilt_label_mask(origin_bgr, coarse_raw)
-            if self.rebuilt_dir is not None:
-                self.rebuilt_dir.mkdir(parents=True, exist_ok=True)
-                _cv2.imwrite(str(self.rebuilt_dir / name), label)
-            if self.output_dir is not None:
-                self.output_dir.mkdir(parents=True, exist_ok=True)
-                _cv2.imwrite(str(self.output_dir / name), label)
-        except Exception as e:
-            self.status.showMessage(self.tr_("rebuild_failed", err=str(e)))
-            return
-
-        self._edited.pop(filename, None)
-        self._bbox_edited.pop(filename, None)
-        self.status.showMessage(self.tr_("rebuild_done", name=name))
-        self._show_image(self.current_idx, force_reload=True)
-
-    # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
     def _build_ui(self):
@@ -589,42 +523,9 @@ class MainWindow(QMainWindow):
         source = "none"
 
         resolved, source = mask_store.resolve_display_mask(
-            labeling_dir=self.output_dir, rebuilt_dir=self.rebuilt_dir,
+            labeling_dir=self.output_dir,
             detected_dir=self.detected_dir, origin_filename=filename)
         mask_path = str(resolved) if resolved is not None else None
-
-        if source == "needs_rebuild":
-            import cv2 as _cv2
-            name = mask_store.mask_name(filename)
-            det_path = (self.detected_dir / name
-                        if self.detected_dir is not None else None)
-            coarse_raw = (_cv2.imread(str(det_path), _cv2.IMREAD_UNCHANGED)
-                          if det_path is not None and det_path.exists() else None)
-            if coarse_raw is None:
-                print(f"[load] {filename}: no mask in any folder", file=_sys.stderr)
-                self.status.showMessage(f"No mask found for {filename}")
-            else:
-                self.status.showMessage(self.tr_("status_rebuilding"))
-                QApplication.processEvents()
-                try:
-                    origin_bgr_rb = _cv2.imread(origin_path)
-                    if origin_bgr_rb is None:
-                        raise RuntimeError(f"cannot read origin {origin_path}")
-                    label = mask_store.build_rebuilt_label_mask(origin_bgr_rb, coarse_raw)
-                    if self.rebuilt_dir is not None:
-                        self.rebuilt_dir.mkdir(parents=True, exist_ok=True)
-                        rebuilt_path = self.rebuilt_dir / name
-                        _cv2.imwrite(str(rebuilt_path), label)
-                        mask_path = str(rebuilt_path)
-                        source = "rebuilt(from detected)"
-                        self.status.showMessage(self.tr_("rebuild_done", name=name))
-                except Exception as e:
-                    import traceback as _tb
-                    print(f"[rebuild] {filename}: FAILED {e}", file=_sys.stderr)
-                    _tb.print_exc()
-                    self.status.showMessage(self.tr_("rebuild_failed", err=str(e)))
-                    mask_path = str(det_path)
-                    source = "detected(rebuild_failed)"
 
         print(f"[load] {filename} -> {source}: {mask_path}", file=_sys.stderr)
 
