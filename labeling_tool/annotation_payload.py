@@ -28,6 +28,8 @@ def build_annotation_item(
     *,
     timestamp: int,
     mask_s3_key: str,
+    highlight_s3_key: str,
+    repair15_s3_key: str,
     px_per_cm: float,
     scale_source: str,
     crack_mask: np.ndarray | None,
@@ -71,6 +73,8 @@ def build_annotation_item(
     return {
         "timestamp": int(timestamp),
         "maskS3Key": mask_s3_key,
+        "highlightS3Key": highlight_s3_key,
+        "repair15S3Key": repair15_s3_key,
         "pxPerCm": float(px_per_cm),
         "scaleSource": scale_source or "aruco",
         "repairAreas": repair_areas,
