@@ -1,5 +1,5 @@
-"""Shared helpers for the login + fetch dialogs: config persistence and the
-Rebuilt/ prebuild progress loop (lifted from the old ConnectDialog)."""
+"""Shared helpers for the login + fetch dialogs: config persistence
+(lifted from the old ConnectDialog)."""
 
 from __future__ import annotations
 

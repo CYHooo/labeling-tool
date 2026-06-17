@@ -6,12 +6,9 @@ def test_naming():
     assert mask_store.bbox_name("stitched_123.jpg") == "stitched_123.bbox.json"
 
 
-def _touch(p, mtime=None):
+def _touch(p):
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(b"x")
-    if mtime is not None:
-        import os
-        os.utime(p, (mtime, mtime))
 
 
 def test_resolve_labeling_wins(tmp_path):
