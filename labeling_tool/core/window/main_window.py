@@ -466,13 +466,13 @@ class MainWindow(QMainWindow):
             origin_bgr = _cv2.imread(origin_path)
             if origin_bgr is None:
                 raise RuntimeError(f"failed to read origin: {origin_path}")
-            rgb = mask_store.build_rebuilt_rgb(origin_bgr, coarse_raw)
+            label = mask_store.build_rebuilt_label_mask(origin_bgr, coarse_raw)
             if self.rebuilt_dir is not None:
                 self.rebuilt_dir.mkdir(parents=True, exist_ok=True)
-                _cv2.imwrite(str(self.rebuilt_dir / name), rgb)
+                _cv2.imwrite(str(self.rebuilt_dir / name), label)
             if self.output_dir is not None:
                 self.output_dir.mkdir(parents=True, exist_ok=True)
-                _cv2.imwrite(str(self.output_dir / name), rgb)
+                _cv2.imwrite(str(self.output_dir / name), label)
         except Exception as e:
             self.status.showMessage(self.tr_("rebuild_failed", err=str(e)))
             return
@@ -610,11 +610,11 @@ class MainWindow(QMainWindow):
                     origin_bgr_rb = _cv2.imread(origin_path)
                     if origin_bgr_rb is None:
                         raise RuntimeError(f"cannot read origin {origin_path}")
-                    rgb = mask_store.build_rebuilt_rgb(origin_bgr_rb, coarse_raw)
+                    label = mask_store.build_rebuilt_label_mask(origin_bgr_rb, coarse_raw)
                     if self.rebuilt_dir is not None:
                         self.rebuilt_dir.mkdir(parents=True, exist_ok=True)
                         rebuilt_path = self.rebuilt_dir / name
-                        _cv2.imwrite(str(rebuilt_path), rgb)
+                        _cv2.imwrite(str(rebuilt_path), label)
                         mask_path = str(rebuilt_path)
                         source = "rebuilt(from detected)"
                         self.status.showMessage(self.tr_("rebuild_done", name=name))

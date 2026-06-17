@@ -47,8 +47,8 @@ def _prebuild_one(origin_path: str, detected_path: str, out_path: str) -> str | 
         raw = cv2.imread(detected_path, cv2.IMREAD_UNCHANGED)
         if origin_bgr is None or raw is None:
             return "missing origin or detected mask"
-        rgb = mask_store.build_rebuilt_rgb(origin_bgr, raw)
-        cv2.imwrite(out_path, rgb)
+        label = mask_store.build_rebuilt_label_mask(origin_bgr, raw)
+        cv2.imwrite(out_path, label)
         return None
     except Exception as e:  # noqa: BLE001 - reported back to the caller
         return str(e)
