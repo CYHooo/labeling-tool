@@ -25,23 +25,29 @@ from labeling_tool.api.client import ViewerApiClient
 def main() -> int:
     app = QApplication(sys.argv)
 
-    login = LoginDialog()
-    if not login.exec_():
-        return 0  # user cancelled
+    base = key = ""
+    workspace = manifest = None
+    while True:
+        login = LoginDialog()
+        if not login.exec_():
+            return 0  # user cancelled
 
-    base, key = login.base, login.key
-    workspace = manifest = None  # assigned in both branches below
-    if login.workspace is not None:
-        # offline: a downloaded session was opened directly
-        workspace, manifest = login.workspace, login.manifest
-    else:
+        base, key = login.base, login.key
+        if login.workspace is not None:
+            # offline: a downloaded session was opened directly
+            workspace, manifest = login.workspace, login.manifest
+            break
+
         # online: creds entered -> fetch screen
         fetch = FetchDialog(base=base, key=key)
         if not fetch.exec_():
+            if fetch.go_back:
+                continue  # back to login screen, reopen LoginDialog
             return 0
         if fetch.workspace is None or fetch.manifest is None:
             return 0
         workspace, manifest = fetch.workspace, fetch.manifest
+        break
 
     client = None
     if base and key:

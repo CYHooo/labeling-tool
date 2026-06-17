@@ -42,10 +42,16 @@ class FetchDialog(QDialog):
         self.progress = QProgressBar(); self.progress.setVisible(False)
         self.lbl_status = QLabel("")
 
+        # Set True when the user chooses to go back to the login screen; the
+        # app.py orchestration loop reopens LoginDialog instead of exiting.
+        self.go_back = False
+        self.btn_back = QPushButton("← 로그인")
+        self.btn_back.clicked.connect(self._on_back)
         self.btn_fetch = QPushButton("가져오기 (V1 + 다운로드)")
         self.btn_fetch.setDefault(True)
         self.btn_fetch.clicked.connect(self._on_fetch)
         btns = QHBoxLayout()
+        btns.addWidget(self.btn_back)
         btns.addStretch(1)
         btns.addWidget(self.btn_fetch)
 
@@ -94,6 +100,11 @@ class FetchDialog(QDialog):
         if f > 0 and t > 0:
             return f, t
         return None, None
+
+    def _on_back(self):
+        """Return to the login screen (app.py reopens LoginDialog)."""
+        self.go_back = True
+        self.reject()
 
     # ---- fetch ----
     def _on_fetch(self):
