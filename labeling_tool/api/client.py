@@ -112,3 +112,31 @@ class ViewerApiClient:
                     len(items), data.get("status"),
                     (time.perf_counter() - t) * 1000)
         return data
+
+    # ---- session list (endpoint PENDING: assumed contract) --------
+    def list_sessions(self) -> list[dict]:
+        """List available session ids for the session dropdown.
+
+        Endpoint is not live yet; assumed contract is
+        ``GET {base}/api/viewer/sessions/`` returning
+        ``{"sessions": [{"sessionId": int, ...}, ...]}``. A bare-int array
+        ``{"sessions": [18, 19]}`` is also accepted. Each returned dict is
+        normalized to carry an int ``sessionId``; other fields pass through.
+        When the real endpoint lands, only this method should need changes.
+        """
+        url = f"{self.base_url}/api/viewer/sessions/"
+        t = time.perf_counter()
+        resp = self._s.get(url, timeout=self.timeout)
+        self._raise_for_error(resp)
+        data = resp.json()
+        raw = data.get("sessions", []) if isinstance(data, dict) else data
+        out: list[dict] = []
+        for item in raw or []:
+            if isinstance(item, dict):
+                if "sessionId" in item:
+                    out.append({**item, "sessionId": int(item["sessionId"])})
+            else:
+                out.append({"sessionId": int(item)})
+        vlog().info("list_sessions -> %d (%.0f ms)",
+                    len(out), (time.perf_counter() - t) * 1000)
+        return out
