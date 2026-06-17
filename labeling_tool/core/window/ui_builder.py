@@ -170,10 +170,6 @@ def build_bbox_group(window: "MainWindow") -> QGroupBox:
     window._btn_bbox_toggle.toggled.connect(window._on_bbox_toggle)
     gb.addWidget(window._btn_bbox_toggle)
 
-    window._btn_rebuild_force = QPushButton(window.tr_("btn_rebuild_force"))
-    window._btn_rebuild_force.clicked.connect(window._on_rebuild_force)
-    gb.addWidget(window._btn_rebuild_force)
-
     return window._grp_bbox
 
 
