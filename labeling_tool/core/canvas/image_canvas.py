@@ -75,6 +75,7 @@ class ImageCanvas(QWidget):
 
         # ----- derived-mask overlays (display-only; default hidden) -----
         self.highlight_mask: np.ndarray | None = None
+        self._highlight_halo: np.ndarray | None = None   # ring = highlight - mask
         self.repair15_contours: list | None = None
         self.show_highlight: bool = False
         self.show_repair15: bool = False
@@ -106,6 +107,7 @@ class ImageCanvas(QWidget):
         self._aruco_corners = None    # cleared until caller sets fresh ones
         self._measure_points = []     # stale measurement line off the new image
         self.highlight_mask = None
+        self._highlight_halo = None
         self.repair15_contours = None
         self._touch_mask()
         self.update()
@@ -175,8 +177,12 @@ class ImageCanvas(QWidget):
         self.update()
 
     def set_highlight(self, arr: np.ndarray | None) -> None:
-        """Store the 0/1/2 highlight mask; invalidate the overlay cache."""
+        """Store the 0/1/2 highlight mask + precompute its halo ring (the
+        dilated region minus the current mask, so the mask keeps its colour)."""
+        from labeling_tool.core.canvas.overlay_painter import compute_highlight_halo
         self.highlight_mask = arr
+        self._highlight_halo = compute_highlight_halo(
+            arr, self.brush_mask_crack, self.brush_mask_spalling)
         self._touch_mask()
         self.update()
 
@@ -226,13 +232,13 @@ class ImageCanvas(QWidget):
             self._draw_cached_overlay(painter)
 
         if (self._pixmap is not None and self.show_highlight
-                and self.highlight_mask is not None):
+                and self._highlight_halo is not None):
             from labeling_tool.core.canvas.overlay_painter import (
                 paint_single_color_overlay,
             )
             paint_single_color_overlay(
                 painter, self.viewport, self.width(), self.height(),
-                self.highlight_mask, (255, 255, 0), alpha=90)
+                self._highlight_halo, (255, 255, 0), alpha=90)
 
         if (self._pixmap is not None and self.show_repair15
                 and self.repair15_contours is not None):
