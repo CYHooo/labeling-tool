@@ -73,6 +73,12 @@ class ImageCanvas(QWidget):
         self.measure_mode: bool = False
         self._measure_points: list[tuple[float, float]] = []   # image coords
 
+        # ----- derived-mask overlays (display-only; default hidden) -----
+        self.highlight_mask: np.ndarray | None = None
+        self.repair15_contours: list | None = None
+        self.show_highlight: bool = False
+        self.show_repair15: bool = False
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -99,6 +105,8 @@ class ImageCanvas(QWidget):
         self.bbox_interaction.clear_for_image_switch()
         self._aruco_corners = None    # cleared until caller sets fresh ones
         self._measure_points = []     # stale measurement line off the new image
+        self.highlight_mask = None
+        self.repair15_contours = None
         self._touch_mask()
         self.update()
 
@@ -166,6 +174,23 @@ class ImageCanvas(QWidget):
         self._aruco_corners = corners
         self.update()
 
+    def set_highlight(self, arr: np.ndarray | None) -> None:
+        """Store the 0/1/2 highlight mask; invalidate the overlay cache."""
+        self.highlight_mask = arr
+        self._touch_mask()
+        self.update()
+
+    def set_repair15(self, arr: np.ndarray | None) -> None:
+        """Compute external contours (image coords) of the 0/255 mask, once."""
+        if arr is None:
+            self.repair15_contours = None
+        else:
+            binu = (arr > 0).astype(np.uint8)
+            cnts, _ = cv2.findContours(
+                binu, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            self.repair15_contours = cnts   # list of Nx1x2 int arrays (image px)
+        self.update()
+
     # ------------------------------------------------------------------
     # Qt events
     # ------------------------------------------------------------------
@@ -199,6 +224,19 @@ class ImageCanvas(QWidget):
 
         if self._pixmap is not None:
             self._draw_cached_overlay(painter)
+
+        if (self._pixmap is not None and self.show_highlight
+                and self.highlight_mask is not None):
+            from labeling_tool.core.canvas.overlay_painter import (
+                paint_single_color_overlay,
+            )
+            paint_single_color_overlay(
+                painter, self.viewport, self.width(), self.height(),
+                self.highlight_mask, (255, 255, 0), alpha=90)
+
+        if (self._pixmap is not None and self.show_repair15
+                and self.repair15_contours is not None):
+            self._paint_repair15(painter)
 
         # bbox overlay (always visible, including when bbox_mode is off)
         if self._pixmap is not None:
@@ -240,6 +278,20 @@ class ImageCanvas(QWidget):
             self._overlay_pixmap = pm
             self._overlay_key = key
         painter.drawPixmap(0, 0, self._overlay_pixmap)
+
+    def _paint_repair15(self, painter: QPainter):
+        """Draw the 15cm boundary as cyan outline polylines (line only)."""
+        pen = QPen(QColor(0, 200, 255, 230), 2, Qt.SolidLine)
+        painter.setPen(pen)
+        painter.setBrush(QBrush(Qt.NoBrush))
+        for cnt in self.repair15_contours:
+            pts = cnt.reshape(-1, 2)
+            if len(pts) < 2:
+                continue
+            wpts = [QPointF(*self.viewport.image_to_widget(float(x), float(y)))
+                    for x, y in pts]
+            for i in range(len(wpts)):
+                painter.drawLine(wpts[i], wpts[(i + 1) % len(wpts)])
 
     def _paint_aruco_outline(self, painter: QPainter):
         """Draw the detected ArUco marker outline + corner dots."""
