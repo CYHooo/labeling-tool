@@ -15,6 +15,7 @@ from labeling_tool.session.workspace import Workspace
 from labeling_tool.session.manifest import Manifest
 from labeling_tool.session import naming
 from labeling_tool.core.mask_io import find_mask_path
+from labeling_tool.core.mask_codec import decode_mask
 from labeling_tool.core.bbox import load_bboxes, load_scale
 from labeling_tool.annotation_payload import build_annotation_item
 from labeling_tool.api.client import ViewerApiClient
@@ -42,9 +43,10 @@ def main(session_id: int) -> int:
         mask_path = find_mask_path(fn, str(ws.labeling_dir))
         if mask_path is None:
             continue
-        bgr = cv2.imread(mask_path, cv2.IMREAD_UNCHANGED)
-        crack = bgr[..., 2] if bgr is not None and bgr.ndim == 3 else None
-        spall = bgr[..., 1] if bgr is not None and bgr.ndim == 3 else None
+        raw = cv2.imread(mask_path, cv2.IMREAD_UNCHANGED)
+        crack, spall = (None, None)
+        if raw is not None:
+            crack, spall = decode_mask(raw, mask_path=mask_path)
         boxes = load_bboxes(ws.labeling_dir / f"{stem}.bbox.json")
         measured = load_scale(ws.labeling_dir / f"{stem}.bbox.json")
         px_per_cm = measured if measured else (entry.px_per_cm or 0.0)

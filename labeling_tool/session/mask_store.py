@@ -5,7 +5,7 @@ Single source of truth for the Viewer API tool's data loading:
     matching): Detected/Rebuilt/Labeling all use ``{origin_stem}_mask.png``;
   * which layer to display: Labeling > fresh Rebuilt > needs_rebuild, where
     "fresh" means the Rebuilt cache is not older than its Detected source;
-  * how a Rebuilt mask is built: crack (R) intensity-refined, non-crack (G) kept.
+  * how a Rebuilt mask is built: crack (label 1) intensity-refined, spalling (label 2) kept.
 """
 
 from __future__ import annotations
