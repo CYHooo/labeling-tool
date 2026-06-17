@@ -1,5 +1,5 @@
 """Data fetch screen (shown after login): pick a session from the dropdown
-(populated via list_sessions), set the optional num zone, then V1 + download
+(populated via list_sessions), set the optional num zone, then fetch + download
 + prebuild. Mirrors the old ConnectDialog online path."""
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from labeling_tool.logging_setup import attach_session_log, vlog
 class FetchDialog(QDialog):
     def __init__(self, base: str, key: str, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("데이터 가져오기 (V1)")
+        self.setWindowTitle("데이터 가져오기")
         self.resize(520, 300)
         self.base = base
         self.key = key
@@ -47,7 +47,7 @@ class FetchDialog(QDialog):
         self.go_back = False
         self.btn_back = QPushButton("← 로그인")
         self.btn_back.clicked.connect(self._on_back)
-        self.btn_fetch = QPushButton("가져오기 (V1 + 다운로드)")
+        self.btn_fetch = QPushButton("가져오기 (다운로드)")
         self.btn_fetch.setDefault(True)
         self.btn_fetch.clicked.connect(self._on_fetch)
         btns = QHBoxLayout()
@@ -123,7 +123,7 @@ class FetchDialog(QDialog):
         try:
             photos = self._fetch_all_photos(self.client, sid, from_num, to_num)
         except ViewerApiError as e:
-            QMessageBox.critical(self, "V1 실패", str(e))
+            QMessageBox.critical(self, "가져오기 실패", str(e))
             return
         if not photos:
             QMessageBox.warning(self, "비어있음", "조회된 사진이 없습니다.")

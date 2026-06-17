@@ -53,7 +53,7 @@ def load_scale(path: Path) -> float | None:
 
     The scale is what the tool actually measured for that image (ArUco
     auto-detection, or manual measurement as a fallback) at save time, so
-    uploads use the tool's effective scale rather than a stale V1 value.
+    uploads use the tool's effective scale rather than a stale server value.
     """
     if not path.exists():
         return None

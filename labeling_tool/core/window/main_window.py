@@ -33,8 +33,8 @@ class MainWindow(QMainWindow):
     # When True, saving also writes Result/<stem>.{png,txt} — a full-res preview
     # image plus a crack-metrics text report. That step re-reads the origin,
     # runs the full skeleton+width metric, and encodes a large PNG (~2s on a
-    # panorama), so the V API tool turns it OFF: there, metrics are computed at
-    # upload time (V4) and Result/ is never consumed.
+    # panorama), so the Viewer API tool turns it OFF: there, metrics are computed at
+    # upload time (register step) and Result/ is never consumed.
     export_result_on_save: bool = True
 
     def __init__(self):
@@ -343,7 +343,7 @@ class MainWindow(QMainWindow):
         )
 
         # ----- 3. Result/<stem>.png + .txt (heavy: re-reads origin, runs the
-        #         full crack-metric, encodes a big PNG — skipped by the V API
+        #         full crack-metric, encodes a big PNG — skipped by the Viewer API
         #         tool, which computes metrics at upload time instead) -----
         if self.export_result_on_save and self.result_dir is not None:
             origin_path = str(self.origin_dir / filename)

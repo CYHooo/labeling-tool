@@ -1,4 +1,4 @@
-"""Typed error for V API responses (공통 오류 응답: {error, code, details})."""
+"""Typed error for Viewer API responses (공통 오류 응답: {error, code, details})."""
 
 from __future__ import annotations
 

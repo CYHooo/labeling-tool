@@ -1,7 +1,7 @@
-"""Batch upload orchestration: V2 -> V3 -> V4, paginated at 100 items.
+"""Batch upload orchestration: presigned -> S3 PUT -> register, paginated at 100 items.
 
 A single editBatchId is reused across pages and retries so the whole
-session is idempotent (V4: same id -> 200, no DB reprocessing).
+session is idempotent (register: same id -> 200, no DB reprocessing).
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ def upload_session(client, *, session_id: int, items: list[dict],
                    mask_bytes_for: MaskBytesFn,
                    edit_batch_id: str,
                    progress: ProgressFn | None = None) -> dict:
-    """items: V4 item dicts (see annotation_payload.build_annotation_item).
+    """items: register-annotation item dicts (see annotation_payload.build_annotation_item).
 
     progress(done, total) fires after each mask PUT so the caller can drive a
     determinate progress bar; total is the full item count.
@@ -39,10 +39,10 @@ def upload_session(client, *, session_id: int, items: list[dict],
 
     for batch in _chunks(items, BATCH_LIMIT):
         timestamps = [it["timestamp"] for it in batch]
-        # Read each mask once and reuse for both sizeBytes (V2) and PUT (V3).
+        # Read each mask once and reuse for both sizeBytes (presigned) and PUT.
         batch_bytes = {ts: mask_bytes_for(ts) for ts in timestamps}
         try:
-            # V2: presigned URLs for this batch's masks
+            # presigned URLs for this batch's masks
             files = [{
                 "filename": naming.mask_filename(ts),
                 "timestamp": ts,
@@ -52,7 +52,7 @@ def upload_session(client, *, session_id: int, items: list[dict],
             presigned = client.request_presigned(session_id, files)
             url_by_name = {u["filename"]: u for u in presigned["urls"]}
 
-            # V3: PUT each mask to its presigned URL
+            # PUT each mask to its presigned URL
             for i, ts in enumerate(timestamps, start=1):
                 u = url_by_name[naming.mask_filename(ts)]
                 client.put_mask(
@@ -63,7 +63,7 @@ def upload_session(client, *, session_id: int, items: list[dict],
                 if progress is not None:
                     progress(base + i, total)
 
-            # V4: register the whole batch
+            # register the whole batch
             client.register_annotations(
                 edit_batch_id=edit_batch_id, session_id=session_id,
                 items=batch)

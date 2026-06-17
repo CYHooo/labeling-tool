@@ -1,6 +1,6 @@
-"""Local session manifest: bridges GUI filenames and V API timestamps.
+"""Local session manifest: bridges GUI filenames and Viewer API timestamps.
 
-Persists per-photo metadata fetched from V1 plus upload (sync) state, so
+Persists per-photo metadata fetched from the server plus upload (sync) state, so
 labeling can resume offline and uploads stay idempotent across runs.
 """
 

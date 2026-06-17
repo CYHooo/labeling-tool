@@ -1,4 +1,4 @@
-"""HTTP client for the 로컬 포토뷰어 API (V1~V4).
+"""HTTP client for the 로컬 포토뷰어 API.
 
 Auth: X-Viewer-Api-Key header. All non-2xx responses are parsed for the
 common error body {error, code, details} and re-raised as ViewerApiError.
@@ -42,7 +42,7 @@ class ViewerApiClient:
             details=body.get("details"),
         )
 
-    # ---- V1 -------------------------------------------------------
+    # ---- list photos ----------------------------------------------
     def list_photos(self, session_id: int, *, from_num: int | None = None,
                     to_num: int | None = None, offset: int = 0,
                     limit: int = 100) -> dict:
@@ -58,12 +58,12 @@ class ViewerApiClient:
         resp = self._s.get(url, params=params, timeout=self.timeout)
         self._raise_for_error(resp)
         data = resp.json()
-        vlog().info("V1 list_photos session=%s %s -> total=%s photos=%d (%.0f ms)",
+        vlog().info("list_photos session=%s %s -> total=%s photos=%d (%.0f ms)",
                     session_id, params, data.get("total"),
                     len(data.get("photos", [])), (time.perf_counter() - t) * 1000)
         return data
 
-    # ---- V2 -------------------------------------------------------
+    # ---- presigned URLs -------------------------------------------
     def request_presigned(self, session_id: int, files: list[dict]) -> dict:
         url = f"{self.base_url}/api/viewer/presigned-urls/"
         t = time.perf_counter()
@@ -71,23 +71,23 @@ class ViewerApiClient:
             url, json={"sessionId": session_id, "files": files},
             timeout=self.timeout)
         self._raise_for_error(resp)
-        vlog().info("V2 presigned files=%d (%.0f ms)",
+        vlog().info("presigned files=%d (%.0f ms)",
                     len(files), (time.perf_counter() - t) * 1000)
         return resp.json()
 
-    # ---- V3 -------------------------------------------------------
+    # ---- S3 PUT (mask upload) -------------------------------------
     def put_mask(self, presigned_url: str, png_bytes: bytes, *,
                  content_type: str = "image/png",
                  cache_control: str = "max-age=0, must-revalidate") -> None:
         # Direct S3 PUT: no X-Viewer-Api-Key, header values must match what
-        # V2 echoed back or S3 signature validation fails.
+        # the presigned step echoed back or S3 signature validation fails.
         t = time.perf_counter()
         resp = requests.put(
             presigned_url, data=png_bytes,
             headers={"Content-Type": content_type,
                      "Cache-Control": cache_control},
             timeout=self.timeout)
-        vlog().info("V3 PUT mask bytes=%d -> %s (%.0f ms)",
+        vlog().info("PUT mask bytes=%d -> %s (%.0f ms)",
                     len(png_bytes), resp.status_code,
                     (time.perf_counter() - t) * 1000)
         if not resp.ok:
@@ -96,7 +96,7 @@ class ViewerApiClient:
                 message=f"S3 PUT failed: {resp.text[:200]}",
                 http_status=resp.status_code)
 
-    # ---- V4 -------------------------------------------------------
+    # ---- register annotations -------------------------------------
     def register_annotations(self, *, edit_batch_id: str, session_id: int,
                              items: list[dict]) -> dict:
         url = f"{self.base_url}/api/viewer/register-annotations/"
@@ -108,7 +108,7 @@ class ViewerApiClient:
         }, timeout=self.timeout)
         self._raise_for_error(resp)
         data = resp.json()
-        vlog().info("V4 register items=%d -> %s (%.0f ms)",
+        vlog().info("register items=%d -> %s (%.0f ms)",
                     len(items), data.get("status"),
                     (time.perf_counter() - t) * 1000)
         return data

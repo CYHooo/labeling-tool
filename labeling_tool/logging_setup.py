@@ -1,6 +1,6 @@
-"""Per-session V API logging.
+"""Per-session Viewer API logging.
 
-Writes timestamped V1~V4 + download + prepare-phase entries to
+Writes timestamped request + download + prepare-phase entries to
 <session_dir>/vapi.log so the data flow and where time is spent (e.g. client
 crack-metric computation vs. network) can be monitored and diagnosed.
 """
@@ -14,12 +14,12 @@ LOGGER_NAME = "labeling_tool.vapi"
 
 
 def vlog() -> logging.Logger:
-    """The shared V API logger. Cheap no-op until a session handler is attached."""
+    """The shared Viewer API logger. Cheap no-op until a session handler is attached."""
     return logging.getLogger(LOGGER_NAME)
 
 
 def attach_session_log(session_dir) -> Path:
-    """Route V API logs to <session_dir>/vapi.log (one active session at a time).
+    """Route Viewer API logs to <session_dir>/vapi.log (one active session at a time).
 
     Idempotent: replaces any previously attached session file handler so
     switching sessions logs to the right file.

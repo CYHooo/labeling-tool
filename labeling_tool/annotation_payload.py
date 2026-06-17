@@ -1,8 +1,8 @@
-"""Build a V4 register-annotations `item` dict from local edit state.
+"""Build a register-annotations `item` dict from local edit state.
 
 Maps the labeling tool's internal artifacts (crack/spalling masks,
-OrientedBox repair areas, ArUco scale) onto the V4 schema documented in
-api-reference_v1.0.7 (로컬 포토뷰어 API · V4).
+OrientedBox repair areas, ArUco scale) onto the register-annotations schema documented in
+api-reference_v1.0.7 (로컬 포토뷰어 API).
 """
 
 from __future__ import annotations

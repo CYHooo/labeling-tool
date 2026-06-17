@@ -1,4 +1,4 @@
-"""Filename <-> timestamp <-> S3 key conversions for the V API.
+"""Filename <-> timestamp <-> S3 key conversions for the Viewer API.
 
 Convention (api-reference_v1.0.7): stitched_{timestampMs}.jpg paired with
 mask_{timestampMs}.png. S3 mask key: results/{sessionId}/masks/mask_{ts}.png.
@@ -22,7 +22,7 @@ def mask_filename(timestamp: int) -> str:
 def detected_mask_filename(timestamp: int) -> str:
     """Local AI-mask filename that the core find_mask_path pairs to
     stitched_{ts}.jpg (via the '_mask' suffix). Distinct from the S3 upload
-    name mask_{ts}.png used by V2/V3/V4."""
+    name mask_{ts}.png used by the upload steps."""
     return f"stitched_{int(timestamp)}_mask.png"
 
 

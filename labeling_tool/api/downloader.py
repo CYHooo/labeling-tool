@@ -1,4 +1,4 @@
-"""Download V1 photo pairs (stitched + mask) into the local workspace.
+"""Download photo pairs (stitched + mask) into the local workspace.
 
 Sequential with per-photo error capture: one bad URL never aborts the
 batch. Returns the list of failed entries for the UI to surface/retry.

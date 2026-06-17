@@ -1,6 +1,6 @@
 """Deterministic per-session mask layout + display resolution + rebuild output.
 
-Single source of truth for the V-API tool's data loading:
+Single source of truth for the Viewer API tool's data loading:
   * where each layer's mask/bbox lives (keyed off the origin filename -- no fuzzy
     matching): Detected/Rebuilt/Labeling all use ``{origin_stem}_mask.png``;
   * which layer to display: Labeling > fresh Rebuilt > needs_rebuild, where

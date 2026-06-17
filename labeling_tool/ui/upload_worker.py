@@ -1,9 +1,9 @@
-"""Background thread that builds V4 items AND uploads them, off the UI thread.
+"""Background thread that builds upload items AND uploads them, off the UI thread.
 
 Both halves are heavy and must not run on the UI thread:
   * building items reads each Labeling mask (full-res PNG decode) and runs the
     crack metric (skeleton + per-pixel width) — ~1.5s per panorama;
-  * uploading does the V2->V3->V4 network I/O.
+  * uploading does the presigned -> PUT -> register network I/O.
 Doing the build on the UI thread froze the window ("not responding") even
 though only the network part was threaded. Now the whole job runs here and
 reports progress via signals delivered to the GUI thread.

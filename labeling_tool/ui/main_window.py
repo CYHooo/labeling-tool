@@ -1,7 +1,7 @@
-"""MainWindow subclass wired to a V API Workspace + Manifest.
+"""MainWindow subclass wired to a Viewer API Workspace + Manifest.
 
 Reuses all core labeling behavior; adds session directory injection and a
-single "Upload to EC2" action that runs V2->V3->V4 for edited photos.
+single "Upload to EC2" action that uploads edited photos.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ class ViewerMainWindow(CoreMainWindow):
 
         # Saving should be fast: only the editable mask + bbox JSON are needed.
         # The heavy Result/ export (full crack metric + full-res PNG, ~2s on a
-        # panorama) is redundant here — V4 metrics are computed at upload time.
+        # panorama) is redundant here — metrics are computed at upload time.
         self.export_result_on_save = False
 
         # Point the core tool at the workspace folders.
@@ -49,7 +49,7 @@ class ViewerMainWindow(CoreMainWindow):
 
     # ------------------------------------------------------------------
     def _add_upload_button(self):
-        self.btn_upload = QPushButton("EC2에 업로드 (V2→V3→V4)")
+        self.btn_upload = QPushButton("EC2에 업로드")
         self.btn_upload.setObjectName("primaryAction")
         self.btn_upload.clicked.connect(self._on_upload)
         # Inline progress bar, shown right under the button during upload so the
@@ -99,7 +99,7 @@ class ViewerMainWindow(CoreMainWindow):
             measured = load_scale(self.output_dir / mask_store.bbox_name(fn))
             px_per_cm = measured if measured else (entry.px_per_cm or 0.0)
             if px_per_cm <= 0:
-                continue                  # V4 requires pxPerCm
+                continue                  # upload requires pxPerCm
             specs.append({"filename": fn, "timestamp": entry.timestamp,
                           "px_per_cm": px_per_cm,
                           "scale_source": entry.scale_source})

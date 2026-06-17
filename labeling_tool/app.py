@@ -1,7 +1,7 @@
 """Local labeling tool entry point.
 
-Flow: connection wizard (V1 fetch + download) -> main labeling window
-wired to the per-session workspace -> manual batch upload (V2->V3->V4).
+Flow: login + data-fetch dialogs (fetch + download) -> main labeling window
+wired to the per-session workspace -> manual batch upload.
 Run on a LOCAL PC (not the AI server).
 """
 

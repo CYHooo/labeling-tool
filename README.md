@@ -1,10 +1,10 @@
 # Labeling Tool (로컬 균열 라벨링 도구)
 
 AI 서버가 만든 스티칭 이미지/마스크를 **로컬 PC**에서 사람이 직접 보정하는 도구입니다.
-균열 마스크 편집, 보수 구역(OBB) 생성, px/cm 스케일 측정을 한 뒤, V API(V1~V4)로
+균열 마스크 편집, 보수 구역(OBB) 생성, px/cm 스케일 측정을 한 뒤, Viewer API 로
 EC2에 다시 업로드합니다.
 
-전체 흐름: **로그인 → 데이터 가져오기(V1 다운로드) → 라벨링 → EC2 업로드(V2→V3→V4)**
+전체 흐름: **로그인 → 데이터 가져오기(다운로드) → 라벨링 → EC2 업로드**
 
 ---
 
@@ -58,7 +58,7 @@ python -m labeling_tool.app
 - `sessionId` 는 서버에서 받아온 **드롭다운**으로 고릅니다 (세션 이름 · 사진 수 표시).
   목록 조회에 실패하면 직접 입력으로 전환됩니다.
 - 여러 명이 한 세션을 나눠 작업할 때는 `fromNum`/`toNum` 으로 **자기 구역만** 받습니다 (0 = 미사용).
-- **「가져오기」** → V1 으로 사진 목록 조회 → 스티칭/마스크를
+- **「가져오기」** → 사진 목록 조회 → 스티칭/마스크를
   `labeling_tool/data/session_{id}/` 로 다운로드 → 미리 재구성(Rebuilt) 후 라벨링 화면 진입.
 - **「← 로그인」** 으로 로그인 화면으로 돌아갈 수 있습니다.
 
@@ -74,7 +74,7 @@ python -m labeling_tool.app
 
 ### 3) EC2 업로드
 
-- 사이드 패널의 **「EC2에 업로드」** 버튼 → 편집·저장한 사진만 V2→V3→V4 로 일괄 업로드합니다.
+- 사이드 패널의 **「EC2에 업로드」** 버튼 → 편집·저장한 사진만 일괄 업로드합니다.
 - 버튼 아래 **진행률 막대**(준비 → 업로드)와 상태바에 진행 상황이 표시됩니다.
 - 편집하지 않은 사진은 업로드하지 않습니다(서버의 AI 결과 유지).
 - 업로드는 백그라운드 스레드에서 실행되어 화면이 멈추지 않습니다.
@@ -92,7 +92,7 @@ session_{id}/
 ├── Rebuilt/     재구성 캐시
 ├── Labeling/    편집 결과 마스크 + .bbox.json
 ├── manifest.json
-└── vapi.log     V1~V4 / 다운로드 / 업로드 타이밍 로그 (진행·성능 모니터링용)
+└── vapi.log     요청 / 다운로드 / 업로드 타이밍 로그 (진행·성능 모니터링용)
 ```
 
 ---
@@ -112,7 +112,7 @@ python -m pytest labeling_tool/tests -q
   `app.py` 가 `QT_QPA_PLATFORM_PLUGIN_PATH` 를 비우도록 처리하지만, 그래도 문제가 있으면
   `pip install opencv-python-headless` 로 바꿔 보세요.
 - **업로드 시 "스케일 없음"**: 해당 사진에 ArUco 가 검출되지 않았고 수동 측정도 안 한 경우입니다.
-  「수동 측정」으로 px/cm 를 먼저 설정하세요 (V4 는 pxPerCm 가 필수).
+  「수동 측정」으로 px/cm 를 먼저 설정하세요 (업로드에는 pxPerCm 가 필수).
 - **`labeling_tool` 모듈을 못 찾음**: 반드시 이 README 가 있는 폴더(= `labeling_tool/` 의 상위)에서
   `python -m labeling_tool.app` 으로 실행해야 합니다.
 
@@ -127,7 +127,7 @@ python -m pytest labeling_tool/tests -q
 └── labeling_tool/
     ├── app.py              진입점
     ├── core/               라벨링 코어(브러시·OBB·ArUco·재구성·계측)
-    ├── api/                V API 클라이언트 / 다운로드 / 업로드
+    ├── api/                Viewer API 클라이언트 / 다운로드 / 업로드
     ├── session/            작업 폴더 · manifest · 파일명 규칙
     ├── ui/                 로그인 · 데이터 가져오기 다이얼로그 · 메인 윈도우 · 업로드 워커
     ├── scripts/            헤드리스 업로드 CLI
