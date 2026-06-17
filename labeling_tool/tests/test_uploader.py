@@ -27,8 +27,16 @@ class FakeClient:
 def _item(ts):
     return {"timestamp": ts,
             "maskS3Key": f"results/43/masks/mask_{ts}.png",
+            "highlightS3Key": f"results/43/masks/high_{ts}.png",
+            "repair15S3Key": f"results/43/masks/15_{ts}.png",
             "pxPerCm": 10.0, "scaleSource": "aruco",
             "repairAreas": [], "crackMetrics": {}}
+
+
+def _bytes(ts):
+    return {"mask": f"m{ts}".encode(),
+            "high": f"h{ts}".encode(),
+            "repair15": f"r{ts}".encode()}
 
 
 def test_uploads_single_batch_in_order():
@@ -36,12 +44,15 @@ def test_uploads_single_batch_in_order():
     items = [_item(1), _item(2)]
     result = upload_session(
         client, session_id=43, items=items,
-        mask_bytes_for=lambda ts: f"png{ts}".encode(),
-        edit_batch_id="batch-xyz")
+        bytes_for=_bytes, edit_batch_id="batch-xyz")
     assert result["uploaded"] == 2
     assert result["failed"] == []
     assert client.register_calls == [("batch-xyz", 43, 2)]
-    assert len(client.puts) == 2
+    assert len(client.puts) == 6                       # 3 PUTs * 2 photos
+    # mask -> high -> 15 order for the first photo
+    assert client.puts[0] == "https://s3/mask_1.png"
+    assert client.puts[1] == "https://s3/high_1.png"
+    assert client.puts[2] == "https://s3/15_1.png"
 
 
 def test_paginates_over_100():
@@ -49,12 +60,11 @@ def test_paginates_over_100():
     items = [_item(i) for i in range(1, 151)]   # 150 items -> 2 batches
     result = upload_session(
         client, session_id=43, items=items,
-        mask_bytes_for=lambda ts: b"x", edit_batch_id="b")
+        bytes_for=_bytes, edit_batch_id="b")
     assert result["uploaded"] == 150
-    # 100 + 50
     assert [c[2] for c in client.register_calls] == [100, 50]
-    # same editBatchId reused across pages
     assert {c[0] for c in client.register_calls} == {"b"}
+    assert len(client.puts) == 450                     # 3 * 150
 
 
 def test_v4_failure_recorded_per_batch():
@@ -65,7 +75,7 @@ def test_v4_failure_recorded_per_batch():
     client = FailingRegister()
     result = upload_session(
         client, session_id=43, items=[_item(1)],
-        mask_bytes_for=lambda ts: b"x", edit_batch_id="b")
+        bytes_for=_bytes, edit_batch_id="b")
     assert result["uploaded"] == 0
     assert len(result["failed"]) == 1
 
@@ -76,12 +86,12 @@ def test_progress_reports_each_item():
     seen = []
     result = upload_session(
         client, session_id=43, items=items,
-        mask_bytes_for=lambda ts: b"x", edit_batch_id="b",
+        bytes_for=_bytes, edit_batch_id="b",
         progress=lambda done, total: seen.append((done, total)))
     assert result["uploaded"] == 150
-    assert seen[-1] == (150, 150)          # reaches the end
-    assert all(d <= t for d, t in seen)    # never overshoots
-    assert [d for d, _ in seen] == sorted(d for d, _ in seen)  # monotonic
+    assert seen[-1] == (150, 150)
+    assert all(d <= t for d, t in seen)
+    assert [d for d, _ in seen] == sorted(d for d, _ in seen)
 
 
 def test_progress_completes_even_when_batch_fails():
@@ -93,7 +103,7 @@ def test_progress_completes_even_when_batch_fails():
     seen = []
     result = upload_session(
         client, session_id=43, items=[_item(1), _item(2)],
-        mask_bytes_for=lambda ts: b"x", edit_batch_id="b",
+        bytes_for=_bytes, edit_batch_id="b",
         progress=lambda done, total: seen.append((done, total)))
     assert result["uploaded"] == 0
-    assert seen[-1] == (2, 2)              # bar still reaches total
+    assert seen[-1] == (2, 2)
