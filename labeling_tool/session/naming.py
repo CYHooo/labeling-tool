@@ -1,7 +1,8 @@
 """Filename <-> timestamp <-> S3 key conversions for the Viewer API.
 
-Convention (api-reference_v1.0.7): stitched_{timestampMs}.jpg paired with
-mask_{timestampMs}.png. S3 mask key: results/{sessionId}/masks/mask_{ts}.png.
+Convention (api-reference_v1.0.8): stitched_{timestampMs}.jpg paired with
+mask_{timestampMs}.png, high_{timestampMs}.png, 15_{timestampMs}.png.
+S3 keys: results/{sessionId}/masks/{mask|high|15}_{ts}.png.
 """
 
 from __future__ import annotations
@@ -35,3 +36,19 @@ def timestamp_from_filename(filename: str) -> int:
 
 def mask_s3_key(session_id: int, timestamp: int) -> str:
     return f"results/{int(session_id)}/masks/mask_{int(timestamp)}.png"
+
+
+def high_filename(timestamp: int) -> str:
+    return f"high_{int(timestamp)}.png"
+
+
+def repair15_filename(timestamp: int) -> str:
+    return f"15_{int(timestamp)}.png"
+
+
+def high_s3_key(session_id: int, timestamp: int) -> str:
+    return f"results/{int(session_id)}/masks/high_{int(timestamp)}.png"
+
+
+def repair15_s3_key(session_id: int, timestamp: int) -> str:
+    return f"results/{int(session_id)}/masks/15_{int(timestamp)}.png"
