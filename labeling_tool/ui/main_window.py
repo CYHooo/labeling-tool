@@ -159,13 +159,16 @@ class ViewerMainWindow(CoreMainWindow):
             self._manifest.save(self._ws.manifest_path)
 
         if result["failed"]:
+            first_err = str(result["failed"][0].get("error", "")) or "(원인 미기록)"
+            log_path = self._ws.session_dir / "vapi.log"
             self.status.showMessage(
                 f"업로드 {result['uploaded']}건 성공, "
                 f"{len(result['failed'])}개 배치 실패")
             QMessageBox.warning(
                 self, "일부 실패",
                 f"업로드 {result['uploaded']}건 성공, "
-                f"{len(result['failed'])}개 배치 실패. 다시 시도하세요.")
+                f"{len(result['failed'])}개 배치 실패. 다시 시도하세요.\n\n"
+                f"원인: {first_err}\n\n자세한 로그: {log_path}")
         elif not synced_ts:
             self.status.showMessage("업로드할 항목이 없습니다")
             QMessageBox.information(self, "없음", "업로드할 편집본이 없습니다.")

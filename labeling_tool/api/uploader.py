@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Callable
 
 from labeling_tool.session import naming
+from labeling_tool.logging_setup import vlog
 
 FILES_PER_PHOTO = 3          # mask + high + repair15 (V2/V3)
 V2_FILE_LIMIT = 100          # api-reference v1.0.8: V2 files array max 100
@@ -86,6 +87,10 @@ def upload_session(client, *, session_id: int, items: list[dict],
                 items=batch)
             uploaded += len(batch)
         except Exception as e:  # noqa: BLE001 - report per-batch, keep going
+            details = getattr(e, "details", None)
+            vlog().exception(
+                "UPLOAD BATCH FAILED timestamps=%s: %s%s",
+                timestamps, e, f" details={details}" if details else "")
             failed.append({"timestamps": timestamps, "error": str(e)})
         finally:
             base += len(batch)
