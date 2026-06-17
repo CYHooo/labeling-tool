@@ -40,3 +40,21 @@ def test_detected_mask_filename_pairs_with_core():
         open(os.path.join(d, detected_mask_filename(ts)), "wb").close()
         found = find_mask_path(stitched_filename(ts), d)
     assert found is not None and found.endswith(detected_mask_filename(ts))
+
+
+def test_high_filename():
+    assert naming.high_filename(1717572612000) == "high_1717572612000.png"
+
+
+def test_repair15_filename():
+    assert naming.repair15_filename(1717572612000) == "15_1717572612000.png"
+
+
+def test_high_s3_key():
+    assert naming.high_s3_key(43, 1717572612000) == \
+        "results/43/masks/high_1717572612000.png"
+
+
+def test_repair15_s3_key():
+    assert naming.repair15_s3_key(43, 1717572612000) == \
+        "results/43/masks/15_1717572612000.png"

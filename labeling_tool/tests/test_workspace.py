@@ -8,6 +8,8 @@ def test_layout_paths(tmp_path):
     assert ws.detected_dir == tmp_path / "session_43" / "Detected"
     assert ws.labeling_dir == tmp_path / "session_43" / "Labeling"
     assert ws.result_dir == tmp_path / "session_43" / "Result"
+    assert ws.highlight_dir == tmp_path / "session_43" / "HighLight"
+    assert ws.repair15_dir == tmp_path / "session_43" / "Repair15"
     assert ws.manifest_path == tmp_path / "session_43" / "manifest.json"
 
 
@@ -15,7 +17,7 @@ def test_ensure_creates_dirs(tmp_path):
     ws = Workspace(root=tmp_path, session_id=43)
     ws.ensure()
     for d in (ws.origin_dir, ws.detected_dir, ws.labeling_dir,
-              ws.result_dir):
+              ws.result_dir, ws.highlight_dir, ws.repair15_dir):
         assert d.is_dir()
 
 

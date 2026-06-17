@@ -1,6 +1,6 @@
 """Per-session local workspace directory layout.
 
-labeling_tool/data/session_{id}/{Origin,Detected,Labeling,Result}/ + manifest.json
+labeling_tool/data/session_{id}/{Origin,Detected,Labeling,Result,HighLight,Repair15}/ + manifest.json
 """
 
 from __future__ import annotations
@@ -44,12 +44,21 @@ class Workspace:
         return self.session_dir / "Result"
 
     @property
+    def highlight_dir(self) -> Path:
+        return self.session_dir / "HighLight"
+
+    @property
+    def repair15_dir(self) -> Path:
+        return self.session_dir / "Repair15"
+
+    @property
     def manifest_path(self) -> Path:
         return self.session_dir / "manifest.json"
 
     def ensure(self) -> None:
         for d in (self.origin_dir, self.detected_dir,
-                  self.labeling_dir, self.result_dir):
+                  self.labeling_dir, self.result_dir,
+                  self.highlight_dir, self.repair15_dir):
             d.mkdir(parents=True, exist_ok=True)
 
 

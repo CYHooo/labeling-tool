@@ -90,3 +90,48 @@ def paint_mask_overlay(
         rgba[..., 3] = (binimg.astype(np.float32) * 0.5).astype(np.uint8)
         qimg = QImage(rgba.data, wsw, wsh, wsw * 4, QImage.Format_RGBA8888)
         painter.drawImage(QPointF(px, py), qimg)
+
+
+def paint_single_color_overlay(
+    painter: QPainter,
+    viewport: Viewport,
+    widget_w: int,
+    widget_h: int,
+    mask: np.ndarray | None,
+    rgb: tuple[int, int, int],
+    alpha: int = 90,
+) -> None:
+    """Render mask>0 as a single translucent color (e.g. the highlight halo)."""
+    if mask is None or viewport.scale <= 0:
+        return
+    ih, iw = viewport.img_h, viewport.img_w
+    scale = viewport.scale
+    ox, oy = viewport.offset.x(), viewport.offset.y()
+
+    x0 = max(0, int((0 - ox) / scale))
+    y0 = max(0, int((0 - oy) / scale))
+    x1 = min(iw, int(np.ceil((widget_w - ox) / scale)) + 1)
+    y1 = min(ih, int(np.ceil((widget_h - oy) / scale)) + 1)
+    if x1 <= x0 or y1 <= y0:
+        return
+
+    cw, ch = (x1 - x0), (y1 - y0)
+    wsw = max(1, int(cw * scale))
+    wsh = max(1, int(ch * scale))
+    px = int(ox + x0 * scale)
+    py = int(oy + y0 * scale)
+
+    crop = mask[y0:y1, x0:x1]
+    if crop.max() == 0:
+        return
+    shrinking = (wsw < cw) or (wsh < ch)
+    interp = cv2.INTER_AREA if shrinking else cv2.INTER_NEAREST
+    resized = cv2.resize(crop, (wsw, wsh), interpolation=interp)
+    binimg = np.where(resized > 0, np.uint8(255), np.uint8(0))
+    rgba = np.zeros((wsh, wsw, 4), dtype=np.uint8)
+    rgba[..., 0] = rgb[2]
+    rgba[..., 1] = rgb[1]
+    rgba[..., 2] = rgb[0]
+    rgba[..., 3] = np.where(binimg > 0, np.uint8(alpha), np.uint8(0))
+    qimg = QImage(rgba.data, wsw, wsh, wsw * 4, QImage.Format_RGBA8888)
+    painter.drawImage(QPointF(px, py), qimg)

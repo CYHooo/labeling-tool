@@ -45,16 +45,21 @@ class UploadWorker(QThread):
         return self._batch_id
 
     def _build_items(self):
-        items, mask_cache = [], {}
+        items, cache = [], {}
         total = len(self._specs)
         ldir = Path(self._labeling_dir)
+        hdir = ldir.parent / "HighLight"
+        rdir = ldir.parent / "Repair15"
         vlog().info("prepare start: %d items", total)
         for i, spec in enumerate(self._specs, start=1):
             fn = spec["filename"]
             ts = spec["timestamp"]
-            mask_path = ldir / mask_store.mask_name(fn)
-            if not mask_path.exists():
-                vlog().warning("prepare skip ts=%s: no mask in Labeling/", ts)
+            name = mask_store.mask_name(fn)
+            mask_path = ldir / name
+            high_path = hdir / name
+            rep_path = rdir / name
+            if not (mask_path.exists() and high_path.exists() and rep_path.exists()):
+                vlog().warning("prepare skip ts=%s: missing mask/high/repair15", ts)
                 continue
             t = time.perf_counter()
             raw = cv2.imread(str(mask_path), cv2.IMREAD_UNCHANGED)
@@ -66,10 +71,14 @@ class UploadWorker(QThread):
             px = measured if measured else (spec.get("px_per_cm") or 0.0)
             if px <= 0:
                 continue
-            mask_cache[ts] = mask_path.read_bytes()
+            cache[ts] = {"mask": mask_path.read_bytes(),
+                         "high": high_path.read_bytes(),
+                         "repair15": rep_path.read_bytes()}
             item = build_annotation_item(
                 timestamp=ts,
                 mask_s3_key=naming.mask_s3_key(self._session_id, ts),
+                highlight_s3_key=naming.high_s3_key(self._session_id, ts),
+                repair15_s3_key=naming.repair15_s3_key(self._session_id, ts),
                 px_per_cm=px, scale_source=spec.get("scale_source", "aruco"),
                 crack_mask=crack, spalling_mask=spall, boxes=boxes)
             items.append(item)
@@ -79,22 +88,22 @@ class UploadWorker(QThread):
                         (time.perf_counter() - t) * 1000, i, total)
             self.progress.emit(i, total, "prepare")
         vlog().info("prepare done: %d items", len(items))
-        return items, mask_cache
+        return items, cache
 
     def run(self):
         try:
             t0 = time.perf_counter()
-            items, mask_cache = self._build_items()
+            items, cache = self._build_items()
             if not items:
                 self.done.emit({"uploaded": 0, "failed": [],
                                 "timestamps": [], "batch_id": self._batch_id})
                 return
             result = upload_session(
                 self._client, session_id=self._session_id, items=items,
-                mask_bytes_for=lambda ts: mask_cache[ts],
+                bytes_for=lambda ts: cache[ts],
                 edit_batch_id=self._batch_id,
                 progress=lambda d, t: self.progress.emit(d, t, "upload"))
-            result["timestamps"] = list(mask_cache.keys())
+            result["timestamps"] = list(cache.keys())
             result["batch_id"] = self._batch_id
             vlog().info("upload finished: uploaded=%d failed_batches=%d "
                         "total=%.1fs", result["uploaded"], len(result["failed"]),

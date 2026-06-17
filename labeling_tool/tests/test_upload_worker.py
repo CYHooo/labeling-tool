@@ -6,20 +6,30 @@ from PyQt5.QtWidgets import QApplication
 
 from labeling_tool.ui.upload_worker import UploadWorker
 from labeling_tool.tests.test_uploader import FakeClient
-from labeling_tool.session import naming
+from labeling_tool.session import naming, mask_store
 from labeling_tool.core.bbox import save_bboxes
 
 _app = QApplication.instance() or QApplication([])
 
 
 def _setup_labeling(tmp_path, ts_list):
+    labeling = tmp_path / "Labeling"
+    high = tmp_path / "HighLight"
+    rep = tmp_path / "Repair15"
+    for d in (labeling, high, rep):
+        d.mkdir(parents=True, exist_ok=True)
     for ts in ts_list:
+        stitched = naming.stitched_filename(ts)
+        name = mask_store.mask_name(stitched)            # {stem}_mask.png
+        # Labeling mask carries the real crack channel for metrics.
         m = np.zeros((40, 40, 3), np.uint8)
-        m[18:23, 5:35, 2] = 255                       # R = crack
-        cv2.imwrite(str(tmp_path / naming.detected_mask_filename(ts)), m)
-        stem = Path(naming.stitched_filename(ts)).stem
-        save_bboxes(tmp_path / f"{stem}.bbox.json",
-                    naming.stitched_filename(ts), [], 10.0, "aruco")
+        m[18:23, 5:35, 2] = 255                          # R = crack
+        cv2.imwrite(str(labeling / name), m)
+        # HighLight + Repair15 just need to exist with valid PNG bytes.
+        cv2.imwrite(str(high / name), np.zeros((40, 40), np.uint8))
+        cv2.imwrite(str(rep / name), np.zeros((40, 40), np.uint8))
+        stem = Path(stitched).stem
+        save_bboxes(labeling / f"{stem}.bbox.json", stitched, [], 10.0, "aruco")
     return [{"filename": naming.stitched_filename(ts), "timestamp": ts,
              "px_per_cm": 10.0, "scale_source": "aruco"} for ts in ts_list]
 
@@ -28,25 +38,51 @@ def test_worker_builds_items_and_uploads(tmp_path):
     specs = _setup_labeling(tmp_path, [1, 2])
     client = FakeClient()
     worker = UploadWorker(client, session_id=43, specs=specs,
-                          labeling_dir=str(tmp_path), edit_batch_id="b")
+                          labeling_dir=str(tmp_path / "Labeling"),
+                          edit_batch_id="b")
     prepare, upload, results = [], [], []
     worker.progress.connect(
         lambda d, t, ph: (prepare if ph == "prepare" else upload).append((d, t)))
     worker.done.connect(lambda r: results.append(r))
-    worker.run()   # synchronous for a deterministic test
+    worker.run()
     assert results and results[0]["uploaded"] == 2
     assert results[0]["batch_id"] == "b"
     assert set(results[0]["timestamps"]) == {1, 2}
-    assert prepare[-1] == (2, 2)        # build phase reported progress
-    assert upload[-1] == (2, 2)         # upload phase reported progress
-    assert len(client.puts) == 2
+    assert prepare[-1] == (2, 2)
+    assert upload[-1] == (2, 2)
+    assert len(client.puts) == 6                          # 3 PUTs * 2 photos
 
 
 def test_worker_skips_missing_masks(tmp_path):
+    (tmp_path / "Labeling").mkdir()
     specs = [{"filename": naming.stitched_filename(99), "timestamp": 99,
-              "px_per_cm": 10.0, "scale_source": "aruco"}]   # no file on disk
+              "px_per_cm": 10.0, "scale_source": "aruco"}]   # no files on disk
     worker = UploadWorker(FakeClient(), session_id=43, specs=specs,
-                          labeling_dir=str(tmp_path), edit_batch_id="b")
+                          labeling_dir=str(tmp_path / "Labeling"),
+                          edit_batch_id="b")
+    results = []
+    worker.done.connect(lambda r: results.append(r))
+    worker.run()
+    assert results and results[0]["uploaded"] == 0
+    assert results[0]["timestamps"] == []
+
+
+def test_worker_skips_when_high_or_repair15_missing(tmp_path):
+    """Guard: a photo with only the Labeling mask (no HighLight/Repair15) must be skipped."""
+    labeling = tmp_path / "Labeling"
+    labeling.mkdir(parents=True)
+    ts = 55
+    fn = naming.stitched_filename(ts)
+    name = mask_store.mask_name(fn)
+    # Write only the Labeling mask — omit HighLight/ and Repair15/ entirely.
+    m = np.zeros((40, 40, 3), np.uint8)
+    cv2.imwrite(str(labeling / name), m)
+    stem = Path(fn).stem
+    save_bboxes(labeling / f"{stem}.bbox.json", fn, [], 10.0, "aruco")
+
+    specs = [{"filename": fn, "timestamp": ts, "px_per_cm": 10.0, "scale_source": "aruco"}]
+    worker = UploadWorker(FakeClient(), session_id=43, specs=specs,
+                          labeling_dir=str(labeling), edit_batch_id="b")
     results = []
     worker.done.connect(lambda r: results.append(r))
     worker.run()

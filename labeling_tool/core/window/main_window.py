@@ -47,6 +47,8 @@ class MainWindow(QMainWindow):
         self.detected_dir: Path | None = None
         self.output_dir: Path | None = None
         self.result_dir: Path | None = None
+        self.highlight_dir: Path | None = None
+        self.repair15_dir: Path | None = None
 
         if Path("Origin").exists():
             self.origin_dir = Path("Origin").resolve()
@@ -135,6 +137,8 @@ class MainWindow(QMainWindow):
         self._btn_bbox_toggle.setText(
             self.tr_("btn_bbox_off") if self.canvas.bbox_mode
             else self.tr_("btn_bbox_on"))
+        self._btn_show_highlight.setText(self.tr_("btn_show_highlight"))
+        self._btn_show_repair15.setText(self.tr_("btn_show_repair15"))
 
         self._grp_list.setTitle(self.tr_("group_list"))
         self._grp_nav.setTitle(self.tr_("group_nav"))
@@ -153,13 +157,16 @@ class MainWindow(QMainWindow):
     # Folder management
     # ------------------------------------------------------------------
     def _sync_output_dir(self):
-        """Derive output_dir, result_dir from origin_dir.parent."""
+        """Derive output_dir, result_dir, highlight_dir, repair15_dir from origin_dir.parent."""
         if self.origin_dir is not None:
             parent = self.origin_dir.parent
-            self.output_dir  = parent / OUTPUT_DIR_NAME
-            self.result_dir  = parent / "Result"
+            self.output_dir   = parent / OUTPUT_DIR_NAME
+            self.result_dir   = parent / "Result"
+            self.highlight_dir = parent / "HighLight"
+            self.repair15_dir  = parent / "Repair15"
         else:
             self.output_dir = self.result_dir = None
+            self.highlight_dir = self.repair15_dir = None
 
     def _select_origin_folder(self):
         start = str(self.origin_dir) if self.origin_dir else str(Path.cwd())
@@ -324,6 +331,32 @@ class MainWindow(QMainWindow):
             mask_out = self.output_dir / mask_store.mask_name(filename)
             _cv2.imwrite(str(mask_out), label)
 
+            # ----- 1b. Derived masks: highlight + (scale-dependent) repair15 -----
+            from labeling_tool.core.derived_masks import (
+                build_highlight, build_repair15,
+            )
+            try:
+                label_hi = build_highlight(mc, ms)
+                if self.highlight_dir is not None:
+                    self.highlight_dir.mkdir(parents=True, exist_ok=True)
+                    _cv2.imwrite(
+                        str(self.highlight_dir / mask_store.mask_name(filename)),
+                        label_hi)
+                self.canvas.set_highlight(label_hi)
+            except ValueError:
+                self.canvas.set_highlight(None)
+
+            if self.current_scale:
+                r15 = build_repair15(mc, ms, self.current_scale)
+                if self.repair15_dir is not None:
+                    self.repair15_dir.mkdir(parents=True, exist_ok=True)
+                    _cv2.imwrite(
+                        str(self.repair15_dir / mask_store.mask_name(filename)),
+                        r15)
+                self.canvas.set_repair15(r15)
+            else:
+                self.canvas.set_repair15(None)
+
         # ----- 2. BBox JSON -----
         bbox_path = self.output_dir / mask_store.bbox_name(filename)
         save_bboxes(
@@ -366,6 +399,14 @@ class MainWindow(QMainWindow):
         if not self._edited.get(filename):
             self._edited[filename] = True
             self._refresh_list_colors()
+
+    def _on_toggle_highlight(self, checked: bool):
+        self.canvas.show_highlight = bool(checked)
+        self.canvas.update()
+
+    def _on_toggle_repair15(self, checked: bool):
+        self.canvas.show_repair15 = bool(checked)
+        self.canvas.update()
 
     # ------------------------------------------------------------------
     # BBox callbacks
@@ -538,6 +579,22 @@ class MainWindow(QMainWindow):
 
         self.current_idx = idx
         self.canvas.set_image(origin, crack_mask, spalling_mask)
+
+        # ----- derived-mask overlays (read saved files; else clear) -----
+        import cv2 as _cv2_load
+        hi_name = mask_store.mask_name(filename)
+        if self.highlight_dir is not None and (self.highlight_dir / hi_name).exists():
+            arr = _cv2_load.imread(str(self.highlight_dir / hi_name),
+                                   _cv2_load.IMREAD_UNCHANGED)
+            self.canvas.set_highlight(arr)
+        else:
+            self.canvas.set_highlight(None)
+        if self.repair15_dir is not None and (self.repair15_dir / hi_name).exists():
+            arr = _cv2_load.imread(str(self.repair15_dir / hi_name),
+                                   _cv2_load.IMREAD_UNCHANGED)
+            self.canvas.set_repair15(arr)
+        else:
+            self.canvas.set_repair15(None)
 
         # ----- ArUco scale + outline overlay -----
         scale, source, aruco_corners = self.scale_tracker.update_for_image(origin)
