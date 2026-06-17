@@ -119,3 +119,35 @@ def test_progress_completes_even_when_batch_fails():
         progress=lambda done, total: seen.append((done, total)))
     assert result["uploaded"] == 0
     assert seen[-1] == (2, 2)
+
+
+def test_failed_batch_is_logged():
+    """A failing batch's reason must land in the vapi log so users can diagnose."""
+    import logging
+    from labeling_tool.logging_setup import vlog
+
+    records: list[str] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record):
+            records.append(record.getMessage())
+
+    class FailReg(FakeClient):
+        def register_annotations(self, *, edit_batch_id, session_id, items):
+            raise RuntimeError("boom-500")
+
+    log = vlog()
+    h = _Capture()
+    log.addHandler(h)
+    prev_level = log.level
+    log.setLevel(logging.INFO)
+    try:
+        result = upload_session(
+            FailReg(), session_id=43, items=[_item(1)],
+            bytes_for=_bytes, edit_batch_id="b")
+    finally:
+        log.removeHandler(h)
+        log.setLevel(prev_level)
+
+    assert result["uploaded"] == 0
+    assert any("boom-500" in m for m in records), records
