@@ -135,3 +135,22 @@ def paint_single_color_overlay(
     rgba[..., 3] = np.where(binimg > 0, np.uint8(alpha), np.uint8(0))
     qimg = QImage(rgba.data, wsw, wsh, wsw * 4, QImage.Format_RGBA8888)
     painter.drawImage(QPointF(px, py), qimg)
+
+
+def compute_highlight_halo(highlight: np.ndarray | None,
+                           crack: np.ndarray | None,
+                           spalling: np.ndarray | None) -> np.ndarray | None:
+    """Halo = the (dilated) highlight region MINUS the original mask.
+
+    Drawing only this ring keeps the original crack/spalling pixels showing
+    their own red/green colour while a yellow glow surrounds them, instead of
+    flooding the whole mask yellow. Returns a 0/255 uint8 mask, or None.
+    """
+    if highlight is None:
+        return None
+    halo = highlight > 0
+    if crack is not None and crack.shape == halo.shape:
+        halo &= (crack == 0)
+    if spalling is not None and spalling.shape == halo.shape:
+        halo &= (spalling == 0)
+    return (halo.astype(np.uint8) * 255)
