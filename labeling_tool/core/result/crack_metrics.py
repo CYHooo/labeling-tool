@@ -16,7 +16,20 @@ import numpy as np
 import cv2
 from skimage.morphology import skeletonize
 
-from labeling_tool.core.rebuild import measure_length_px
+
+def measure_length_px(centerline: np.ndarray) -> float:
+    """
+    Estimate centerline length in pixels with sqrt(2) diagonal weighting.
+
+    Counts orthogonal vs diagonal adjacencies inside the skeleton:
+        length = #orthogonal_pairs + sqrt(2) * #diagonal_pairs
+    """
+    s = (centerline > 0).astype(np.uint8)
+    ortho_k = np.array([[0, 1, 0], [1, 0, 0], [0, 0, 0]], np.uint8)
+    diag_k  = np.array([[1, 0, 0], [0, 0, 0], [0, 0, 0]], np.uint8)
+    ortho = float(np.sum(cv2.filter2D(s, -1, ortho_k) * s))
+    diag  = float(np.sum(cv2.filter2D(s, -1, diag_k) * s))
+    return ortho + diag * float(np.sqrt(2))
 
 
 @dataclass
