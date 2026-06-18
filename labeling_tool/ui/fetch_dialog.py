@@ -19,6 +19,29 @@ from labeling_tool.session import naming
 from labeling_tool.logging_setup import attach_session_log, vlog
 
 
+def filter_photos_by_range(photos: list[dict], from_num: int,
+                           to_num: int) -> list[dict]:
+    """Keep photos whose reportPhotoNum is within [from_num, to_num].
+
+    0 is an OPEN bound: from_num=0 -> from the first, to_num=0 -> to the last.
+    So a single field still works (e.g. toNum=15 -> first 15 photos), and both
+    0 means everything. Filtering happens client-side on the already-fetched
+    photo list, which is robust regardless of how the server handles the
+    fromNum/toNum query params.
+    """
+    if from_num <= 0 and to_num <= 0:
+        return list(photos)
+    out: list[dict] = []
+    for p in photos:
+        n = int(p.get("reportPhotoNum", 0))
+        if from_num > 0 and n < from_num:
+            continue
+        if to_num > 0 and n > to_num:
+            continue
+        out.append(p)
+    return out
+
+
 class FetchDialog(QDialog):
     def __init__(self, base: str, key: str, parent=None):
         super().__init__(parent)
@@ -36,8 +59,8 @@ class FetchDialog(QDialog):
         self.sp_to = QSpinBox(); self.sp_to.setRange(0, 10_000_000)
         form = QFormLayout()
         form.addRow("sessionId", self.cb_session)
-        form.addRow("fromNum (0=미사용)", self.sp_from)
-        form.addRow("toNum (0=미사용)", self.sp_to)
+        form.addRow("fromNum (0=처음부터)", self.sp_from)
+        form.addRow("toNum (0=끝까지)", self.sp_to)
 
         self.progress = QProgressBar(); self.progress.setVisible(False)
         self.lbl_status = QLabel("")
@@ -95,12 +118,6 @@ class FetchDialog(QDialog):
         txt = self.cb_session.currentText().strip()
         return int(txt) if txt.isdigit() else None
 
-    def _zone(self):
-        f, t = self.sp_from.value(), self.sp_to.value()
-        if f > 0 and t > 0:
-            return f, t
-        return None, None
-
     def _on_back(self):
         """Return to the login screen (app.py reopens LoginDialog)."""
         self.go_back = True
@@ -112,21 +129,27 @@ class FetchDialog(QDialog):
         if sid is None:
             QMessageBox.warning(self, "입력 필요", "sessionId를 선택/입력하세요.")
             return
-        from_num, to_num = self._zone()
+        from_num = self.sp_from.value()
+        to_num = self.sp_to.value()
 
         ws = Workspace.default(session_id=sid)
         ws.ensure()
         attach_session_log(ws.session_dir)
-        vlog().info("=== session %s fetch start (base=%s) ===", sid, self.base)
+        vlog().info("=== session %s fetch start (base=%s fromNum=%s toNum=%s) ===",
+                    sid, self.base, from_num, to_num)
         manifest = Manifest(session_id=sid, base=self.base)
 
         try:
-            photos = self._fetch_all_photos(self.client, sid, from_num, to_num)
+            all_photos = self._fetch_all_photos(self.client, sid)
         except ViewerApiError as e:
             QMessageBox.critical(self, "가져오기 실패", str(e))
             return
+        photos = filter_photos_by_range(all_photos, from_num, to_num)
+        vlog().info("fetch: %d photos in session, %d selected (fromNum=%s toNum=%s)",
+                    len(all_photos), len(photos), from_num, to_num)
         if not photos:
-            QMessageBox.warning(self, "비어있음", "조회된 사진이 없습니다.")
+            QMessageBox.warning(self, "비어있음",
+                                "선택된 사진이 없습니다 (범위를 확인하세요).")
             return
 
         for p in photos:
@@ -163,11 +186,9 @@ class FetchDialog(QDialog):
         self.accept()
 
     @staticmethod
-    def _fetch_all_photos(client: ViewerApiClient, session_id: int,
-                          from_num, to_num) -> list[dict]:
-        if from_num is not None and to_num is not None:
-            return client.list_photos(
-                session_id, from_num=from_num, to_num=to_num)["photos"]
+    def _fetch_all_photos(client: ViewerApiClient, session_id: int) -> list[dict]:
+        """Fetch the full photo list (metadata, paginated). The download range
+        is applied client-side by filter_photos_by_range."""
         out: list[dict] = []
         offset, limit = 0, 100
         while True:
