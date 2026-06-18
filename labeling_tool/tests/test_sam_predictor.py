@@ -18,6 +18,10 @@ def test_preprocess_image_shape_and_pad():
     assert arr.shape == (1, 3, 1024, 1024) and arr.dtype == np.float32
     assert (oh, ow) == (300, 600)
     assert abs(scale - 1024 / 600) < 1e-6
+    # normalization actually applied: R channel of pixel (0,0) = (128 - mean)/std
+    assert abs(float(arr[0, 0, 0, 0]) - (128 - 123.675) / 58.395) < 0.05
+    # padded region (bottom-right corner) stays 0
+    assert float(arr[0, 0, 1023, 1023]) == 0.0
 
 
 def test_apply_coords_uniform_scale():
@@ -71,3 +75,7 @@ def test_predictor_end_to_end_with_fake_sessions():
     # decoder received the (0,0,-1) padding point appended -> 2 points total
     assert dec.last_feed["point_coords"].shape[1] == 2
     assert list(dec.last_feed["point_labels"][0])[-1] == -1.0
+    # user point scaled into the 1024 frame (scale = 1024/max(h,w) = 1024/60)
+    scale = 1024 / 60
+    assert abs(dec.last_feed["point_coords"][0, 0, 0] - 30 * scale) < 0.5
+    assert abs(dec.last_feed["point_coords"][0, 0, 1] - 20 * scale) < 0.5
