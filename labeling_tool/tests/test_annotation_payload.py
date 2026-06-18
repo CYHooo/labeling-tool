@@ -63,12 +63,16 @@ def test_defect_type_spalling_and_mixed():
     assert mixed["crackMetrics"]["defectType"] == 2        # both
 
 
-def test_bbox_area_sums_in_mm2():
-    # 10 px/cm -> 1 px/mm -> area_px2 == area_mm2
-    boxes = [OrientedBox(cx=0, cy=0, w=10, h=20, angle_deg=0)]  # 200 px^2
+def test_bbox_area_is_union_not_sum():
+    # 10 px/cm -> 1 px/mm -> area_px2 == area_mm2.
+    # Two 100x100 boxes overlapping by 50x50: sum=20000, union=17500.
+    boxes = [OrientedBox(cx=50, cy=50, w=100, h=100, angle_deg=0),
+             OrientedBox(cx=100, cy=100, w=100, h=100, angle_deg=0)]
     item = build_annotation_item(
         timestamp=1, mask_s3_key="k", highlight_s3_key="results/43/masks/high_1.png", repair15_s3_key="results/43/masks/15_1.png", px_per_cm=10.0, scale_source="aruco",
-        crack_mask=np.zeros((30, 30), np.uint8), spalling_mask=None, boxes=boxes,
+        crack_mask=np.zeros((200, 200), np.uint8), spalling_mask=None, boxes=boxes,
     )
-    assert item["crackMetrics"]["bboxCount"] == 1
-    assert abs(item["crackMetrics"]["bboxAreaMm2"] - 200.0) < 1e-6
+    area = item["crackMetrics"]["bboxAreaMm2"]
+    assert item["crackMetrics"]["bboxCount"] == 2
+    assert area < 20000.0                       # overlap removed, not a plain sum
+    assert abs(area - 17500.0) / 17500.0 < 0.05  # ~ the analytic union
