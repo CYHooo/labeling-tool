@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from labeling_tool.core.result.crack_metrics import CrackMetrics
-from labeling_tool.core.bbox.oriented_box import OrientedBox
+from labeling_tool.core.bbox.oriented_box import OrientedBox, union_area_px2
 
 
 def _fmt(v: float | None, prec: int = 2) -> str:
@@ -20,8 +20,8 @@ def write_text_report(
     """Write the fixed-format report. Overwrites if exists."""
     if scale_px_per_cm is not None:
         cm_per_px = 1.0 / scale_px_per_cm
-        bbox_total_mm2 = sum(
-            b.area_px2() * cm_per_px * cm_per_px * 100.0 for b in boxes
+        bbox_total_mm2 = (
+            union_area_px2(boxes) * cm_per_px * cm_per_px * 100.0
         )
     else:
         bbox_total_mm2 = None

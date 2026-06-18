@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from labeling_tool.core.bbox.oriented_box import OrientedBox
+from labeling_tool.core.bbox.oriented_box import OrientedBox, union_area_px2
 from labeling_tool.core.result.crack_metrics import (
     compute_crack_metrics, compute_spalling_area_mm2,
 )
@@ -50,7 +50,7 @@ def build_annotation_item(
 
     spalling_mm2 = compute_spalling_area_mm2(spalling_mask, px_per_cm) or 0.0
 
-    bbox_area_mm2 = sum(b.area_px2() for b in boxes) * (mm_per_px ** 2)
+    bbox_area_mm2 = union_area_px2(boxes) * (mm_per_px ** 2)
     bbox_count = len(boxes)
 
     repair_areas = [

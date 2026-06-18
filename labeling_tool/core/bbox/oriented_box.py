@@ -103,3 +103,30 @@ class OrientedBox:
             h=float(h0) + 2 * padding_px,
             angle_deg=float(angle),
         )
+
+
+def union_area_px2(boxes: list["OrientedBox"]) -> float:
+    """Area (px^2) of the UNION of the given oriented boxes.
+
+    Overlapping regions are counted ONCE (not summed). Every box is rasterized
+    onto a tight binary canvas (the bounding region of all corners) and the
+    covered pixels are counted, so rotation and arbitrary overlap are handled
+    exactly at pixel resolution. Returns 0.0 for an empty list.
+    """
+    if not boxes:
+        return 0.0
+    corners = [b.corners() for b in boxes]
+    pts = np.vstack(corners)
+    x0 = int(np.floor(pts[:, 0].min()))
+    y0 = int(np.floor(pts[:, 1].min()))
+    x1 = int(np.ceil(pts[:, 0].max()))
+    y1 = int(np.ceil(pts[:, 1].max()))
+    w, h = x1 - x0 + 1, y1 - y0 + 1
+    if w <= 0 or h <= 0:
+        return 0.0
+    canvas = np.zeros((h, w), dtype=np.uint8)
+    origin = np.array([x0, y0], dtype=np.float32)
+    for c in corners:
+        poly = np.round(c - origin).astype(np.int32)
+        cv2.fillConvexPoly(canvas, poly, 1)
+    return float(np.count_nonzero(canvas))
