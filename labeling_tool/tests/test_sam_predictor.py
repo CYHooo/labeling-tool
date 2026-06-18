@@ -94,3 +94,28 @@ def test_try_load_returns_none_when_models_missing(tmp_path):
     missing_enc = tmp_path / "nope_enc.onnx"
     missing_dec = tmp_path / "nope_dec.onnx"
     assert MobileSamPredictor.try_load(missing_enc, missing_dec) is None
+
+
+def test_select_mask_rejects_whole_image_blowup():
+    import numpy as np
+    from labeling_tool.core.sam.predictor import select_mask
+    H = W = 10
+    big = np.full((H, W), 5.0)                       # whole image (area 1.0)
+    small = np.full((H, W), -5.0); small[2:5, 2:5] = 5.0   # 9 px
+    masks = np.stack([big, small])[None]             # (1,2,H,W)
+    iou = np.array([[0.99, 0.40]], np.float32)       # blow-up has higher iou
+    out = select_mask(masks, iou)
+    assert int((out > 0).sum()) == 9                 # tight region kept, not whole image
+    assert out[3, 3] == 255 and out[0, 0] == 0
+
+
+def test_select_mask_all_blowups_picks_smallest():
+    import numpy as np
+    from labeling_tool.core.sam.predictor import select_mask
+    H = W = 10
+    a = np.full((H, W), 5.0)                          # area 1.0
+    b = np.full((H, W), -5.0); b[0:9, :] = 5.0        # area 0.9
+    masks = np.stack([a, b])[None]
+    iou = np.array([[0.9, 0.5]], np.float32)          # both > 0.85 -> smallest wins
+    out = select_mask(masks, iou)
+    assert abs(float((out > 0).mean()) - 0.9) < 1e-6

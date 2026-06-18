@@ -106,3 +106,25 @@ def test_sam_noop_without_predictor():
     c.set_sam_mode(True)
     c.mousePressEvent(_LeftClick(15, 15))      # must not raise
     assert not c.has_sam_preview()
+
+
+def test_undo_removes_last_point_and_repredicts():
+    c = _canvas()
+    c.set_sam_predictor(_FakePredictor())
+    c.set_sam_mode(True)
+    c.mousePressEvent(_LeftClick(15, 15))
+    c.mousePressEvent(_RightClick(40, 40))
+    assert c._sam_labels == [1, 0] and c.has_sam_preview()
+    assert c.undo_sam_point() is True          # drop the right-click
+    assert c._sam_labels == [1]
+    assert c.has_sam_preview()                  # still has the first point's preview
+
+
+def test_undo_last_point_clears_preview():
+    c = _canvas()
+    c.set_sam_predictor(_FakePredictor())
+    c.set_sam_mode(True)
+    c.mousePressEvent(_LeftClick(15, 15))
+    assert c.undo_sam_point() is True
+    assert c._sam_points == [] and not c.has_sam_preview()   # back to empty
+    assert c.undo_sam_point() is False         # nothing left to undo
