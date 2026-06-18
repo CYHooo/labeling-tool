@@ -20,6 +20,7 @@ TRANSLATIONS = {
         "btn_brush_reset":    "Reset to Loaded Mask",
         "btn_brush_save":     "Save Mask",
         "lbl_brush_size":     "Brush size (px):",
+        "btn_fine_annotation": "Fine annotation (keep width)",
         "brush_hint":
             "Left drag    Paint (writes current category channel)\n"
             "Right drag   Erase (current category only)\n"
@@ -98,6 +99,7 @@ TRANSLATIONS = {
         "btn_brush_reset":    "恢复为加载的 mask",
         "btn_brush_save":     "保存 mask",
         "lbl_brush_size":     "画笔大小 (px):",
+        "btn_fine_annotation": "精细标注 (保留粗细)",
         "brush_hint":
             "左键拖拽    绘制(写入当前类别通道)\n"
             "右键拖拽    擦除(仅当前类别)\n"
@@ -176,6 +178,7 @@ TRANSLATIONS = {
         "btn_brush_reset":    "로드된 마스크로 복원",
         "btn_brush_save":     "마스크 저장",
         "lbl_brush_size":     "브러시 크기 (px):",
+        "btn_fine_annotation": "정밀 주석 (굵기 유지)",
         "brush_hint":
             "왼쪽 드래그   그리기 (현재 카테고리 채널)\n"
             "오른쪽 드래그 지우기 (현재 카테고리만)\n"

@@ -128,6 +128,7 @@ class MainWindow(QMainWindow):
             self.tr_("btn_brush_off") if self.canvas.brush_mode
             else self.tr_("btn_brush_on"))
         self._lbl_brush_size.setText(self.tr_("lbl_brush_size"))
+        self._btn_fine_annotation.setText(self.tr_("btn_fine_annotation"))
         self._btn_brush_reset.setText(self.tr_("btn_brush_reset"))
         self._btn_brush_save.setText(self.tr_("btn_brush_save"))
 
@@ -221,6 +222,11 @@ class MainWindow(QMainWindow):
         self._btn_brush_toggle.setText(
             self.tr_("btn_brush_off") if checked else self.tr_("btn_brush_on"))
         self.canvas.update()
+
+    def _on_fine_annotation_toggle(self, checked: bool):
+        """Fine mode: keep the crack stroke's painted thickness (skip the 1px
+        thinning) so width metrics reflect the real drawn width."""
+        self.canvas.fine_annotation = bool(checked)
 
     # ------------------------------------------------------------------
     # Manual scale measurement (fallback when ArUco is not auto-detected)

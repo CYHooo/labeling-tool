@@ -41,6 +41,10 @@ class ImageCanvas(QWidget):
         self.current_category: str = DEFAULT_CATEGORY
         self.brush_mode: bool = False
         self.brush_size: int = BRUSH_DEFAULT_SIZE
+        # Fine-annotation: when True a crack stroke keeps its painted thickness
+        # (no 1px thinning on mouse release), so width metrics reflect the real
+        # drawn width. Default False = the original 1px-centerline behaviour.
+        self.fine_annotation: bool = False
 
         self._brushing: bool = False
         self._brush_erase: bool = False
@@ -488,8 +492,10 @@ class ImageCanvas(QWidget):
             self._brush_last_pt = None
             # Coarse-annotation: collapse the just-drawn crack stroke to a
             # 1-px centerline (only this stroke; existing crack untouched).
+            # In fine-annotation mode this thinning is skipped, so the painted
+            # thickness — already in brush_mask_crack — is kept as-is.
             if self._crack_stroke is not None:
-                if self.brush_mask_crack is not None:
+                if self.brush_mask_crack is not None and not self.fine_annotation:
                     thin_stroke_into(self.brush_mask_crack, self._crack_stroke)
                     self._touch_mask()
                     self.mask_edited.emit()
