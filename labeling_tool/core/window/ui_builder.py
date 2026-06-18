@@ -10,11 +10,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGroupBox,
     QComboBox, QButtonGroup, QListWidget, QSpinBox, QSlider, QScrollArea,
-    QCheckBox, QShortcut,
+    QCheckBox,
 )
 
 from labeling_tool.core.constants import BRUSH_DEFAULT_SIZE, BRUSH_MAX_SIZE
@@ -155,13 +154,10 @@ def build_brush_group(window: "MainWindow") -> QGroupBox:
     window._btn_sam_undo.setEnabled(False)
     gbr.addWidget(window._btn_sam_toggle)
     sam_row = QHBoxLayout()
-    sam_row.addWidget(window._btn_sam_undo)
     sam_row.addWidget(window._btn_sam_commit)
     sam_row.addWidget(window._btn_sam_cancel)
     gbr.addLayout(sam_row)
-    # ESC = undo the last SAM point (no-op outside SAM mode; guarded in handler)
-    window._sam_undo_shortcut = QShortcut(QKeySequence(Qt.Key_Escape), window)
-    window._sam_undo_shortcut.activated.connect(window._on_sam_undo)
+    gbr.addWidget(window._btn_sam_undo)        # below confirm/cancel
     return window._grp_brush
 
 

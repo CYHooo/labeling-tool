@@ -537,6 +537,8 @@ class MainWindow(QMainWindow):
         self.canvas.mask_edited.connect(self._on_mask_edited)
         self.canvas.bbox_edited.connect(self._on_bbox_edited)
         self.canvas.measure_completed.connect(self._on_measure_completed)
+        self.canvas.sam_point_undone.connect(
+            lambda: self.status.showMessage(self.tr_("sam_undone")))
 
         panel_scroll = build_side_panel(self)
 
