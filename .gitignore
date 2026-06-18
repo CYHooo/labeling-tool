@@ -14,3 +14,6 @@ __pycache__/
 
 # 로그
 *.log
+
+# SAM 체크포인트(중간 산출물, 런타임 불필요)
+labeling_tool/models/sam/*.pt
