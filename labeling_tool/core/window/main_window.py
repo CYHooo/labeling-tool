@@ -121,6 +121,9 @@ class MainWindow(QMainWindow):
         self._grp_category.setTitle(self.tr_("lbl_category"))
         self._btn_cat_crack.setText(self.tr_("cat_crack"))
         self._btn_cat_spalling.setText(self.tr_("cat_spalling"))
+        self._btn_sam_toggle.setText(self.tr_("btn_sam"))
+        self._btn_sam_commit.setText(self.tr_("btn_sam_commit"))
+        self._btn_sam_cancel.setText(self.tr_("btn_sam_cancel"))
         self._refresh_path_labels()
 
         self._grp_brush.setTitle(self.tr_("group_brush"))
@@ -218,6 +221,8 @@ class MainWindow(QMainWindow):
             self._btn_bbox_toggle.setChecked(False)
         if checked and self._btn_measure.isChecked():
             self._btn_measure.setChecked(False)   # leave measure mode
+        if checked and self.canvas.sam_mode:
+            self._btn_sam_toggle.setChecked(False)
         self.canvas.brush_mode = bool(checked)
         self._btn_brush_toggle.setText(
             self.tr_("btn_brush_off") if checked else self.tr_("btn_brush_on"))
@@ -238,6 +243,8 @@ class MainWindow(QMainWindow):
                 self._btn_brush_toggle.setChecked(False)
             if self.canvas.bbox_mode:
                 self._btn_bbox_toggle.setChecked(False)
+            if self.canvas.sam_mode:
+                self._btn_sam_toggle.setChecked(False)
         self._btn_measure.setText(
             self.tr_("btn_measure_cancel") if checked
             else self.tr_("btn_measure"))
@@ -440,6 +447,8 @@ class MainWindow(QMainWindow):
             self._btn_brush_toggle.setChecked(False)
         if checked and self._btn_measure.isChecked():
             self._btn_measure.setChecked(False)
+        if checked and self.canvas.sam_mode:
+            self._btn_sam_toggle.setChecked(False)
         self.canvas.set_bbox_mode(bool(checked))
         self._btn_bbox_toggle.setText(
             self.tr_("btn_bbox_off") if checked else self.tr_("btn_bbox_on"))
@@ -479,6 +488,31 @@ class MainWindow(QMainWindow):
         fname = self.image_files[self.current_idx]
         if not self._bbox_edited.get(fname):
             self._bbox_edited[fname] = True
+
+    # ------------------------------------------------------------------
+    # SAM callbacks
+    # ------------------------------------------------------------------
+    def _on_sam_toggle(self, checked: bool):
+        # Mutually exclusive with brush / bbox / measure.
+        if checked:
+            if self.canvas.brush_mode:
+                self._btn_brush_toggle.setChecked(False)
+            if self.canvas.bbox_mode:
+                self._btn_bbox_toggle.setChecked(False)
+            if self._btn_measure.isChecked():
+                self._btn_measure.setChecked(False)
+        self.canvas.set_sam_mode(bool(checked))
+        self._btn_sam_commit.setEnabled(bool(checked))
+        self._btn_sam_cancel.setEnabled(bool(checked))
+        if checked:
+            self.status.showMessage(self.tr_("sam_hint"))
+
+    def _on_sam_commit(self):
+        if self.canvas.commit_sam():
+            self.status.showMessage(self.tr_("sam_committed"))
+
+    def _on_sam_cancel(self):
+        self.canvas.cancel_sam()
 
     # ------------------------------------------------------------------
     # UI construction

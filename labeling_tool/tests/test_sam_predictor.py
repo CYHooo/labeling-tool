@@ -79,3 +79,18 @@ def test_predictor_end_to_end_with_fake_sessions():
     scale = 1024 / 60
     assert abs(dec.last_feed["point_coords"][0, 0, 0] - 30 * scale) < 0.5
     assert abs(dec.last_feed["point_coords"][0, 0, 1] - 20 * scale) < 0.5
+
+
+def test_default_model_paths_point_into_models_sam():
+    from labeling_tool.core.sam import predictor as P
+    enc, dec = P.default_model_paths()
+    assert enc.name == "mobile_sam_encoder.onnx"
+    assert dec.name == "mobile_sam_decoder.onnx"
+    assert enc.parent.name == "sam" and enc.parent.parent.name == "models"
+
+
+def test_try_load_returns_none_when_models_missing(tmp_path):
+    from labeling_tool.core.sam.predictor import MobileSamPredictor
+    missing_enc = tmp_path / "nope_enc.onnx"
+    missing_dec = tmp_path / "nope_dec.onnx"
+    assert MobileSamPredictor.try_load(missing_enc, missing_dec) is None

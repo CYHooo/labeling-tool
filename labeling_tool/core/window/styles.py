@@ -178,6 +178,13 @@ STYLESHEET = """
             font-weight: 600;
         }
         QPushButton#measureToggle:checked:hover { background-color: #cc972f; }
+        QPushButton#samToggle:checked {
+            background-color: #2a9d8f;
+            border-color: #2a9d8f;
+            color: #ffffff;
+            font-weight: 600;
+        }
+        QPushButton#samToggle:checked:hover { background-color: #33b3a3; }
         QPushButton#showHighlightToggle:checked {
             background-color: #caa42e;
             border-color: #caa42e;

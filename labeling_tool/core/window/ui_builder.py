@@ -138,6 +138,22 @@ def build_brush_group(window: "MainWindow") -> QGroupBox:
     action_row.addWidget(window._btn_brush_reset)
     action_row.addWidget(window._btn_brush_save)
     gbr.addLayout(action_row)
+
+    window._btn_sam_toggle = QPushButton(window.tr_("btn_sam"))
+    window._btn_sam_toggle.setObjectName("samToggle")
+    window._btn_sam_toggle.setCheckable(True)
+    window._btn_sam_toggle.toggled.connect(window._on_sam_toggle)
+    window._btn_sam_commit = QPushButton(window.tr_("btn_sam_commit"))
+    window._btn_sam_commit.clicked.connect(window._on_sam_commit)
+    window._btn_sam_cancel = QPushButton(window.tr_("btn_sam_cancel"))
+    window._btn_sam_cancel.clicked.connect(window._on_sam_cancel)
+    window._btn_sam_commit.setEnabled(False)
+    window._btn_sam_cancel.setEnabled(False)
+    gbr.addWidget(window._btn_sam_toggle)
+    sam_row = QHBoxLayout()
+    sam_row.addWidget(window._btn_sam_commit)
+    sam_row.addWidget(window._btn_sam_cancel)
+    gbr.addLayout(sam_row)
     return window._grp_brush
 
 

@@ -8,6 +8,7 @@ lazy onnxruntime import.
 
 from __future__ import annotations
 
+from pathlib import Path
 import numpy as np
 import cv2
 
@@ -65,6 +66,21 @@ class MobileSamPredictor:
         dec = ort.InferenceSession(str(decoder_path), providers=opt)
         return cls(enc, dec)
 
+    @classmethod
+    def try_load(cls, encoder_path=None, decoder_path=None):
+        """Build a predictor, or return None if onnxruntime/models are missing
+        or fail to load (so the GUI can disable SAM gracefully)."""
+        if encoder_path is None or decoder_path is None:
+            encoder_path, decoder_path = default_model_paths()
+        if not (Path(encoder_path).exists() and Path(decoder_path).exists()):
+            return None
+        try:
+            return cls.from_paths(encoder_path, decoder_path)
+        except Exception:
+            from labeling_tool.logging_setup import vlog
+            vlog().exception("SAM predictor load failed")
+            return None
+
     def set_image(self, bgr: np.ndarray) -> None:
         arr, orig_hw, scale = preprocess_image(bgr)
         self._orig_hw = orig_hw
@@ -91,3 +107,14 @@ class MobileSamPredictor:
         }
         masks, iou, _ = self._dec.run(None, feed)
         return select_mask(masks, iou)
+
+
+def default_model_paths() -> tuple[Path, Path]:
+    """(encoder, decoder) ONNX paths under labeling_tool/models/sam/."""
+    base = Path(__file__).resolve().parent.parent.parent / "models" / "sam"
+    return base / "mobile_sam_encoder.onnx", base / "mobile_sam_decoder.onnx"
+
+
+def models_available() -> bool:
+    enc, dec = default_model_paths()
+    return enc.exists() and dec.exists()

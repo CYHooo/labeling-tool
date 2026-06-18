@@ -47,6 +47,22 @@ class ViewerMainWindow(CoreMainWindow):
         self._reload_data()
 
         self._add_upload_button()
+        self._init_sam()
+
+    def _init_sam(self):
+        """Load the MobileSAM predictor and wire it to the canvas; if it's
+        unavailable (onnxruntime/models missing), disable the SAM toggle."""
+        from labeling_tool.core.sam.predictor import MobileSamPredictor
+        predictor = None
+        try:
+            predictor = MobileSamPredictor.try_load()
+        except Exception:
+            predictor = None
+        self.canvas.set_sam_predictor(predictor)
+        btn = getattr(self, "_btn_sam_toggle", None)
+        if btn is not None and predictor is None:
+            btn.setEnabled(False)
+            btn.setToolTip(self.tr_("sam_unavailable"))
 
     # ------------------------------------------------------------------
     def _add_upload_button(self):
