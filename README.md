@@ -12,8 +12,9 @@ EC2에 다시 업로드합니다.
 
 - **Python 3.10 이상** (타입 표기 `X | None` 사용)
 - OS: Windows / macOS / Linux (PyQt5 GUI)
-- 패키지: `PyQt5`, `opencv-python`, `numpy`, `scikit-image`, `requests`
-  (torch / SAM 등 무거운 의존성은 **필요 없습니다**)
+- 패키지: `PyQt5`, `opencv-python`, `numpy`, `scikit-image`, `requests`, `onnxruntime`
+  (SAM 추론은 `onnxruntime`(CPU)로 동작하며 **torch 는 필요 없습니다**. ONNX 모델은
+  저장소에 포함되어 clone 시 바로 사용 가능 — 모델 생성은 `requirements-export.txt` 참고)
 
 ---
 
@@ -77,6 +78,11 @@ python -m labeling_tool.app
   **합집합(겹친 부분 1회만)** 으로 계산됩니다.
 - **하이라이트 / 15cm 경계 표시**: 두 토글로 캔버스 오버레이를 켜고 끕니다 — 균열 둘레의
   **노란 광륜**, 보수 구역 둘레의 **청록 15cm 경계선** (웹 뷰어용 보조 마스크 미리보기).
+- **SAM 분할 (박리)**: 「SAM 분할」 토글을 켜고 박리 영역을 **좌클릭(포함)·우클릭(제외)** 하면
+  MobileSAM 이 영역 마스크를 즉시 예측해 **초록 미리보기**로 보여줍니다. **「확정」** 시 박리
+  레이어에 기록, **「취소」** 시 버립니다 (브러시와 보완 — SAM 으로 대략 잡고 브러시로 다듬기).
+  로컬 `onnxruntime` 추론(첫 클릭 시 이미지 인코딩 ~0.5–1.5s, 이후 즉시). 브러시/BBox/측정과
+  상호 배타적이며, `models/sam/*.onnx` 또는 onnxruntime 이 없으면 토글이 자동 비활성화됩니다.
 - 저장은 자동(이미지 전환 시) 또는 **저장 [S]** 버튼. 마스크는 `Labeling/`, 파생 마스크
   (하이라이트·15cm 경계)는 `HighLight/`·`Repair15/` 에 저장됩니다. 파생 마스크 생성은
   **백그라운드 스레드**에서 처리되어 저장·이미지 전환 시 화면이 멈추지 않습니다.
