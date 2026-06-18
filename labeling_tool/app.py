@@ -24,6 +24,10 @@ from labeling_tool.api.client import ViewerApiClient
 
 def main() -> int:
     app = QApplication(sys.argv)
+    # Apply the dark theme app-wide so the login/fetch dialogs and every
+    # QMessageBox match the main window (set before the first dialog shows).
+    from labeling_tool.core.window.styles import STYLESHEET
+    app.setStyleSheet(STYLESHEET)
 
     base = key = ""
     workspace = manifest = None
