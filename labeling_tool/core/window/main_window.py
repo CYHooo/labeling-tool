@@ -128,7 +128,7 @@ class MainWindow(QMainWindow):
             self.tr_("btn_brush_off") if self.canvas.brush_mode
             else self.tr_("btn_brush_on"))
         self._lbl_brush_size.setText(self.tr_("lbl_brush_size"))
-        self._btn_fine_annotation.setText(self.tr_("btn_fine_annotation"))
+        self._chk_fine_annotation.setText(self.tr_("btn_fine_annotation"))
         self._btn_brush_reset.setText(self.tr_("btn_brush_reset"))
         self._btn_brush_save.setText(self.tr_("btn_brush_save"))
 

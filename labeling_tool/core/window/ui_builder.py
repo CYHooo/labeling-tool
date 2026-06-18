@@ -13,6 +13,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGroupBox,
     QComboBox, QButtonGroup, QListWidget, QSpinBox, QSlider, QScrollArea,
+    QCheckBox,
 )
 
 from labeling_tool.core.constants import BRUSH_DEFAULT_SIZE, BRUSH_MAX_SIZE
@@ -124,10 +125,9 @@ def build_brush_group(window: "MainWindow") -> QGroupBox:
     size_row.addWidget(window._spn_brush_size)
     gbr.addLayout(size_row)
 
-    window._btn_fine_annotation = QPushButton(window.tr_("btn_fine_annotation"))
-    window._btn_fine_annotation.setCheckable(True)
-    window._btn_fine_annotation.toggled.connect(window._on_fine_annotation_toggle)
-    gbr.addWidget(window._btn_fine_annotation)
+    window._chk_fine_annotation = QCheckBox(window.tr_("btn_fine_annotation"))
+    window._chk_fine_annotation.toggled.connect(window._on_fine_annotation_toggle)
+    gbr.addWidget(window._chk_fine_annotation)
 
     action_row = QHBoxLayout()
     window._btn_brush_reset = QPushButton(window.tr_("btn_brush_reset"))
