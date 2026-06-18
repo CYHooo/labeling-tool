@@ -124,6 +124,11 @@ def build_brush_group(window: "MainWindow") -> QGroupBox:
     size_row.addWidget(window._spn_brush_size)
     gbr.addLayout(size_row)
 
+    window._btn_fine_annotation = QPushButton(window.tr_("btn_fine_annotation"))
+    window._btn_fine_annotation.setCheckable(True)
+    window._btn_fine_annotation.toggled.connect(window._on_fine_annotation_toggle)
+    gbr.addWidget(window._btn_fine_annotation)
+
     action_row = QHBoxLayout()
     window._btn_brush_reset = QPushButton(window.tr_("btn_brush_reset"))
     window._btn_brush_save = QPushButton(window.tr_("btn_brush_save"))
