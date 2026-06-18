@@ -84,6 +84,15 @@ class ImageCanvas(QWidget):
         self.show_highlight: bool = False
         self.show_repair15: bool = False
 
+        # ----- SAM (MobileSAM point-select for spalling) -----
+        self.sam_mode: bool = False
+        self._sam_predictor = None                 # injected; None = unavailable
+        self._origin_bgr: np.ndarray | None = None  # kept for predictor.set_image
+        self._sam_points: list[tuple[int, int]] = []
+        self._sam_labels: list[int] = []
+        self._sam_preview: np.ndarray | None = None
+        self._sam_image_set: bool = False           # encoder run for current image
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -93,6 +102,7 @@ class ImageCanvas(QWidget):
         h, w = origin_bgr.shape[:2]
         self.viewport.set_image_size(w, h)
         self._pixmap = numpy_to_qpixmap(origin_bgr)
+        self._origin_bgr = origin_bgr.copy()
         self.viewport.fit_to(self.width(), self.height())
 
         self.brush_mask_crack = (
@@ -113,6 +123,7 @@ class ImageCanvas(QWidget):
         self.highlight_mask = None
         self._highlight_halo = None
         self.repair15_contours = None
+        self._clear_sam_state()
         self._touch_mask()
         self.update()
 
@@ -168,6 +179,57 @@ class ImageCanvas(QWidget):
             self.setCursor(Qt.CrossCursor)
         else:
             self.unsetCursor()
+        self.update()
+
+    def set_sam_predictor(self, predictor) -> None:
+        """Inject the MobileSAM predictor (None when unavailable)."""
+        self._sam_predictor = predictor
+
+    def set_sam_mode(self, enabled: bool) -> None:
+        self.sam_mode = bool(enabled)
+        if not enabled:
+            self._clear_sam_state()
+        self.update()
+
+    def _clear_sam_state(self) -> None:
+        self._sam_points = []
+        self._sam_labels = []
+        self._sam_preview = None
+        self._sam_image_set = False
+
+    def has_sam_preview(self) -> bool:
+        return self._sam_preview is not None
+
+    def _sam_add_point(self, ix: int, iy: int, label: int) -> None:
+        if self._sam_predictor is None or self._origin_bgr is None:
+            return
+        if not self._sam_image_set:
+            self._sam_predictor.set_image(self._origin_bgr)   # lazy encode
+            self._sam_image_set = True
+        self._sam_points.append((int(ix), int(iy)))
+        self._sam_labels.append(int(label))
+        try:
+            self._sam_preview = self._sam_predictor.predict(
+                self._sam_points, self._sam_labels)
+        except Exception:
+            from labeling_tool.logging_setup import vlog
+            vlog().exception("SAM predict failed")
+            self._sam_preview = None
+        self.update()
+
+    def commit_sam(self) -> bool:
+        """OR the preview into the spalling layer; returns True if anything written."""
+        if self._sam_preview is None or self.brush_mask_spalling is None:
+            return False
+        self.brush_mask_spalling[self._sam_preview > 0] = 255
+        self._clear_sam_state()
+        self._touch_mask()
+        self.mask_edited.emit()
+        self.update()
+        return True
+
+    def cancel_sam(self) -> None:
+        self._clear_sam_state()
         self.update()
 
     def clear_measurement(self) -> None:
@@ -248,6 +310,16 @@ class ImageCanvas(QWidget):
                 and self.repair15_contours is not None):
             self._paint_repair15(painter)
 
+        if (self._pixmap is not None and self.sam_mode
+                and self._sam_preview is not None):
+            from labeling_tool.core.canvas.overlay_painter import (
+                paint_single_color_overlay,
+            )
+            paint_single_color_overlay(
+                painter, self.viewport, self.width(), self.height(),
+                self._sam_preview, (60, 220, 90), alpha=110)
+            self._paint_sam_points(painter)
+
         # bbox overlay (always visible, including when bbox_mode is off)
         if self._pixmap is not None:
             paint_bboxes(
@@ -288,6 +360,16 @@ class ImageCanvas(QWidget):
             self._overlay_pixmap = pm
             self._overlay_key = key
         painter.drawPixmap(0, 0, self._overlay_pixmap)
+
+    def _paint_sam_points(self, painter: QPainter):
+        from PyQt5.QtGui import QColor, QPen
+        from PyQt5.QtCore import QPointF
+        for (ix, iy), lab in zip(self._sam_points, self._sam_labels):
+            wx, wy = self.viewport.image_to_widget(ix, iy)
+            color = QColor(60, 220, 90) if lab == 1 else QColor(230, 70, 70)
+            painter.setPen(QPen(QColor(20, 20, 20), 2))
+            painter.setBrush(color)
+            painter.drawEllipse(QPointF(wx, wy), 5, 5)
 
     def _paint_repair15(self, painter: QPainter):
         """Draw the 15cm boundary as cyan outline polylines (line only)."""
@@ -390,6 +472,13 @@ class ImageCanvas(QWidget):
             self._pan_start_widget = (event.x(), event.y())
             self._pan_start_offset = QPoint(self.viewport.offset)
             self.setCursor(Qt.ClosedHandCursor)
+            return
+
+        if self.sam_mode:
+            if event.button() == Qt.LeftButton:
+                self._sam_add_point(ix, iy, 1)     # foreground
+            elif event.button() == Qt.RightButton:
+                self._sam_add_point(ix, iy, 0)     # background
             return
 
         if self.measure_mode:
