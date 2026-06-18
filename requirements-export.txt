@@ -1,0 +1,6 @@
+# ONNX 모델을 직접 만들 때만 필요 (scripts/export_mobilesam_onnx.py).
+# 일반 실행에는 필요 없습니다.
+torch>=1.13
+onnx>=1.14
+# MobileSAM (vit_t) — 공식 저장소에서 설치:
+#   pip install git+https://github.com/ChaoningZhang/MobileSAM.git

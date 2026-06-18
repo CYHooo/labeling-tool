@@ -4,3 +4,5 @@ opencv-python>=4.5
 numpy>=1.21
 scikit-image>=0.19
 requests>=2.25
+# SAM 추론(로컬 ONNX, torch 불필요)
+onnxruntime>=1.16
