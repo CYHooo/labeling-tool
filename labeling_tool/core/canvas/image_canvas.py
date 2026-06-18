@@ -208,6 +208,14 @@ class ImageCanvas(QWidget):
             self._sam_image_set = True
         self._sam_points.append((int(ix), int(iy)))
         self._sam_labels.append(int(label))
+        self._sam_recompute()
+
+    def _sam_recompute(self) -> None:
+        """Re-predict the preview from the current points (or clear if none)."""
+        if not self._sam_points:
+            self._sam_preview = None
+            self.update()
+            return
         try:
             self._sam_preview = self._sam_predictor.predict(
                 self._sam_points, self._sam_labels)
@@ -216,6 +224,16 @@ class ImageCanvas(QWidget):
             vlog().exception("SAM predict failed")
             self._sam_preview = None
         self.update()
+
+    def undo_sam_point(self) -> bool:
+        """Drop the last clicked point and re-predict; returns True if a point
+        was removed. Recovers from a click that selected too much."""
+        if not self._sam_points:
+            return False
+        self._sam_points.pop()
+        self._sam_labels.pop()
+        self._sam_recompute()
+        return True
 
     def commit_sam(self) -> bool:
         """OR the preview into the spalling layer; returns True if anything written."""

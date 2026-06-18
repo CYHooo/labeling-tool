@@ -43,10 +43,29 @@ def apply_coords(points_xy: np.ndarray, scale: float) -> np.ndarray:
     return points_xy.astype(np.float32) * float(scale)
 
 
-def select_mask(masks: np.ndarray, iou: np.ndarray) -> np.ndarray:
-    """Pick the highest-iou mask, threshold logits>0 -> uint8 0/255 (HxW)."""
-    best = int(np.argmax(iou[0]))
-    logits = masks[0, best]
+SAM_MAX_AREA_FRAC = 0.85   # candidates covering more of the image are blow-ups
+
+
+def select_mask(masks: np.ndarray, iou: np.ndarray,
+                max_area_frac: float = SAM_MAX_AREA_FRAC) -> np.ndarray:
+    """Pick the best mask, rejecting whole-image blow-ups; threshold -> 0/255.
+
+    SAM returns 3 candidates per click; on a small/ambiguous target the
+    highest-iou one is often a mask covering (almost) the whole image. Discard
+    candidates whose foreground area exceeds ``max_area_frac`` of the image and
+    keep the highest-iou survivor (the tightest good region). If every candidate
+    is a blow-up, fall back to the smallest-area one.
+    """
+    cand = masks[0]                                 # (num, H, W) logits
+    scores = np.asarray(iou[0]).reshape(-1)
+    area_frac = np.array([float((cand[i] > 0.0).mean())
+                          for i in range(cand.shape[0])])
+    keep = np.where(area_frac <= max_area_frac)[0]
+    if keep.size:
+        best = int(keep[int(np.argmax(scores[keep]))])
+    else:
+        best = int(np.argmin(area_frac))            # all huge -> smallest
+    logits = cand[best]
     return np.where(logits > 0.0, np.uint8(255), np.uint8(0)).astype(np.uint8)
 
 

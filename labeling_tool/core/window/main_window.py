@@ -124,6 +124,7 @@ class MainWindow(QMainWindow):
         self._btn_sam_toggle.setText(self.tr_("btn_sam"))
         self._btn_sam_commit.setText(self.tr_("btn_sam_commit"))
         self._btn_sam_cancel.setText(self.tr_("btn_sam_cancel"))
+        self._btn_sam_undo.setText(self.tr_("btn_sam_undo"))
         self._refresh_path_labels()
 
         self._grp_brush.setTitle(self.tr_("group_brush"))
@@ -504,6 +505,7 @@ class MainWindow(QMainWindow):
         self.canvas.set_sam_mode(bool(checked))
         self._btn_sam_commit.setEnabled(bool(checked))
         self._btn_sam_cancel.setEnabled(bool(checked))
+        self._btn_sam_undo.setEnabled(bool(checked))
         if checked:
             self.status.showMessage(self.tr_("sam_hint"))
 
@@ -513,6 +515,11 @@ class MainWindow(QMainWindow):
 
     def _on_sam_cancel(self):
         self.canvas.cancel_sam()
+
+    def _on_sam_undo(self):
+        """ESC / 되돌리기: drop the last SAM point (no-op outside SAM mode)."""
+        if self.canvas.sam_mode and self.canvas.undo_sam_point():
+            self.status.showMessage(self.tr_("sam_undone"))
 
     # ------------------------------------------------------------------
     # UI construction
