@@ -14,6 +14,11 @@ from labeling_tool.api.errors import ViewerApiError
 from labeling_tool.logging_setup import vlog
 
 DEFAULT_TIMEOUT = 30
+# register-annotations processes a whole batch (up to 33 photos) server-side,
+# which routinely takes longer than the 30s default. Use a generous read
+# timeout there so a slow-but-successful server response isn't mistaken for a
+# failure (the server may have committed the batch already). (connect, read).
+REGISTER_TIMEOUT = (10, 180)
 
 
 class ViewerApiClient:
@@ -100,12 +105,21 @@ class ViewerApiClient:
     def register_annotations(self, *, edit_batch_id: str, session_id: int,
                              items: list[dict]) -> dict:
         url = f"{self.base_url}/api/viewer/register-annotations/"
-        t = time.perf_counter()
-        resp = self._s.post(url, json={
+        payload = {
             "editBatchId": edit_batch_id,
             "sessionId": session_id,
             "items": items,
-        }, timeout=self.timeout)
+        }
+        t = time.perf_counter()
+        try:
+            resp = self._s.post(url, json=payload, timeout=REGISTER_TIMEOUT)
+        except requests.exceptions.ReadTimeout:
+            # register is idempotent (same editBatchId -> 200, no reprocessing),
+            # so a slow/lost first response is safe to retry once instead of
+            # reporting a false failure for a batch the server may have committed.
+            vlog().warning("register read timeout; retrying once "
+                           "(idempotent editBatchId=%s)", edit_batch_id)
+            resp = self._s.post(url, json=payload, timeout=REGISTER_TIMEOUT)
         self._raise_for_error(resp)
         data = resp.json()
         vlog().info("register items=%d -> %s (%.0f ms)",

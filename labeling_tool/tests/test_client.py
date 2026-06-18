@@ -86,3 +86,33 @@ def test_register_annotations_v4():
     assert out["status"] == "saved"
     body = responses.calls[0].request.body
     assert b"editBatchId" in body
+
+
+@responses.activate
+def test_register_retries_once_on_read_timeout():
+    """A slow/lost first register response retries (idempotent) instead of failing."""
+    import requests as _rq
+    url = f"{BASE}/api/viewer/register-annotations/"
+    responses.add(responses.POST, url, body=_rq.exceptions.ReadTimeout("slow"))
+    responses.add(responses.POST, url,
+                  json={"sessionId": 43, "status": "saved", "updatedPhotoCount": 1},
+                  status=201)
+    out = _client().register_annotations(
+        edit_batch_id="b1", session_id=43,
+        items=[{"timestamp": 1, "maskS3Key": "k", "highlightS3Key": "h",
+                "repair15S3Key": "r", "pxPerCm": 10.0, "scaleSource": "aruco",
+                "repairAreas": [], "crackMetrics": {}}])
+    assert out["status"] == "saved"
+    assert len(responses.calls) == 2          # first timed out, retried once
+
+
+@responses.activate
+def test_register_read_timeout_propagates_if_retry_also_times_out():
+    import requests as _rq
+    url = f"{BASE}/api/viewer/register-annotations/"
+    responses.add(responses.POST, url, body=_rq.exceptions.ReadTimeout("slow"))
+    responses.add(responses.POST, url, body=_rq.exceptions.ReadTimeout("slow again"))
+    import pytest
+    with pytest.raises(_rq.exceptions.ReadTimeout):
+        _client().register_annotations(edit_batch_id="b1", session_id=43, items=[])
+    assert len(responses.calls) == 2
