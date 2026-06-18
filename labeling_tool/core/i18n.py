@@ -84,6 +84,7 @@ TRANSLATIONS = {
         "btn_sam_cancel":  "Cancel",
         "sam_hint":        "Left-click = include, right-click = exclude; Confirm writes the region to spalling.",
         "sam_committed":   "SAM region written to spalling.",
+        "sam_unavailable": "SAM unavailable (onnxruntime or models/sam/*.onnx missing).",
     },
     "zh": {
         "window_title":       "掩码编辑标注工具",
@@ -168,6 +169,7 @@ TRANSLATIONS = {
         "btn_sam_cancel":  "取消",
         "sam_hint":        "左键=加入、右键=排除;确认将区域写入剥离层。",
         "sam_committed":   "SAM 区域已写入剥离层。",
+        "sam_unavailable": "SAM 不可用(缺 onnxruntime 或 models/sam/*.onnx)。",
     },
     "ko": {
         "window_title":       "마스크 편집 라벨링 도구",
@@ -252,6 +254,7 @@ TRANSLATIONS = {
         "btn_sam_cancel":  "취소",
         "sam_hint":        "좌클릭=포함, 우클릭=제외; 확정 시 영역을 박리로 기록합니다.",
         "sam_committed":   "SAM 영역을 박리에 기록했습니다.",
+        "sam_unavailable": "SAM 사용 불가 (onnxruntime 또는 models/sam/*.onnx 없음).",
     },
 }
 LANG_DISPLAY_NAMES = {"en": "English", "zh": "中文", "ko": "한국어"}
