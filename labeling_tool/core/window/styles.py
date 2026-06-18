@@ -1,7 +1,7 @@
 """Dark theme stylesheet for the main window."""
 
 STYLESHEET = """
-        QMainWindow, QWidget#sidePanel {
+        QMainWindow, QDialog, QWidget#sidePanel {
             background-color: #1f2329;
             color: #e0e0e0;
         }
@@ -65,12 +65,12 @@ STYLESHEET = """
         QPushButton#primaryAction:hover { background-color: #3b7be8; }
         QPushButton#primaryAction:pressed { background-color: #2257bd; }
         QPushButton#brushToggle:checked {
-            background-color: #3aa55a;
-            border-color: #3aa55a;
+            background-color: #2d6cdf;
+            border-color: #2d6cdf;
             color: #ffffff;
             font-weight: 600;
         }
-        QPushButton#brushToggle:checked:hover { background-color: #45b86a; }
+        QPushButton#brushToggle:checked:hover { background-color: #3b7be8; }
         QPushButton#catCrack:checked {
             background-color: #c75450;
             border-color: #c75450;
@@ -83,7 +83,7 @@ STYLESHEET = """
             color: #ffffff;
             font-weight: 600;
         }
-        QComboBox, QSpinBox {
+        QComboBox, QSpinBox, QLineEdit {
             background-color: #2d333d;
             color: #e0e0e0;
             border: 1px solid #3a4048;
@@ -91,6 +91,20 @@ STYLESHEET = """
             padding: 3px 6px;
             min-height: 22px;
         }
+        QCheckBox { color: #e0e0e0; spacing: 6px; padding: 2px 0; }
+        QCheckBox::indicator {
+            width: 16px; height: 16px;
+            border: 1px solid #3a4048;
+            border-radius: 3px;
+            background-color: #2d333d;
+        }
+        QCheckBox::indicator:hover { border-color: #5a6270; }
+        QCheckBox::indicator:checked {
+            background-color: #2d6cdf;
+            border-color: #2d6cdf;
+            image: none;
+        }
+        QCheckBox::indicator:checked:hover { background-color: #3b7be8; }
         QComboBox QAbstractItemView {
             background-color: #2d333d;
             color: #e0e0e0;
@@ -164,6 +178,20 @@ STYLESHEET = """
             font-weight: 600;
         }
         QPushButton#measureToggle:checked:hover { background-color: #cc972f; }
+        QPushButton#showHighlightToggle:checked {
+            background-color: #caa42e;
+            border-color: #caa42e;
+            color: #1f2329;
+            font-weight: 600;
+        }
+        QPushButton#showHighlightToggle:checked:hover { background-color: #d8b341; }
+        QPushButton#showRepair15Toggle:checked {
+            background-color: #2596be;
+            border-color: #2596be;
+            color: #ffffff;
+            font-weight: 600;
+        }
+        QPushButton#showRepair15Toggle:checked:hover { background-color: #2ba6d2; }
         QLabel#scaleLabel {
             color: #66d9e8;
             font-size: 13px;

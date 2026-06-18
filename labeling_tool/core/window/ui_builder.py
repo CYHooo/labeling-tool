@@ -176,12 +176,14 @@ def build_bbox_group(window: "MainWindow") -> QGroupBox:
     gb.addWidget(window._btn_bbox_toggle)
 
     window._btn_show_highlight = QPushButton(window.tr_("btn_show_highlight"))
+    window._btn_show_highlight.setObjectName("showHighlightToggle")
     window._btn_show_highlight.setCheckable(True)
     window._btn_show_highlight.setMinimumHeight(32)
     window._btn_show_highlight.toggled.connect(window._on_toggle_highlight)
     gb.addWidget(window._btn_show_highlight)
 
     window._btn_show_repair15 = QPushButton(window.tr_("btn_show_repair15"))
+    window._btn_show_repair15.setObjectName("showRepair15Toggle")
     window._btn_show_repair15.setCheckable(True)
     window._btn_show_repair15.setMinimumHeight(32)
     window._btn_show_repair15.toggled.connect(window._on_toggle_repair15)
