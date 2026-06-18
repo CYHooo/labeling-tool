@@ -25,6 +25,7 @@ class ImageCanvas(QWidget):
     mask_edited = pyqtSignal()
     bbox_edited = pyqtSignal()
     measure_completed = pyqtSignal(float)   # pixel distance of the 2-point line
+    sam_point_undone = pyqtSignal()         # Esc undid the last SAM point
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -249,6 +250,15 @@ class ImageCanvas(QWidget):
     def cancel_sam(self) -> None:
         self._clear_sam_state()
         self.update()
+
+    def keyPressEvent(self, event):
+        # Esc undoes the last SAM point (back out a click that grabbed too much).
+        if self.sam_mode and event.key() == Qt.Key_Escape:
+            if self.undo_sam_point():
+                self.sam_point_undone.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def clear_measurement(self) -> None:
         self._measure_points = []
