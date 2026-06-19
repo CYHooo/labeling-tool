@@ -517,9 +517,19 @@ class MainWindow(QMainWindow):
         self.canvas.cancel_sam()
 
     def _on_sam_undo(self):
-        """ESC / 되돌리기: drop the last SAM point (no-op outside SAM mode)."""
+        """되돌리기 button: drop the last SAM point (no-op outside SAM mode)."""
         if self.canvas.sam_mode and self.canvas.undo_sam_point():
             self.status.showMessage(self.tr_("sam_undone"))
+
+    def _on_escape(self):
+        """Esc dispatcher: undo a SAM point in SAM mode, else cancel a bbox.
+
+        Esc is a single global shortcut (shortcuts.py); routing it by mode here
+        avoids two conflicting Esc bindings (which fire ambiguously / not at all)."""
+        if self.canvas.sam_mode:
+            self._on_sam_undo()
+        else:
+            self._on_bbox_cancel()
 
     # ------------------------------------------------------------------
     # UI construction
@@ -537,8 +547,6 @@ class MainWindow(QMainWindow):
         self.canvas.mask_edited.connect(self._on_mask_edited)
         self.canvas.bbox_edited.connect(self._on_bbox_edited)
         self.canvas.measure_completed.connect(self._on_measure_completed)
-        self.canvas.sam_point_undone.connect(
-            lambda: self.status.showMessage(self.tr_("sam_undone")))
 
         panel_scroll = build_side_panel(self)
 
