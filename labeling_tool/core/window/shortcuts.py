@@ -28,5 +28,5 @@ def register_shortcuts(window: "MainWindow") -> None:
               lambda: window._btn_bbox_toggle.toggle())
     QShortcut(QKeySequence(Qt.Key_Return), window, window._on_bbox_commit)
     QShortcut(QKeySequence(Qt.Key_Enter), window, window._on_bbox_commit)
-    QShortcut(QKeySequence(Qt.Key_Escape), window, window._on_bbox_cancel)
+    QShortcut(QKeySequence(Qt.Key_Escape), window, window._on_escape)
     QShortcut(QKeySequence(Qt.Key_Delete), window, window._on_bbox_delete)
