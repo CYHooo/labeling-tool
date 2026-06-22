@@ -254,6 +254,17 @@ class ImageCanvas(QWidget):
         self._measure_points = []
         self.update()
 
+    def measure_points(self) -> list[tuple[float, float]]:
+        """The current manual-measurement points (image coords); copy."""
+        return list(self._measure_points)
+
+    def set_measure_points(self, points) -> None:
+        """Restore a persisted manual-measurement line (display only). The line
+        is drawn whenever points are set, independent of measure mode."""
+        self._measure_points = (
+            [(float(x), float(y)) for x, y in points] if points else [])
+        self.update()
+
     def set_aruco_corners(self, corners) -> None:
         """Set the ArUco marker corners (4x2) to overlay, or None to clear.
         Display-only; not written to Result/<stem>.png by export_result()."""

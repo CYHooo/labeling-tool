@@ -20,7 +20,7 @@ from labeling_tool.core.mask_io import load_origin_and_masks
 from labeling_tool.core.mask_codec import encode_label_mask
 from labeling_tool.core.canvas import ImageCanvas
 from labeling_tool.core.bbox import (
-    ScaleTracker, save_bboxes, load_bboxes,
+    ScaleTracker, save_bboxes, load_bboxes, load_scale_info,
     scale_from_two_points, MARKER_PHYSICAL_CM,
 )
 from labeling_tool.session import mask_store
@@ -265,6 +265,7 @@ class MainWindow(QMainWindow):
         scale = scale_from_two_points((0.0, 0.0), (pixel_dist, 0.0), cm)
         if scale is None:
             return
+        measure_pts = self.canvas.measure_points()   # the 2 clicked points
         self.current_scale = scale
         self.current_scale_source = "manual"
         # Feed the session tracker so later images without ArUco fall back to it.
@@ -279,7 +280,8 @@ class MainWindow(QMainWindow):
         # is used at upload even if the user doesn't redraw the mask.
         if self.current_idx >= 0:
             self._save_all_artifacts(silent=True)
-        self._btn_measure.setChecked(False)
+        self._btn_measure.setChecked(False)         # leaves measure mode (clears line)
+        self.canvas.set_measure_points(measure_pts)  # keep the line visible after measuring
 
     def _on_brush_size_changed(self, value: int):
         self.canvas.brush_size = int(value)
@@ -386,6 +388,8 @@ class MainWindow(QMainWindow):
             self.canvas.bbox_interaction.boxes,
             self.current_scale,
             self.current_scale_source,
+            scale_points=(self.canvas.measure_points()
+                          if self.current_scale_source == "manual" else None),
         )
 
         # ----- 3. Result/<stem>.png + .txt (heavy: re-reads origin, runs the
@@ -670,20 +674,32 @@ class MainWindow(QMainWindow):
         else:
             self.canvas.set_repair15(None)
 
-        # ----- ArUco scale + outline overlay -----
+        # ----- scale: ArUco auto-detect, but a saved MANUAL scale wins -----
         scale, source, aruco_corners = self.scale_tracker.update_for_image(origin)
-        self.current_scale = scale
-        self.current_scale_source = source
-        self.canvas.set_bbox_padding_px(scale * 15.0 if scale else 0.0)
         # Display-only outline; None when no fresh detection on this image,
         # so we never show stale ArUco from a previous load.
         self.canvas.set_aruco_corners(aruco_corners)
+
+        bbox_path = (self.output_dir / mask_store.bbox_name(filename)
+                     if self.output_dir is not None else None)
+        saved = load_scale_info(bbox_path)
+        if saved["source"] == "manual" and saved["scale"]:
+            # Honor the manual scale (ArUco would otherwise overwrite it) and
+            # redraw its measurement line on revisit.
+            scale, source = saved["scale"], "manual"
+            self.scale_tracker.last_known_scale = scale
+            self.canvas.set_measure_points(saved["points"])
+        else:
+            self.canvas.set_measure_points(None)
+
+        self.current_scale = scale
+        self.current_scale_source = source
+        self.canvas.set_bbox_padding_px(scale * 15.0 if scale else 0.0)
         self._refresh_scale_label()
         self._btn_bbox_toggle.setEnabled(scale is not None)
 
         # ----- BBox JSON -----
-        if self.output_dir is not None:
-            bbox_path = self.output_dir / mask_store.bbox_name(filename)
+        if bbox_path is not None:
             self.canvas.bbox_interaction.boxes = load_bboxes(bbox_path)
         else:
             self.canvas.bbox_interaction.boxes = []
