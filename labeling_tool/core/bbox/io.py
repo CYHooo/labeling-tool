@@ -22,12 +22,18 @@ def save_bboxes(
     boxes: list[OrientedBox],
     scale_px_per_cm: float | None,
     scale_source: str,
+    scale_points: list | None = None,
 ) -> None:
-    """Overwrite the JSON file. Empty list is still written."""
+    """Overwrite the JSON file. Empty list is still written.
+
+    scale_points: the two manual-measurement points (image coords) so a manual
+    scale's line can be redrawn on revisit; [] for ArUco/none.
+    """
     payload = {
         "image": image_filename,
         "scale_px_per_cm": scale_px_per_cm,
         "scale_source": scale_source,
+        "scale_points": [[float(x), float(y)] for x, y in (scale_points or [])],
         "boxes": [
             {
                 "cx": b.cx, "cy": b.cy,
@@ -63,3 +69,20 @@ def load_scale(path: Path) -> float | None:
         return None
     s = float(s)
     return s if s > 0 else None
+
+
+def load_scale_info(path: Path) -> dict:
+    """Return {"scale": float|None, "source": str, "points": [(x,y), ...]}.
+
+    Used on image load to honor a saved MANUAL scale (so ArUco doesn't override
+    it) and to redraw its measurement line.
+    """
+    empty = {"scale": None, "source": "none", "points": []}
+    if path is None or not path.exists():
+        return empty
+    data = json.loads(path.read_text(encoding="utf-8"))
+    s = data.get("scale_px_per_cm")
+    s = float(s) if s is not None and float(s) > 0 else None
+    pts = [(float(p[0]), float(p[1]))
+           for p in data.get("scale_points", []) if len(p) == 2]
+    return {"scale": s, "source": data.get("scale_source", "none"), "points": pts}
