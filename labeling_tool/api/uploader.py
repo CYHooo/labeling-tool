@@ -1,7 +1,10 @@
 """Batch upload orchestration: presigned -> S3 PUT -> register, paginated at 100 items.
 
-A single editBatchId is reused across pages and retries so the whole
-session is idempotent (register: same id -> 200, no DB reprocessing).
+register-annotations dedupes by editBatchId (same id -> 200, NO DB reprocessing),
+so EACH batch must get its own id, or every batch after the first is silently
+dropped (its highlight/15/metrics never reach the DB while the S3 files still
+upload). Each batch uses ``<edit_batch_id>-<batch_index>``: distinct per batch
+so all batches register, yet stable per batch so a retry stays idempotent.
 
 Per v1.0.8 each photo uploads three files: mask -> high -> 15 (3 PUTs),
 then the batch is registered with maskS3Key/highlightS3Key/repair15S3Key.
@@ -46,7 +49,10 @@ def upload_session(client, *, session_id: int, items: list[dict],
     total = len(items)
     base = 0   # items in batches already finished (success or failure)
 
-    for batch in _chunks(items, BATCH_LIMIT):
+    for idx, batch in enumerate(_chunks(items, BATCH_LIMIT)):
+        # Distinct id per batch (stable for retries) — register dedupes by id,
+        # so reusing one id would drop every batch after the first.
+        batch_edit_id = f"{edit_batch_id}-{idx}"
         timestamps = [it["timestamp"] for it in batch]
         # Read each photo's 3 blobs once; reuse for sizeBytes + PUT.
         batch_bytes = {ts: bytes_for(ts) for ts in timestamps}
@@ -83,7 +89,7 @@ def upload_session(client, *, session_id: int, items: list[dict],
                     progress(base + i, total)
 
             client.register_annotations(
-                edit_batch_id=edit_batch_id, session_id=session_id,
+                edit_batch_id=batch_edit_id, session_id=session_id,
                 items=batch)
             uploaded += len(batch)
         except Exception as e:  # noqa: BLE001 - report per-batch, keep going
