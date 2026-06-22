@@ -47,7 +47,7 @@ def test_uploads_single_batch_in_order():
         bytes_for=_bytes, edit_batch_id="batch-xyz")
     assert result["uploaded"] == 2
     assert result["failed"] == []
-    assert client.register_calls == [("batch-xyz", 43, 2)]
+    assert client.register_calls == [("batch-xyz-0", 43, 2)]   # per-batch id
     assert len(client.puts) == 6                       # 3 PUTs * 2 photos
     # mask -> high -> 15 order for the first photo
     assert client.puts[0] == "https://s3/mask_1.png"
@@ -63,8 +63,22 @@ def test_paginates_over_100():
         bytes_for=_bytes, edit_batch_id="b")
     assert result["uploaded"] == 150
     assert [c[2] for c in client.register_calls] == [33, 33, 33, 33, 18]
-    assert {c[0] for c in client.register_calls} == {"b"}   # same editBatchId reused
+    # each batch registers under its OWN editBatchId (else later batches are
+    # deduped away server-side and their highlight/15/metrics never persist)
+    assert [c[0] for c in client.register_calls] == ["b-0", "b-1", "b-2", "b-3", "b-4"]
     assert len(client.puts) == 450                     # 3 * 150
+
+
+def test_each_batch_gets_distinct_edit_batch_id():
+    """Regression: reusing one editBatchId made register dedupe every batch
+    after the first, so only the first 33 photos' annotations persisted."""
+    client = FakeClient()
+    items = [_item(i) for i in range(1, 70)]    # 69 items -> 3 batches (33,33,3)
+    upload_session(client, session_id=43, items=items,
+                   bytes_for=_bytes, edit_batch_id="run9")
+    ids = [c[0] for c in client.register_calls]
+    assert ids == ["run9-0", "run9-1", "run9-2"]
+    assert len(set(ids)) == len(ids)            # all distinct
 
 
 def test_v2_presign_never_exceeds_100_files():
