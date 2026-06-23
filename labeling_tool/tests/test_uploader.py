@@ -165,3 +165,48 @@ def test_failed_batch_is_logged():
 
     assert result["uploaded"] == 0
     assert any("boom-500" in m for m in records), records
+
+
+def test_anomaly_logged_when_server_persists_fewer():
+    """Server returns 200 but updatedPhotoCount < sent -> WARNING + anomaly +
+    those photos excluded from confirmed_timestamps (no false success)."""
+    import logging
+    from labeling_tool.logging_setup import vlog
+
+    class PartialClient(FakeClient):
+        def register_annotations(self, *, edit_batch_id, session_id, items):
+            # only persist 1 regardless of how many were sent (silent partial)
+            return {"sessionId": session_id, "status": "saved",
+                    "updatedPhotoCount": 1}
+
+    records = []
+
+    class _Cap(logging.Handler):
+        def emit(self, record):
+            records.append(record.getMessage())
+
+    log = vlog(); h = _Cap(); log.addHandler(h)
+    lvl = log.level; log.setLevel(logging.WARNING)
+    try:
+        client = PartialClient()
+        items = [_item(i) for i in range(1, 35)]   # 34 -> batches [33, 1]
+        result = upload_session(client, session_id=43, items=items,
+                                bytes_for=_bytes, edit_batch_id="b")
+    finally:
+        log.removeHandler(h); log.setLevel(lvl)
+
+    assert len(result["anomalies"]) == 1            # the 33-batch persisted only 1
+    assert result["anomalies"][0]["sent"] == 33
+    assert result["anomalies"][0]["updated"] == 1
+    # the under-persisted batch's timestamps are NOT confirmed
+    assert set(range(1, 34)).isdisjoint(result["confirmed_timestamps"])
+    assert 34 in result["confirmed_timestamps"]     # the 2nd batch (1 sent, 1 saved) ok
+    assert any("UPLOAD ANOMALY" in m for m in records), records
+
+
+def test_no_anomaly_when_counts_match():
+    client = FakeClient()                            # echoes updatedPhotoCount = sent
+    result = upload_session(client, session_id=43, items=[_item(1), _item(2)],
+                            bytes_for=_bytes, edit_batch_id="b")
+    assert result["anomalies"] == []
+    assert result["confirmed_timestamps"] == [1, 2]

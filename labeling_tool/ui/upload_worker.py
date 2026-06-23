@@ -103,10 +103,16 @@ class UploadWorker(QThread):
                 bytes_for=lambda ts: cache[ts],
                 edit_batch_id=self._batch_id,
                 progress=lambda d, t: self.progress.emit(d, t, "upload"))
-            result["timestamps"] = list(cache.keys())
+            # Only mark photos the server CONFIRMED persisting as synced; a
+            # batch with an anomaly (updatedPhotoCount < sent) is excluded so we
+            # never report a false success.
+            result["timestamps"] = result.get("confirmed_timestamps",
+                                               list(cache.keys()))
             result["batch_id"] = self._batch_id
             vlog().info("upload finished: uploaded=%d failed_batches=%d "
-                        "total=%.1fs", result["uploaded"], len(result["failed"]),
+                        "anomalies=%d total=%.1fs",
+                        result["uploaded"], len(result["failed"]),
+                        len(result.get("anomalies", [])),
                         time.perf_counter() - t0)
             self.done.emit(result)
         except Exception as e:  # noqa: BLE001 - surface to UI, never crash thread

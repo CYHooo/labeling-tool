@@ -42,10 +42,18 @@ def upload_session(client, *, session_id: int, items: list[dict],
     progress(done, total) fires once per photo (after its 3 PUTs) so the caller
     can drive a determinate bar; total is the full item count.
 
-    Returns {"uploaded": int, "failed": [{"timestamps": [...], "error": str}]}.
+    Returns {"uploaded": int, "failed": [...], "anomalies": [...],
+             "confirmed_timestamps": [...]}.
+
+    A batch where the server's updatedPhotoCount is LESS than the photos sent
+    (e.g. a silent server-side dedupe/partial write) is recorded in "anomalies"
+    and logged at WARNING; its photos are NOT counted as confirmed, so the GUI
+    won't mark them synced or report a false success.
     """
     uploaded = 0
     failed: list[dict] = []
+    anomalies: list[dict] = []
+    confirmed: list[int] = []
     total = len(items)
     base = 0   # items in batches already finished (success or failure)
 
@@ -88,10 +96,22 @@ def upload_session(client, *, session_id: int, items: list[dict],
                 if progress is not None:
                     progress(base + i, total)
 
-            client.register_annotations(
+            reg = client.register_annotations(
                 edit_batch_id=batch_edit_id, session_id=session_id,
                 items=batch)
-            uploaded += len(batch)
+            updated = reg.get("updatedPhotoCount") if isinstance(reg, dict) else None
+            if updated is not None and updated < len(batch):
+                # Server accepted the request but persisted fewer than we sent.
+                vlog().warning(
+                    "UPLOAD ANOMALY: server persisted %d of %d sent "
+                    "(editBatchId=%s timestamps=%s)",
+                    updated, len(batch), batch_edit_id, timestamps)
+                anomalies.append({"timestamps": timestamps,
+                                  "sent": len(batch), "updated": int(updated)})
+                uploaded += int(updated)
+            else:
+                uploaded += len(batch)
+                confirmed.extend(timestamps)   # fully persisted -> safe to mark synced
         except Exception as e:  # noqa: BLE001 - report per-batch, keep going
             details = getattr(e, "details", None)
             vlog().exception(
@@ -103,4 +123,5 @@ def upload_session(client, *, session_id: int, items: list[dict],
             if progress is not None:
                 progress(base, total)
 
-    return {"uploaded": uploaded, "failed": failed}
+    return {"uploaded": uploaded, "failed": failed,
+            "anomalies": anomalies, "confirmed_timestamps": confirmed}
