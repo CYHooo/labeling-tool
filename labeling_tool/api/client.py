@@ -122,8 +122,12 @@ class ViewerApiClient:
             resp = self._s.post(url, json=payload, timeout=REGISTER_TIMEOUT)
         self._raise_for_error(resp)
         data = resp.json()
-        vlog().info("register items=%d -> %s (%.0f ms)",
+        # Log updatedPhotoCount (what the server actually persisted), not just
+        # status — a deduped/partial register returns 200 'saved' with
+        # updatedPhotoCount < sent, which otherwise looks like a clean success.
+        vlog().info("register items=%d -> %s updated=%s (%.0f ms)",
                     len(items), data.get("status"),
+                    data.get("updatedPhotoCount"),
                     (time.perf_counter() - t) * 1000)
         return data
 
