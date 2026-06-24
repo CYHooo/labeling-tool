@@ -97,6 +97,10 @@ python -m labeling_tool.app
 - 편집하지 않은 사진은 업로드하지 않습니다(서버의 AI 결과 유지).
 - 업로드는 백그라운드 스레드에서 실행되어 화면이 멈추지 않습니다. 일부 배치가 실패하면
   **실패 원인과 `vapi.log` 경로가 팝업에 표시**되며, 자세한 내용은 `vapi.log` 에서 확인할 수 있습니다.
+- 업로드 후 **서버 상태를 되읽어 검증**합니다(V1 재조회로 highlight/15cm 키 + `metricsSource=user_edit` +
+  pxPerCm 확인). 사진별 결과는 세션 폴더의 **`upload_verify_<날짜시간>.csv`** 표로 저장되고,
+  미반영 사진이 있으면 번호와 함께 팝업·로그(`UPLOAD VERIFY` / `verify FAIL`)에 표시되며,
+  **서버에서 확인된 사진만 동기화로 표시**됩니다(누락분은 다시 업로드).
 
 ---
 
@@ -112,7 +116,8 @@ session_{id}/
 ├── HighLight/   균열 하이라이트 마스크 (업로드 high_{ts}.png)
 ├── Repair15/    15cm 경계 검증 마스크 (업로드 15_{ts}.png)
 ├── manifest.json
-└── vapi.log     요청 / 다운로드 / 업로드 / 실패 원인 로그
+├── vapi.log     요청 / 다운로드 / 업로드 / 실패 원인 / 검증 로그
+└── upload_verify_*.csv  업로드 후 서버 반영 검증 표 (사진별 OK/FAIL)
 ```
 
 ---
