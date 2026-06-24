@@ -103,18 +103,53 @@ class UploadWorker(QThread):
                 bytes_for=lambda ts: cache[ts],
                 edit_batch_id=self._batch_id,
                 progress=lambda d, t: self.progress.emit(d, t, "upload"))
-            # Only mark photos the server CONFIRMED persisting as synced; a
-            # batch with an anomaly (updatedPhotoCount < sent) is excluded so we
-            # never report a false success.
+            # Read-back verify against the LIVE server (authoritative): confirm
+            # each photo's annotation actually persisted, and write a per-photo
+            # table the user can review. Uses only V1 — no server changes.
+            self._verify_upload(items, result)
+            # Mark only server-CONFIRMED photos as synced (read-back is the
+            # authority; falls back to all if verify couldn't run).
             result["timestamps"] = result.get("confirmed_timestamps",
                                                list(cache.keys()))
             result["batch_id"] = self._batch_id
             vlog().info("upload finished: uploaded=%d failed_batches=%d "
-                        "anomalies=%d total=%.1fs",
+                        "anomalies=%d verify_failures=%d total=%.1fs",
                         result["uploaded"], len(result["failed"]),
                         len(result.get("anomalies", [])),
+                        len(result.get("verify_failures", [])),
                         time.perf_counter() - t0)
             self.done.emit(result)
         except Exception as e:  # noqa: BLE001 - surface to UI, never crash thread
             vlog().exception("upload worker error: %s", e)
             self.error.emit(str(e))
+
+    def _verify_upload(self, items, result):
+        """Read back the server state, write a CSV report, and let the read-back
+        decide which photos are truly confirmed. Never raises (a verify failure
+        must not abort a completed upload)."""
+        from labeling_tool.api.verify import verify_registered, write_verify_csv
+        try:
+            verdicts = verify_registered(self._client, self._session_id, items)
+        except Exception as e:  # noqa: BLE001 - network/parse; keep upload result
+            vlog().warning("UPLOAD VERIFY skipped (read-back failed): %s", e)
+            return
+        ok = [v for v in verdicts if v["ok"]]
+        bad = [v for v in verdicts if not v["ok"]]
+        report = Path(self._labeling_dir).parent / (
+            "upload_verify_" + time.strftime("%Y%m%d_%H%M%S") + ".csv")
+        try:
+            write_verify_csv(verdicts, report)
+            result["verify_report"] = str(report)
+        except Exception as e:  # noqa: BLE001
+            vlog().warning("verify report write failed: %s", e)
+        result["verify"] = verdicts
+        result["verify_failures"] = bad
+        result["confirmed_timestamps"] = [v["timestamp"] for v in ok]
+        vlog().info("UPLOAD VERIFY: %d/%d photos confirmed on server%s",
+                    len(ok), len(verdicts),
+                    f"; report={result.get('verify_report')}"
+                    if result.get("verify_report") else "")
+        for v in bad:
+            vlog().warning("  verify FAIL ts=%s num=%s: %s",
+                           v["timestamp"], v.get("reportPhotoNum"),
+                           "; ".join(v["reasons"]))

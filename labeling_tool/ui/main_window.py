@@ -178,29 +178,41 @@ class ViewerMainWindow(CoreMainWindow):
             self._manifest.mark_synced(files, batch_id=result.get("batch_id", ""))
             self._manifest.save(self._ws.manifest_path)
 
+        verify_failures = result.get("verify_failures") or []
+        report = result.get("verify_report")
         log_path = self._ws.session_dir / "vapi.log"
-        if result["failed"] or anomalies:
+        report_line = f"\n검증 보고서(CSV): {report}" if report else ""
+        if result["failed"] or anomalies or verify_failures:
             parts = []
             if result["failed"]:
                 first_err = (str(result["failed"][0].get("error", ""))
                              or "(원인 미기록)")
-                parts.append(f"{len(result['failed'])}개 배치 실패 — 원인: {first_err}")
-            if anomalies:
+                parts.append(f"{len(result['failed'])}개 배치 업로드 실패 — 원인: {first_err}")
+            if verify_failures:
+                # read-back is authoritative: name the photos missing on the server
+                nums = ", ".join(str(v.get("reportPhotoNum") or v["timestamp"])
+                                 for v in verify_failures[:12])
+                more = " …" if len(verify_failures) > 12 else ""
+                parts.append(
+                    f"서버 확인 결과 {len(verify_failures)}장 미반영 "
+                    f"(번호/타임스탬프: {nums}{more})")
+            elif anomalies:
                 missing = sum(a["sent"] - a["updated"] for a in anomalies)
                 parts.append(
-                    f"{len(anomalies)}개 배치에서 서버가 일부만 저장 "
-                    f"(요청보다 {missing}장 미반영)")
+                    f"서버가 일부만 저장 (요청보다 {missing}장 미반영)")
             self.status.showMessage(
-                f"서버 반영 {result['uploaded']}건, 일부 문제 — 다시 시도하세요")
+                f"서버 확인 {len(synced_ts)}장 정상, 일부 미반영 — 다시 시도하세요")
             QMessageBox.warning(
                 self, "일부 실패 / 미반영",
-                f"서버에 반영된 사진: {result['uploaded']}건\n\n"
+                f"서버에 확인된 사진: {len(synced_ts)}장\n\n"
                 + "\n".join(parts)
-                + f"\n\n다시 업로드하세요. 자세한 로그: {log_path}")
+                + f"{report_line}\n자세한 로그: {log_path}\n\n다시 업로드하세요.")
         elif not synced_ts:
             self.status.showMessage("업로드할 항목이 없습니다")
             QMessageBox.information(self, "없음", "업로드할 편집본이 없습니다.")
         else:
-            self.status.showMessage(f"업로드 완료: {result['uploaded']}건")
+            self.status.showMessage(
+                f"업로드 완료: {result['uploaded']}건 (서버 확인 OK)")
             QMessageBox.information(
-                self, "완료", f"{result['uploaded']}건 업로드 완료.")
+                self, "완료",
+                f"{result['uploaded']}건 업로드 + 서버 확인 완료.{report_line}")
