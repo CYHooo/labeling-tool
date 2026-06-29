@@ -674,8 +674,9 @@ class MainWindow(QMainWindow):
         else:
             self.canvas.set_repair15(None)
 
-        # ----- scale: ArUco auto-detect, but a saved MANUAL scale wins -----
-        scale, source, aruco_corners = self.scale_tracker.update_for_image(origin)
+        # ----- scale: resolved per image (Viewer subclass uses the server PPM;
+        #       base = ArUco auto-detect), but a saved MANUAL scale always wins -----
+        scale, source, aruco_corners = self._resolve_scale(filename, origin)
         # Display-only outline; None when no fresh detection on this image,
         # so we never show stale ArUco from a previous load.
         self.canvas.set_aruco_corners(aruco_corners)
@@ -715,6 +716,14 @@ class MainWindow(QMainWindow):
 
         self._refresh_list_colors()
         self._update_status_for_current()
+
+    def _resolve_scale(self, filename: str, origin):
+        """Return (scale_px_per_cm, source, aruco_corners) for this image.
+
+        Base implementation auto-detects via ArUco. The Viewer subclass
+        overrides this to use the server-provided pxPerCm (captured data no
+        longer embeds ArUco markers)."""
+        return self.scale_tracker.update_for_image(origin)
 
     def _refresh_scale_label(self):
         # Internal canonical scale is px/cm (from ArUco). The right-side
