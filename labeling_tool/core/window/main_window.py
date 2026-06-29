@@ -74,6 +74,7 @@ class MainWindow(QMainWindow):
         from labeling_tool.ui.derived_mask_worker import DerivedMaskSignals
         self._derived_signals = DerivedMaskSignals()
         self._derived_signals.done.connect(self._on_derived_ready)
+        self._btn_show_repair15.setChecked(True)   # 15cm contour on by default
 
         if self.origin_dir is not None:
             self._load_data()
