@@ -87,6 +87,17 @@ class ViewerMainWindow(CoreMainWindow):
             layout.insertWidget(idx, self.btn_upload)
             layout.insertWidget(idx + 1, self._upload_bar)
 
+    def _resolve_scale(self, filename: str, origin):
+        """Use the server-provided pxPerCm fetched into the manifest (captured
+        data no longer embeds ArUco markers). Falls back to ArUco only if the
+        server gave no scale for this photo."""
+        entry = (self._manifest.photos.get(filename)
+                 if self._manifest is not None else None)
+        px = float(entry.px_per_cm) if entry and entry.px_per_cm else 0.0
+        if px > 0:
+            return px, "server", None        # server PPM; no ArUco overlay/detection
+        return super()._resolve_scale(filename, origin)
+
     def _edited_filenames(self) -> list[str]:
         """Photos with a saved edited mask in Labeling/ this session."""
         out = []
