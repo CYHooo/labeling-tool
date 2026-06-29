@@ -701,6 +701,9 @@ class MainWindow(QMainWindow):
             return
 
         self.current_idx = idx
+        # A pending refit offer is only meaningful for an in-place save; drop it
+        # on navigation so a deferred async result can't pop the dialog on return.
+        self._offer_refit_for = None
         self.canvas.set_image(origin, crack_mask, spalling_mask)
 
         # ----- derived-mask overlays (read saved files; else clear) -----

@@ -137,7 +137,7 @@ def bboxes_from_contours(contours, min_area_px: float = 1.0) -> list["OrientedBo
 
     Used to auto-generate repair bboxes from the 15cm (repair15) outer contours.
     No padding is added — the 15cm expansion is already baked into the mask.
-    Degenerate contours (<3 points, zero/!tiny area) are skipped.
+    Degenerate contours (<3 points, zero/sub-min area) are skipped.
     """
     out: list[OrientedBox] = []
     for c in contours or []:
