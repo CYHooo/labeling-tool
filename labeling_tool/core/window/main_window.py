@@ -75,6 +75,7 @@ class MainWindow(QMainWindow):
         self._derived_signals = DerivedMaskSignals()
         self._derived_signals.done.connect(self._on_derived_ready)
         self._btn_show_repair15.setChecked(True)   # 15cm contour on by default
+        self._offer_refit_for: str | None = None   # filename awaiting refit-confirm
 
         if self.origin_dir is not None:
             self._load_data()
@@ -354,28 +355,25 @@ class MainWindow(QMainWindow):
             _cv2.imwrite(str(mask_out), label)
 
             # ----- 1b. Derived masks: highlight + (scale-dependent) repair15 --
-            # Heavy on big panoramas, so snapshot the layers and run off the UI
-            # thread (closeEvent uses async_derived=False to flush synchronously).
-            if self.highlight_dir is not None:
-                self.highlight_dir.mkdir(parents=True, exist_ok=True)
-            if self.repair15_dir is not None:
-                self.repair15_dir.mkdir(parents=True, exist_ok=True)
-            hi_path = (str(self.highlight_dir / mask_store.mask_name(filename))
-                       if self.highlight_dir is not None else None)
-            r15_path = (str(self.repair15_dir / mask_store.mask_name(filename))
-                        if self.repair15_dir is not None else None)
             crack_snap = mc.copy() if mc is not None else None
             spall_snap = ms.copy() if ms is not None else None
             scale = self.current_scale or 0.0
             if async_derived:
-                from PyQt5.QtCore import QThreadPool
-                from labeling_tool.ui.derived_mask_worker import DerivedMaskRunnable
-                QThreadPool.globalInstance().start(DerivedMaskRunnable(
-                    crack=crack_snap, spalling=spall_snap, px_per_cm=scale,
-                    highlight_path=hi_path, repair15_path=r15_path,
-                    token=filename, signals=self._derived_signals))
+                # Offer to re-fit bboxes from the new 15cm contour only when the
+                # mask actually changed and bboxes already exist.
+                if mask_dirty and self.canvas.bbox_interaction.boxes:
+                    self._offer_refit_for = filename
+                self._dispatch_derived(filename, crack_snap, spall_snap, scale)
             else:
                 from labeling_tool.core.derived_masks import generate_derived_masks
+                hi_path = (str(self.highlight_dir / mask_store.mask_name(filename))
+                           if self.highlight_dir is not None else None)
+                r15_path = (str(self.repair15_dir / mask_store.mask_name(filename))
+                            if self.repair15_dir is not None else None)
+                if self.highlight_dir is not None:
+                    self.highlight_dir.mkdir(parents=True, exist_ok=True)
+                if self.repair15_dir is not None:
+                    self.repair15_dir.mkdir(parents=True, exist_ok=True)
                 hi, r15 = generate_derived_masks(
                     crack_snap, spall_snap, scale, hi_path, r15_path)
                 self.canvas.set_highlight(hi)
@@ -415,6 +413,51 @@ class MainWindow(QMainWindow):
             self.status.showMessage(self.tr_("brush_saved", p=str(self.output_dir)))
         return True
 
+    def _dispatch_derived(self, filename: str, crack, spall, scale: float) -> None:
+        """Start the async highlight+repair15 generation for one image."""
+        from PyQt5.QtCore import QThreadPool
+        from labeling_tool.ui.derived_mask_worker import DerivedMaskRunnable
+        if self.highlight_dir is not None:
+            self.highlight_dir.mkdir(parents=True, exist_ok=True)
+        if self.repair15_dir is not None:
+            self.repair15_dir.mkdir(parents=True, exist_ok=True)
+        hi_path = (str(self.highlight_dir / mask_store.mask_name(filename))
+                   if self.highlight_dir is not None else None)
+        r15_path = (str(self.repair15_dir / mask_store.mask_name(filename))
+                    if self.repair15_dir is not None else None)
+        QThreadPool.globalInstance().start(DerivedMaskRunnable(
+            crack=crack, spalling=spall, px_per_cm=scale,
+            highlight_path=hi_path, repair15_path=r15_path,
+            token=filename, signals=self._derived_signals))
+
+    def _maybe_auto_bbox(self, token: str) -> None:
+        """Auto-fit bboxes from the current 15cm contour. Silent when there are
+        no bboxes; otherwise re-fit only on a confirmed mask-edit regeneration."""
+        if self.current_idx < 0 or token != self.image_files[self.current_idx]:
+            return
+        contours = self.canvas.repair15_contours
+        if not contours:
+            return
+        from labeling_tool.core.bbox import bboxes_from_contours
+        new_boxes = bboxes_from_contours(contours)
+        if not new_boxes:
+            return
+        if not self.canvas.bbox_interaction.boxes:
+            self.canvas.bbox_interaction.boxes = new_boxes
+            self._mark_bbox_edited()
+            self.canvas.update()
+            return
+        if self._offer_refit_for == token:
+            self._offer_refit_for = None
+            ans = QMessageBox.question(
+                self, self.tr_("bbox_refit_confirm_title"),
+                self.tr_("bbox_refit_confirm"),
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if ans == QMessageBox.Yes:
+                self.canvas.bbox_interaction.boxes = new_boxes
+                self._mark_bbox_edited()
+                self.canvas.update()
+
     def _on_derived_ready(self, token: str, hi, r15):
         """Refresh the canvas overlays from a background derived-mask result,
         but only if that image is still on screen (else the file is written
@@ -424,6 +467,7 @@ class MainWindow(QMainWindow):
         if token == self.image_files[self.current_idx]:
             self.canvas.set_highlight(hi)
             self.canvas.set_repair15(r15)
+            self._maybe_auto_bbox(token)
 
     def _on_brush_save(self):
         self._save_all_artifacts(silent=False)
@@ -705,6 +749,21 @@ class MainWindow(QMainWindow):
             self.canvas.bbox_interaction.boxes = load_bboxes(bbox_path)
         else:
             self.canvas.bbox_interaction.boxes = []
+
+        # ----- auto-bbox from the 15cm contour (default-shown) -----
+        if self.canvas.repair15_contours:
+            self._maybe_auto_bbox(filename)            # fit-if-empty (no dialog on load)
+        elif self.current_scale and self.current_scale > 0:
+            mc = self.canvas.brush_mask_crack
+            ms = self.canvas.brush_mask_spalling
+            if mc is not None or ms is not None:
+                # No Repair15 on disk yet -> generate it (and the contour) async;
+                # the callback fits bboxes when ready.
+                self._dispatch_derived(
+                    filename,
+                    mc.copy() if mc is not None else None,
+                    ms.copy() if ms is not None else None,
+                    float(self.current_scale))
 
         # File list selection
         self.file_list.blockSignals(True)
