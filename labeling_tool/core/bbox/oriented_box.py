@@ -130,3 +130,23 @@ def union_area_px2(boxes: list["OrientedBox"]) -> float:
         poly = np.round(c - origin).astype(np.int32)
         cv2.fillConvexPoly(canvas, poly, 1)
     return float(np.count_nonzero(canvas))
+
+
+def bboxes_from_contours(contours, min_area_px: float = 1.0) -> list["OrientedBox"]:
+    """Fit one OrientedBox to each contour via cv2.minAreaRect.
+
+    Used to auto-generate repair bboxes from the 15cm (repair15) outer contours.
+    No padding is added — the 15cm expansion is already baked into the mask.
+    Degenerate contours (<3 points, zero/sub-min area) are skipped.
+    """
+    out: list[OrientedBox] = []
+    for c in contours or []:
+        pts = np.asarray(c, dtype=np.float32).reshape(-1, 2)
+        if len(pts) < 3:
+            continue
+        (cx, cy), (w, h), angle = cv2.minAreaRect(pts)
+        if w <= 0 or h <= 0 or (w * h) < min_area_px:
+            continue
+        out.append(OrientedBox(cx=float(cx), cy=float(cy),
+                               w=float(w), h=float(h), angle_deg=float(angle)))
+    return out

@@ -82,7 +82,7 @@ class ImageCanvas(QWidget):
         self._highlight_halo: np.ndarray | None = None   # ring = highlight - mask
         self.repair15_contours: list | None = None
         self.show_highlight: bool = False
-        self.show_repair15: bool = False
+        self.show_repair15: bool = True
 
         # ----- SAM (MobileSAM point-select for spalling) -----
         self.sam_mode: bool = False
