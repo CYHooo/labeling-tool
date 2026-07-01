@@ -14,6 +14,22 @@ from labeling_tool.core.bbox import BBoxInteraction, paint_bboxes
 from labeling_tool.core.canvas.stroke_thinning import thin_stroke_into
 
 
+def _mask_to_origin(m: np.ndarray | None, h: int, w: int) -> np.ndarray:
+    """Conform a loaded mask to the origin (stitched) image size.
+
+    A detected/AI mask can differ from its stitched origin by a few pixels;
+    every canvas layer (SAM preview, brush, save, overlays) assumes masks match
+    the origin, so a mismatch crashes boolean indexing (e.g. commit_sam). Force
+    the mask onto (h, w) with nearest-neighbour — label/binary masks must never
+    be interpolated. Returns a fresh uint8 array; None -> zeros.
+    """
+    if m is None:
+        return np.zeros((h, w), dtype=np.uint8)
+    if m.shape[:2] != (h, w):
+        m = cv2.resize(m, (w, h), interpolation=cv2.INTER_NEAREST)
+    return m.astype(np.uint8, copy=True)
+
+
 class ImageCanvas(QWidget):
     """
     Image canvas with zoom/pan plus a category-aware brush layer.
@@ -105,14 +121,14 @@ class ImageCanvas(QWidget):
         self._origin_bgr = origin_bgr.copy()
         self.viewport.fit_to(self.width(), self.height())
 
-        self.brush_mask_crack = (
-            crack_mask.copy() if crack_mask is not None
-            else np.zeros((h, w), dtype=np.uint8)
-        )
-        self.brush_mask_spalling = (
-            spalling_mask.copy() if spalling_mask is not None
-            else np.zeros((h, w), dtype=np.uint8)
-        )
+        for _name, _m in (("crack", crack_mask), ("spalling", spalling_mask)):
+            if _m is not None and _m.shape[:2] != (h, w):
+                from labeling_tool.logging_setup import vlog
+                vlog().warning("loaded %s mask %s != origin (%d,%d); conformed "
+                               "(upstream AI-mask vs stitched-size mismatch)",
+                               _name, tuple(_m.shape[:2]), h, w)
+        self.brush_mask_crack = _mask_to_origin(crack_mask, h, w)
+        self.brush_mask_spalling = _mask_to_origin(spalling_mask, h, w)
 
         self._brushing = False
         self._brush_last_pt = None

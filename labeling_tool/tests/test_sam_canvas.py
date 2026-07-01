@@ -128,3 +128,30 @@ def test_undo_last_point_clears_preview():
     assert c.undo_sam_point() is True
     assert c._sam_points == [] and not c.has_sam_preview()   # back to empty
     assert c.undo_sam_point() is False         # nothing left to undo
+
+
+def test_set_image_conforms_mismatched_mask_to_origin():
+    """A loaded mask a few px off from the stitched origin must be conformed to
+    the origin size, else SAM/brush/save layers desync."""
+    c = ImageCanvas(); c.resize(120, 80)
+    origin = np.full((80, 120, 3), 50, np.uint8)
+    spall = np.zeros((88, 120), np.uint8)      # 8px taller than origin
+    spall[5:10, 5:15] = 255
+    c.set_image(origin, None, spall)
+    assert c.brush_mask_spalling.shape == (80, 120)
+    assert c.brush_mask_crack.shape == (80, 120)
+
+
+def test_sam_commit_when_loaded_mask_mismatched_origin():
+    """Regression: commit_sam boolean-index used to crash with IndexError when
+    the loaded spalling mask height != origin height."""
+    c = ImageCanvas(); c.resize(120, 80)
+    origin = np.full((80, 120, 3), 50, np.uint8)
+    spall = np.zeros((88, 120), np.uint8)      # mismatched -> boolean-index mismatch
+    c.set_image(origin, None, spall)
+    c.set_sam_predictor(_FakePredictor())
+    c.set_sam_mode(True)
+    c.mousePressEvent(_LeftClick(15, 15))
+    assert c.has_sam_preview()
+    assert c.commit_sam() is True              # no IndexError
+    assert int((c.brush_mask_spalling > 0).sum()) >= 200
