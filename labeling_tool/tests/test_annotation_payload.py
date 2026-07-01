@@ -76,3 +76,29 @@ def test_bbox_area_is_union_not_sum():
     assert item["crackMetrics"]["bboxCount"] == 2
     assert area < 20000.0                       # overlap removed, not a plain sum
     assert abs(area - 17500.0) / 17500.0 < 0.05  # ~ the analytic union
+
+
+def test_upload_scale_source_manual_wins():
+    from labeling_tool.annotation_payload import upload_scale_source
+    assert upload_scale_source("manual") == "manual"
+
+
+def test_upload_scale_source_defaults_to_metrics():
+    from labeling_tool.annotation_payload import upload_scale_source
+    assert upload_scale_source("server") == "metrics"
+    assert upload_scale_source("aruco") == "metrics"
+    assert upload_scale_source("none") == "metrics"
+    assert upload_scale_source("") == "metrics"
+    assert upload_scale_source(None) == "metrics"
+
+
+def test_build_item_empty_scale_source_defaults_to_metrics():
+    import numpy as np
+    from labeling_tool.annotation_payload import build_annotation_item
+    item = build_annotation_item(
+        timestamp=1, mask_s3_key="k",
+        highlight_s3_key="results/43/masks/high_1.png",
+        repair15_s3_key="results/43/masks/15_1.png",
+        px_per_cm=10.0, scale_source="",
+        crack_mask=None, spalling_mask=None, boxes=[])
+    assert item["scaleSource"] == "metrics"

@@ -15,6 +15,16 @@ from labeling_tool.core.result.crack_metrics import (
 )
 
 
+def upload_scale_source(saved_source: str | None) -> str:
+    """Map a saved bbox scale_source to the value upload should report.
+
+    A manual measurement stays ``"manual"``; everything else (the server's
+    pre-computed PPM, or none) reports ``"metrics"`` — the scale came from the
+    metrics pipeline, not ArUco (capture no longer uses markers).
+    """
+    return "manual" if saved_source == "manual" else "metrics"
+
+
 def _defect_type(has_crack: bool, has_spalling: bool) -> int:
     """0 crack, 1 spalling(박리), 2 mixed(혼합). Default 0 when neither."""
     if has_crack and has_spalling:
@@ -76,7 +86,7 @@ def build_annotation_item(
         "highlightS3Key": highlight_s3_key,
         "repair15S3Key": repair15_s3_key,
         "pxPerCm": float(px_per_cm),
-        "scaleSource": scale_source or "aruco",
+        "scaleSource": scale_source or "metrics",
         "repairAreas": repair_areas,
         "crackMetrics": crack_metrics,
     }
