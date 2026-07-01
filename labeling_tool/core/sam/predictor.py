@@ -43,6 +43,24 @@ def apply_coords(points_xy: np.ndarray, scale: float) -> np.ndarray:
     return points_xy.astype(np.float32) * float(scale)
 
 
+SAM_CROP_PX = 1024   # native-resolution window side for large-image SAM
+
+
+def crop_window(h: int, w: int, cx: int, cy: int,
+                side: int = SAM_CROP_PX) -> tuple[int, int, int, int]:
+    """Native-resolution square window (<= side) around (cx, cy), clamped inside
+    the image. Returns (x0, y0, x1, y1). Image smaller than side -> whole image.
+
+    Running SAM on this crop keeps full detail at the click instead of squishing
+    the whole panorama to 1024 (which makes clicks select the whole image).
+    """
+    cw = min(int(side), int(w))
+    ch = min(int(side), int(h))
+    x0 = int(np.clip(int(cx) - cw // 2, 0, w - cw))
+    y0 = int(np.clip(int(cy) - ch // 2, 0, h - ch))
+    return x0, y0, x0 + cw, y0 + ch
+
+
 SAM_MAX_AREA_FRAC = 0.85   # candidates covering more of the image are blow-ups
 
 
