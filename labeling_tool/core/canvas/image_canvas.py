@@ -222,6 +222,12 @@ class ImageCanvas(QWidget):
     def _sam_add_point(self, ix: int, iy: int, label: int) -> None:
         if self._sam_predictor is None or self._origin_bgr is None:
             return
+        # A positive click OUTSIDE the current crop means a new region: re-crop
+        # around it (a fixed crop can't cover a whole panorama). Points inside,
+        # and negative refinements, stay in the current crop.
+        if (self._sam_image_set and self._sam_crop is not None and int(label) == 1
+                and not self._point_in_crop(int(ix), int(iy))):
+            self._clear_sam_state()
         if not self._sam_image_set:
             h, w = self._origin_bgr.shape[:2]
             self._sam_crop = crop_window(h, w, int(ix), int(iy), SAM_CROP_PX)
@@ -232,6 +238,12 @@ class ImageCanvas(QWidget):
         self._sam_points.append((int(ix), int(iy)))
         self._sam_labels.append(int(label))
         self._sam_recompute()
+
+    def _point_in_crop(self, ix: int, iy: int) -> bool:
+        if self._sam_crop is None:
+            return False
+        x0, y0, x1, y1 = self._sam_crop
+        return x0 <= ix < x1 and y0 <= iy < y1
 
     def _sam_recompute(self) -> None:
         """Re-predict from the current points: map full-image coords into the
