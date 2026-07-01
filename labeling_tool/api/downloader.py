@@ -2,6 +2,10 @@
 
 Sequential with per-photo error capture: one bad URL never aborts the
 batch. Returns the list of failed entries for the UI to surface/retry.
+
+Each file download verifies completeness (received bytes vs Content-Length)
+and retries, so a truncated stitched JPEG can't slip through short and desync
+from its full-size mask.
 """
 
 from __future__ import annotations
@@ -18,11 +22,34 @@ from labeling_tool.logging_setup import vlog
 ProgressFn = Callable[[int, int], None]
 
 
-def _download_to(url: str, dest: Path, timeout: int = 60) -> int:
-    resp = requests.get(url, timeout=timeout)
-    resp.raise_for_status()
-    dest.write_bytes(resp.content)
-    return len(resp.content)
+def _download_to(url: str, dest: Path, timeout: int = 60,
+                 retries: int = 3) -> int:
+    """Download url -> dest, verifying completeness and retrying on failure.
+
+    A truncated download (connection cut mid-body) silently produces a short
+    file — a JPEG decoded short by a few rows then desyncs from its full-size
+    mask. Verify the received byte count against Content-Length and retry;
+    nothing is written until a complete body arrives (no partial files).
+    """
+    last_err: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            resp = requests.get(url, timeout=timeout)
+            resp.raise_for_status()
+            content = resp.content
+            expected = resp.headers.get("Content-Length")
+            if expected is not None and len(content) != int(expected):
+                raise IOError(
+                    f"incomplete download: {len(content)}B of {expected}B")
+            dest.write_bytes(content)
+            return len(content)
+        except Exception as e:  # noqa: BLE001 - retry network/truncation errors
+            last_err = e
+            vlog().warning("download attempt %d/%d failed (%s): %s",
+                           attempt, retries, dest.name, e)
+            if attempt < retries:
+                time.sleep(0.5 * attempt)
+    raise last_err
 
 
 def download_photos(photos: list[dict], origin_dir: Path, detected_dir: Path,
