@@ -186,21 +186,42 @@ def test_sam_crop_small_image_uses_whole(monkeypatch):
     assert c.has_sam_preview()
 
 
-def test_sam_positive_click_outside_crop_recrops(monkeypatch):
-    """A positive click beyond the current crop starts a fresh selection there
-    (a fixed crop can't cover the whole panorama)."""
+def test_sam_multiblock_accumulates(monkeypatch):
+    """A positive click beyond the current crop re-crops there but KEEPS the
+    previous region — multiple blocks accumulate in the preview."""
     import labeling_tool.core.canvas.image_canvas as IC
     monkeypatch.setattr(IC, "SAM_CROP_PX", 64)
     c = ImageCanvas(); c.resize(200, 200)
     c.set_image(np.full((200, 200, 3), 30, np.uint8), None, None)
     c.set_sam_predictor(_FakePredictor())
     c.set_sam_mode(True)
-    c._sam_add_point(30, 30, 1)
+    c._sam_add_point(30, 30, 1)                # region A -> crop (0,0,64,64)
     assert c._sam_crop == (0, 0, 64, 64)
-    c._sam_add_point(150, 150, 1)              # far positive -> re-crop
+    c._sam_add_point(150, 150, 1)             # region B (far) -> re-crop, A finalized
     assert c._sam_crop == (118, 118, 182, 182)
-    assert c._sam_points == [(150, 150)]        # fresh selection, old points dropped
-    assert c.has_sam_preview()
+    assert c._sam_points == [(150, 150)]       # current region = B
+    p = c._sam_preview
+    assert p[15, 20] == 255                    # region A block kept (accumulated)
+    assert p[133, 138] == 255                  # region B block present
+    assert c.commit_sam() is True              # commit writes BOTH regions
+    assert c.brush_mask_spalling[15, 20] == 255
+    assert c.brush_mask_spalling[133, 138] == 255
+
+
+def test_sam_undo_keeps_accumulated_regions(monkeypatch):
+    """Undo removes points from the current region only; finalized regions stay."""
+    import labeling_tool.core.canvas.image_canvas as IC
+    monkeypatch.setattr(IC, "SAM_CROP_PX", 64)
+    c = ImageCanvas(); c.resize(200, 200)
+    c.set_image(np.full((200, 200, 3), 30, np.uint8), None, None)
+    c.set_sam_predictor(_FakePredictor())
+    c.set_sam_mode(True)
+    c._sam_add_point(30, 30, 1)               # region A finalized on next far click
+    c._sam_add_point(150, 150, 1)             # region B (current)
+    assert c.undo_sam_point() is True          # drop B's only point
+    p = c._sam_preview
+    assert p is not None and p[15, 20] == 255  # region A still present
+    assert p[133, 138] == 0                     # region B removed
 
 
 def test_sam_click_inside_crop_refines(monkeypatch):
