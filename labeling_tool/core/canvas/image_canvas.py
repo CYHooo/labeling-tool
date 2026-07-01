@@ -12,6 +12,7 @@ from labeling_tool.core.canvas.viewport import Viewport
 from labeling_tool.core.canvas.overlay_painter import paint_mask_overlay
 from labeling_tool.core.bbox import BBoxInteraction, paint_bboxes
 from labeling_tool.core.canvas.stroke_thinning import thin_stroke_into
+from labeling_tool.core.sam.predictor import crop_window, SAM_CROP_PX
 
 
 def _mask_to_origin(m: np.ndarray | None, h: int, w: int) -> np.ndarray:
@@ -108,6 +109,7 @@ class ImageCanvas(QWidget):
         self._sam_labels: list[int] = []
         self._sam_preview: np.ndarray | None = None
         self._sam_image_set: bool = False           # encoder run for current image
+        self._sam_crop: tuple[int, int, int, int] | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -212,6 +214,7 @@ class ImageCanvas(QWidget):
         self._sam_labels = []
         self._sam_preview = None
         self._sam_image_set = False
+        self._sam_crop = None
 
     def has_sam_preview(self) -> bool:
         return self._sam_preview is not None
@@ -220,21 +223,37 @@ class ImageCanvas(QWidget):
         if self._sam_predictor is None or self._origin_bgr is None:
             return
         if not self._sam_image_set:
-            self._sam_predictor.set_image(self._origin_bgr)   # lazy encode
+            h, w = self._origin_bgr.shape[:2]
+            self._sam_crop = crop_window(h, w, int(ix), int(iy), SAM_CROP_PX)
+            x0, y0, x1, y1 = self._sam_crop
+            # native-resolution crop -> SAM sees full detail at the click
+            self._sam_predictor.set_image(self._origin_bgr[y0:y1, x0:x1])
             self._sam_image_set = True
         self._sam_points.append((int(ix), int(iy)))
         self._sam_labels.append(int(label))
         self._sam_recompute()
 
     def _sam_recompute(self) -> None:
-        """Re-predict the preview from the current points (or clear if none)."""
-        if not self._sam_points:
+        """Re-predict from the current points: map full-image coords into the
+        native-res crop, run SAM, place the crop mask back into a full-size preview."""
+        if not self._sam_points or self._sam_crop is None:
             self._sam_preview = None
             self.update()
             return
+        x0, y0, x1, y1 = self._sam_crop
+        cw, ch = x1 - x0, y1 - y0
+        crop_pts = [(int(np.clip(px - x0, 0, cw - 1)),
+                     int(np.clip(py - y0, 0, ch - 1)))
+                    for (px, py) in self._sam_points]
         try:
-            self._sam_preview = self._sam_predictor.predict(
-                self._sam_points, self._sam_labels)
+            mask_crop = self._sam_predictor.predict(crop_pts, self._sam_labels)
+            if mask_crop.shape[:2] != (ch, cw):     # defensive: never desync sizes
+                mask_crop = cv2.resize(mask_crop, (cw, ch),
+                                       interpolation=cv2.INTER_NEAREST)
+            h, w = self._origin_bgr.shape[:2]
+            preview = np.zeros((h, w), np.uint8)
+            preview[y0:y1, x0:x1] = mask_crop
+            self._sam_preview = preview
         except Exception:
             from labeling_tool.logging_setup import vlog
             vlog().exception("SAM predict failed")
