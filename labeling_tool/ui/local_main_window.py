@@ -13,17 +13,37 @@ from labeling_tool.logging_setup import vlog
 
 class LocalMainWindow(MainWindow):
     def __init__(self, image_dir, mask_dir, output_dir):
-        super().__init__()
+        # Set the folders BEFORE super().__init__(): the base ctor auto-loads
+        # when a CWD ./Origin exists, dispatching to our _build_image_list which
+        # reads image_dir/mask_dir (same pre-super pattern ViewerMainWindow uses).
         self.image_dir = Path(image_dir)
         self.mask_dir = Path(mask_dir)
+        super().__init__()
         self.origin_dir = self.image_dir
         self.detected_dir = self.mask_dir
         self.output_dir = Path(output_dir)
         self.highlight_dir = None            # skip derived masks
         self.repair15_dir = None
         self.export_result_on_save = False   # skip Result/<stem>.png export
+        # Fully disable highlight/15cm: hide their toggles, no repair15 overlay.
+        self.canvas.show_repair15 = False
+        for name in ("_btn_show_highlight", "_btn_show_repair15"):
+            btn = getattr(self, name, None)
+            if btn is not None:
+                btn.setChecked(False)
+                btn.hide()
         self._init_sam()
         self._reload_data()
+
+    # ----- no highlight/15cm derived masks or auto-bbox in the standalone -----
+    def _dispatch_derived(self, filename, crack, spall, scale) -> None:
+        return          # highlight/repair15 disabled — never generate
+
+    def _maybe_auto_bbox(self, token: str) -> None:
+        return          # 15cm-contour auto-bbox disabled
+
+    def _has_labeling_file(self, filename: str) -> bool:
+        return self._save_mask_path(filename).exists()   # green marker for <stem>.png
 
     def _init_sam(self) -> None:
         from labeling_tool.core.sam.predictor import MobileSamPredictor

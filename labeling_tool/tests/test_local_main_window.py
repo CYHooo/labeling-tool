@@ -39,3 +39,31 @@ def test_save_writes_output_png(tmp_path):
     # no derived/result dirs were created
     assert not (out.parent / "HighLight").exists()
     assert not (out.parent / "Repair15").exists()
+
+
+def test_construct_survives_cwd_origin(tmp_path, monkeypatch):
+    """Regression: base ctor auto-loads when a ./Origin exists in CWD; the
+    folders must be set before super().__init__() or it AttributeErrors."""
+    from labeling_tool.ui.local_main_window import LocalMainWindow
+    img, msk, out = _setup(tmp_path)
+    (tmp_path / "Origin").mkdir()          # trigger the base auto-load path
+    monkeypatch.chdir(tmp_path)
+    w = LocalMainWindow(img, msk, out)     # must not raise
+    assert w.image_files == ["foo.jpg"]
+
+
+def test_no_derived_or_autobbox_even_with_scale(tmp_path):
+    """15cm/highlight fully disabled: derived dispatch + auto-bbox are no-ops,
+    no HighLight/Repair15 dirs, repair15 overlay off."""
+    from labeling_tool.ui.local_main_window import LocalMainWindow
+    img, msk, out = _setup(tmp_path)
+    w = LocalMainWindow(img, msk, out)
+    w._show_image(0)
+    w.current_scale = 20.0                 # a scale is present (manual/aruco)
+    w._dispatch_derived("foo.jpg", None, None, 20.0)   # no-op, no raise
+    w._maybe_auto_bbox("foo.jpg")                       # no-op
+    w._save_all_artifacts(silent=True)
+    assert not (out.parent / "HighLight").exists()
+    assert not (out.parent / "Repair15").exists()
+    assert w.canvas.show_repair15 is False
+    assert w._has_labeling_file("foo.jpg") is True      # green marker works
