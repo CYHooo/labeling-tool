@@ -13,7 +13,8 @@ from PyQt5.QtWidgets import (
 )
 
 from labeling_tool.core.window.main_window import MainWindow as CoreMainWindow
-from labeling_tool.core.bbox import load_scale
+from labeling_tool.core.bbox import load_scale_info
+from labeling_tool.annotation_payload import upload_scale_source
 from labeling_tool.session import mask_store
 from labeling_tool.session.workspace import Workspace
 from labeling_tool.session.manifest import Manifest
@@ -124,13 +125,14 @@ class ViewerMainWindow(CoreMainWindow):
         specs = []
         for fn in filenames:
             entry = self._manifest.get(fn)
-            measured = load_scale(self.output_dir / mask_store.bbox_name(fn))
-            px_per_cm = measured if measured else (entry.px_per_cm or 0.0)
+            info = load_scale_info(self.output_dir / mask_store.bbox_name(fn))
+            px_per_cm = info["scale"] if info["scale"] else (entry.px_per_cm or 0.0)
             if px_per_cm <= 0:
                 continue                  # upload requires pxPerCm
+            # Default scale is the server metrics PPM; manual measurement wins.
             specs.append({"filename": fn, "timestamp": entry.timestamp,
                           "px_per_cm": px_per_cm,
-                          "scale_source": entry.scale_source})
+                          "scale_source": upload_scale_source(info["source"])})
 
         if not specs:
             self.status.showMessage(
