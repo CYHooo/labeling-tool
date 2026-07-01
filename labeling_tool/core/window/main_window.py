@@ -75,7 +75,7 @@ class MainWindow(QMainWindow):
         self._derived_signals = DerivedMaskSignals()
         self._derived_signals.done.connect(self._on_derived_ready)
         self._btn_show_repair15.setChecked(True)   # 15cm contour on by default
-        self._offer_refit_for: str | None = None   # filename awaiting refit-confirm
+        self._offer_refit_for: str | None = None   # filename awaiting silent bbox refit
 
         if self.origin_dir is not None:
             self._load_data()
@@ -431,8 +431,9 @@ class MainWindow(QMainWindow):
             token=filename, signals=self._derived_signals))
 
     def _maybe_auto_bbox(self, token: str) -> None:
-        """Auto-fit bboxes from the current 15cm contour. Silent when there are
-        no bboxes; otherwise re-fit only on a confirmed mask-edit regeneration."""
+        """Auto-fit bboxes from the current 15cm contour: silently when there are
+        none, and (on a mask-edit regeneration) silently re-fit all from the new
+        15cm. Plain loads/switches keep the saved bboxes untouched."""
         if self.current_idx < 0 or token != self.image_files[self.current_idx]:
             return
         contours = self.canvas.repair15_contours
@@ -442,21 +443,14 @@ class MainWindow(QMainWindow):
         new_boxes = bboxes_from_contours(contours)
         if not new_boxes:
             return
-        if not self.canvas.bbox_interaction.boxes:
-            self.canvas.bbox_interaction.boxes = new_boxes
-            self._mark_bbox_edited()
-            self.canvas.update()
+        # No bboxes yet -> fit. Mask was just edited (flag set) -> refit all.
+        # Otherwise (plain load) leave the existing bboxes as they are.
+        if self.canvas.bbox_interaction.boxes and self._offer_refit_for != token:
             return
-        if self._offer_refit_for == token:
-            self._offer_refit_for = None
-            ans = QMessageBox.question(
-                self, self.tr_("bbox_refit_confirm_title"),
-                self.tr_("bbox_refit_confirm"),
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-            if ans == QMessageBox.Yes:
-                self.canvas.bbox_interaction.boxes = new_boxes
-                self._mark_bbox_edited()
-                self.canvas.update()
+        self._offer_refit_for = None
+        self.canvas.bbox_interaction.boxes = new_boxes
+        self._mark_bbox_edited()
+        self.canvas.update()
 
     def _on_derived_ready(self, token: str, hi, r15):
         """Refresh the canvas overlays from a background derived-mask result,
