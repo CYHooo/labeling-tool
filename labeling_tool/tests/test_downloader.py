@@ -64,3 +64,51 @@ def test_partial_pair_cleaned_on_mask_failure(tmp_path):
     # No orphaned stitched file must remain (no partial pair).
     assert not (origin_dir / "stitched_1.jpg").exists()
     assert not (detected_dir / "stitched_1_mask.png").exists()
+
+
+def _fake_resp(body, clen):
+    class R:
+        content = body
+        headers = {"Content-Length": str(clen)}
+        def raise_for_status(self): pass
+    return R()
+
+
+def test_download_retries_on_truncation(monkeypatch, tmp_path):
+    from labeling_tool.api import downloader as D
+    monkeypatch.setattr(D.time, "sleep", lambda *_: None)
+    calls = {"n": 0}
+    def fake_get(url, timeout=60):
+        calls["n"] += 1
+        return _fake_resp(b"short", 10) if calls["n"] == 1 \
+            else _fake_resp(b"fullbytes!!", 11)   # complete: 11B == header
+    monkeypatch.setattr(D.requests, "get", fake_get)
+    dest = tmp_path / "f.bin"
+    n = D._download_to("http://x", dest, retries=3)
+    assert n == 11 and dest.read_bytes() == b"fullbytes!!"
+    assert calls["n"] == 2                          # retried once, then succeeded
+
+
+def test_download_raises_after_all_truncated(monkeypatch, tmp_path):
+    import pytest
+    from labeling_tool.api import downloader as D
+    monkeypatch.setattr(D.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(D.requests, "get",
+                        lambda url, timeout=60: _fake_resp(b"short", 99))
+    dest = tmp_path / "f.bin"
+    with pytest.raises(Exception):
+        D._download_to("http://x", dest, retries=2)
+    assert not dest.exists()                        # no partial file written
+
+
+def test_download_photos_records_truncated_pair_as_failure(monkeypatch, tmp_path):
+    from labeling_tool.api import downloader as D
+    monkeypatch.setattr(D.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(D.requests, "get",
+                        lambda url, timeout=60: _fake_resp(b"x", 999))  # always short
+    origin = tmp_path / "Origin"; det = tmp_path / "Detected"
+    origin.mkdir(); det.mkdir()
+    photos = [{"timestamp": 1, "stitchedUrl": "http://s/a", "maskUrl": "http://s/b"}]
+    failures = D.download_photos(photos, origin, det)
+    assert len(failures) == 1 and failures[0]["timestamp"] == 1
+    assert not (origin / "stitched_1.jpg").exists()   # partial pair cleaned up
