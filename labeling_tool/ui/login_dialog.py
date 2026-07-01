@@ -92,8 +92,16 @@ class LoginDialog(QDialog):
             QMessageBox.warning(self, "없음",
                                 f"로컬 매니페스트 없음: {ws.manifest_path}")
             return
+        # Carry any entered/prefilled credentials so a locally-opened session can
+        # still upload to EC2. Both empty -> stays fully offline (upload disabled).
+        base = self.ed_base.text().strip()
+        key = self.ed_key.text().strip()
+        if base and key:
+            save_config(base, key)
+            self.base, self.key = base, key
         self.workspace = ws
         self.manifest = Manifest.load(ws.manifest_path)
         attach_session_log(ws.session_dir)
-        vlog().info("=== session %s opened (local) ===", sid)
+        vlog().info("=== session %s opened (local, upload=%s) ===",
+                    sid, "on" if (base and key) else "off")
         self.accept()
