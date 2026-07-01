@@ -155,3 +155,32 @@ def test_sam_commit_when_loaded_mask_mismatched_origin():
     assert c.has_sam_preview()
     assert c.commit_sam() is True              # no IndexError
     assert int((c.brush_mask_spalling > 0).sum()) >= 200
+
+
+def test_sam_crop_maps_preview_to_full_image(monkeypatch):
+    import labeling_tool.core.canvas.image_canvas as IC
+    monkeypatch.setattr(IC, "SAM_CROP_PX", 64)
+    c = ImageCanvas(); c.resize(200, 200)
+    c.set_image(np.full((200, 200, 3), 30, np.uint8), None, None)
+    c.set_sam_predictor(_FakePredictor())
+    c.set_sam_mode(True)
+    c._sam_add_point(100, 100, 1)                 # image coords; crop centered here
+    assert c._sam_crop == (68, 68, 132, 132)      # 64-window around (100,100)
+    ys, xs = np.where(c._sam_preview > 0)
+    # _FakePredictor puts a block at crop-local [10:20, 10:30]; +offset (68,68)
+    assert (int(ys.min()), int(ys.max())) == (78, 87)
+    assert (int(xs.min()), int(xs.max())) == (78, 97)
+    assert c.commit_sam() is True
+    assert int((c.brush_mask_spalling > 0).sum()) == 10 * 20   # placed, not whole image
+
+
+def test_sam_crop_small_image_uses_whole(monkeypatch):
+    import labeling_tool.core.canvas.image_canvas as IC
+    monkeypatch.setattr(IC, "SAM_CROP_PX", 1024)   # image (120x80) < side -> whole
+    c = ImageCanvas(); c.resize(120, 80)
+    c.set_image(np.full((80, 120, 3), 30, np.uint8), None, None)
+    c.set_sam_predictor(_FakePredictor())
+    c.set_sam_mode(True)
+    c._sam_add_point(60, 40, 1)
+    assert c._sam_crop == (0, 0, 120, 80)
+    assert c.has_sam_preview()
