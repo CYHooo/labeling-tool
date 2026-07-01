@@ -110,6 +110,8 @@ class ImageCanvas(QWidget):
         self._sam_preview: np.ndarray | None = None
         self._sam_image_set: bool = False           # encoder run for current image
         self._sam_crop: tuple[int, int, int, int] | None = None
+        self._sam_accum: np.ndarray | None = None    # finalized-not-committed regions
+        self._sam_current: np.ndarray | None = None  # current region's own mask
 
     # ------------------------------------------------------------------
     # Public API
@@ -215,6 +217,8 @@ class ImageCanvas(QWidget):
         self._sam_preview = None
         self._sam_image_set = False
         self._sam_crop = None
+        self._sam_accum = None
+        self._sam_current = None
 
     def has_sam_preview(self) -> bool:
         return self._sam_preview is not None
@@ -222,12 +226,13 @@ class ImageCanvas(QWidget):
     def _sam_add_point(self, ix: int, iy: int, label: int) -> None:
         if self._sam_predictor is None or self._origin_bgr is None:
             return
-        # A positive click OUTSIDE the current crop means a new region: re-crop
-        # around it (a fixed crop can't cover a whole panorama). Points inside,
-        # and negative refinements, stay in the current crop.
+        # A positive click OUTSIDE the current crop means a NEW region: finalize
+        # the current region into the accumulated preview (keeping earlier
+        # regions so multiple blocks can be selected together) and re-crop around
+        # the new click. Points inside, and negative refinements, stay in-crop.
         if (self._sam_image_set and self._sam_crop is not None and int(label) == 1
                 and not self._point_in_crop(int(ix), int(iy))):
-            self._clear_sam_state()
+            self._finalize_current_region()
         if not self._sam_image_set:
             h, w = self._origin_bgr.shape[:2]
             self._sam_crop = crop_window(h, w, int(ix), int(iy), SAM_CROP_PX)
@@ -245,31 +250,55 @@ class ImageCanvas(QWidget):
         x0, y0, x1, y1 = self._sam_crop
         return x0 <= ix < x1 and y0 <= iy < y1
 
+    def _finalize_current_region(self) -> None:
+        """Fold the current region's mask into the accumulated preview and reset
+        the current-region state (earlier regions are kept for multi-block select)."""
+        if self._sam_current is not None:
+            if self._sam_accum is None:
+                self._sam_accum = self._sam_current.copy()
+            else:
+                self._sam_accum[self._sam_current > 0] = 255
+        self._sam_points = []
+        self._sam_labels = []
+        self._sam_image_set = False
+        self._sam_crop = None
+        self._sam_current = None
+
+    @staticmethod
+    def _combine_preview(accum, current):
+        """OR the accumulated regions with the current one (either may be None)."""
+        if accum is None:
+            return current
+        if current is None:
+            return accum
+        out = accum.copy()
+        out[current > 0] = 255
+        return out
+
     def _sam_recompute(self) -> None:
-        """Re-predict from the current points: map full-image coords into the
-        native-res crop, run SAM, place the crop mask back into a full-size preview."""
-        if not self._sam_points or self._sam_crop is None:
-            self._sam_preview = None
-            self.update()
-            return
-        x0, y0, x1, y1 = self._sam_crop
-        cw, ch = x1 - x0, y1 - y0
-        crop_pts = [(int(np.clip(px - x0, 0, cw - 1)),
-                     int(np.clip(py - y0, 0, ch - 1)))
-                    for (px, py) in self._sam_points]
-        try:
-            mask_crop = self._sam_predictor.predict(crop_pts, self._sam_labels)
-            if mask_crop.shape[:2] != (ch, cw):     # defensive: never desync sizes
-                mask_crop = cv2.resize(mask_crop, (cw, ch),
-                                       interpolation=cv2.INTER_NEAREST)
-            h, w = self._origin_bgr.shape[:2]
-            preview = np.zeros((h, w), np.uint8)
-            preview[y0:y1, x0:x1] = mask_crop
-            self._sam_preview = preview
-        except Exception:
-            from labeling_tool.logging_setup import vlog
-            vlog().exception("SAM predict failed")
-            self._sam_preview = None
+        """Re-predict the current region on its native-res crop, then combine it
+        with the accumulated (finalized-but-uncommitted) regions into the preview."""
+        current = None
+        if self._sam_points and self._sam_crop is not None:
+            x0, y0, x1, y1 = self._sam_crop
+            cw, ch = x1 - x0, y1 - y0
+            crop_pts = [(int(np.clip(px - x0, 0, cw - 1)),
+                         int(np.clip(py - y0, 0, ch - 1)))
+                        for (px, py) in self._sam_points]
+            try:
+                mask_crop = self._sam_predictor.predict(crop_pts, self._sam_labels)
+                if mask_crop.shape[:2] != (ch, cw):     # defensive: never desync sizes
+                    mask_crop = cv2.resize(mask_crop, (cw, ch),
+                                           interpolation=cv2.INTER_NEAREST)
+                h, w = self._origin_bgr.shape[:2]
+                current = np.zeros((h, w), np.uint8)
+                current[y0:y1, x0:x1] = mask_crop
+            except Exception:
+                from labeling_tool.logging_setup import vlog
+                vlog().exception("SAM predict failed")
+                current = None
+        self._sam_current = current
+        self._sam_preview = self._combine_preview(self._sam_accum, current)
         self.update()
 
     def undo_sam_point(self) -> bool:
