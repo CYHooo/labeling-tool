@@ -184,3 +184,33 @@ def test_sam_crop_small_image_uses_whole(monkeypatch):
     c._sam_add_point(60, 40, 1)
     assert c._sam_crop == (0, 0, 120, 80)
     assert c.has_sam_preview()
+
+
+def test_sam_positive_click_outside_crop_recrops(monkeypatch):
+    """A positive click beyond the current crop starts a fresh selection there
+    (a fixed crop can't cover the whole panorama)."""
+    import labeling_tool.core.canvas.image_canvas as IC
+    monkeypatch.setattr(IC, "SAM_CROP_PX", 64)
+    c = ImageCanvas(); c.resize(200, 200)
+    c.set_image(np.full((200, 200, 3), 30, np.uint8), None, None)
+    c.set_sam_predictor(_FakePredictor())
+    c.set_sam_mode(True)
+    c._sam_add_point(30, 30, 1)
+    assert c._sam_crop == (0, 0, 64, 64)
+    c._sam_add_point(150, 150, 1)              # far positive -> re-crop
+    assert c._sam_crop == (118, 118, 182, 182)
+    assert c._sam_points == [(150, 150)]        # fresh selection, old points dropped
+    assert c.has_sam_preview()
+
+
+def test_sam_click_inside_crop_refines(monkeypatch):
+    import labeling_tool.core.canvas.image_canvas as IC
+    monkeypatch.setattr(IC, "SAM_CROP_PX", 64)
+    c = ImageCanvas(); c.resize(200, 200)
+    c.set_image(np.full((200, 200, 3), 30, np.uint8), None, None)
+    c.set_sam_predictor(_FakePredictor())
+    c.set_sam_mode(True)
+    c._sam_add_point(100, 100, 1)              # crop (68,68,132,132)
+    c._sam_add_point(110, 110, 0)              # inside -> refine, same crop
+    assert c._sam_crop == (68, 68, 132, 132)
+    assert c._sam_points == [(100, 100), (110, 110)]
