@@ -351,7 +351,7 @@ class MainWindow(QMainWindow):
         if mc is not None or ms is not None:
             label = encode_label_mask(mc, ms)
             self.output_dir.mkdir(parents=True, exist_ok=True)
-            mask_out = self.output_dir / mask_store.mask_name(filename)
+            mask_out = self._save_mask_path(filename)
             _cv2.imwrite(str(mask_out), label)
 
             # ----- 1b. Derived masks: highlight + (scale-dependent) repair15 --
@@ -631,10 +631,7 @@ class MainWindow(QMainWindow):
                 self.tr_("err_no_origin_title"), self.tr_("err_no_origin_msg"))
             return
 
-        files = sorted([
-            f.name for f in self.origin_dir.iterdir()
-            if f.suffix.lower() in IMAGE_EXTENSIONS
-        ])
+        files = self._build_image_list()
         if not files:
             QMessageBox.warning(self,
                 self.tr_("warn_title"),
@@ -652,6 +649,13 @@ class MainWindow(QMainWindow):
         self.file_list.setCurrentRow(0)
         self._refresh_list_colors()
         self.status.showMessage(self.tr_("loaded_n_images", n=len(files)))
+
+    def _build_image_list(self) -> list[str]:
+        """Filenames to list. Default: images in origin_dir. Overridable."""
+        return sorted([
+            f.name for f in self.origin_dir.iterdir()
+            if f.suffix.lower() in IMAGE_EXTENSIONS
+        ])
 
     # ------------------------------------------------------------------
     # Image switching
@@ -677,13 +681,7 @@ class MainWindow(QMainWindow):
         origin_path = str(self.origin_dir / filename)
         import sys as _sys
 
-        mask_path = None
-        source = "none"
-
-        resolved, source = mask_store.resolve_display_mask(
-            labeling_dir=self.output_dir,
-            detected_dir=self.detected_dir, origin_filename=filename)
-        mask_path = str(resolved) if resolved is not None else None
+        mask_path, source = self._display_mask_path(filename)
 
         print(f"[load] {filename} -> {source}: {mask_path}", file=_sys.stderr)
 
@@ -773,6 +771,19 @@ class MainWindow(QMainWindow):
 
         self._refresh_list_colors()
         self._update_status_for_current()
+
+    def _display_mask_path(self, filename: str) -> tuple[str | None, str]:
+        """(mask_path|None, source) to display. Default: Labeling then Detected
+        via <stem>_mask.png. Overridable."""
+        resolved, source = mask_store.resolve_display_mask(
+            labeling_dir=self.output_dir,
+            detected_dir=self.detected_dir, origin_filename=filename)
+        return (str(resolved) if resolved is not None else None), source
+
+    def _save_mask_path(self, filename: str) -> Path:
+        """Output path for the edited mask. Default: <stem>_mask.png in
+        output_dir. Overridable."""
+        return self.output_dir / mask_store.mask_name(filename)
 
     def _resolve_scale(self, filename: str, origin):
         """Return (scale_px_per_cm, source, aruco_corners) for this image.
