@@ -4,15 +4,26 @@ from PIL import Image
 from annotation_tool.core import dataset_io
 
 
-def test_list_images_marks_existing_mask(tmp_path):
-    (tmp_path / "images").mkdir()
+def test_list_images_reads_folder_directly_and_marks_mask(tmp_path):
+    # images live directly in the chosen folder; masks in its masks/ subdir
+    Image.new("RGB", (8, 6)).save(tmp_path / "a.jpg")
+    Image.new("RGB", (8, 6)).save(tmp_path / "b.jpg")
     (tmp_path / "masks").mkdir()
-    Image.new("RGB", (8, 6)).save(tmp_path / "images" / "a.jpg")
-    Image.new("RGB", (8, 6)).save(tmp_path / "images" / "b.jpg")
     Image.new("L", (6, 8)).save(tmp_path / "masks" / "a_mask.png")
     items = dataset_io.list_images(tmp_path)
     names = {it.name: it.has_mask for it in items}
     assert names == {"a": True, "b": False}
+
+
+def test_list_images_ignores_mask_subdir_contents(tmp_path):
+    # a mask PNG sitting in masks/ must not be listed as an image to annotate
+    Image.new("RGB", (8, 6)).save(tmp_path / "photo.jpg")
+    (tmp_path / "masks").mkdir()
+    Image.new("L", (6, 8)).save(tmp_path / "masks" / "photo_mask.png")
+    (tmp_path / "verify_overlays").mkdir()
+    Image.new("RGB", (8, 6)).save(tmp_path / "verify_overlays" / "photo_overlay.jpg")
+    items = dataset_io.list_images(tmp_path)
+    assert [it.name for it in items] == ["photo"]
 
 
 def test_load_image_applies_exif_transpose(tmp_path):
@@ -55,7 +66,11 @@ def test_mask_path_for():
 def test_list_images_missing_dir_raises(tmp_path):
     import pytest
     with pytest.raises(FileNotFoundError):
-        dataset_io.list_images(tmp_path)  # no images/ subdir
+        dataset_io.list_images(tmp_path / "does_not_exist")
+
+
+def test_list_images_empty_folder_returns_empty(tmp_path):
+    assert dataset_io.list_images(tmp_path) == []
 
 
 def test_save_overlay_blends_class_color(tmp_path):

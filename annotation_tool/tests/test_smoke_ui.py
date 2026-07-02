@@ -81,10 +81,8 @@ def test_canvas_add_point_before_image_is_ignored():
 
 # 追加到 annotation_tool/tests/test_smoke_ui.py
 def test_main_window_constructs(monkeypatch, tmp_path):
-    # build a tiny dataset
-    (tmp_path / "images").mkdir()
-    (tmp_path / "masks").mkdir()
-    Image.new("RGB", (10, 8)).save(tmp_path / "images" / "a.jpg")
+    # images live directly in the chosen folder (no images/ subdir)
+    Image.new("RGB", (10, 8)).save(tmp_path / "a.jpg")
 
     # avoid loading a real SAM backend
     from annotation_tool.segmenter import base as base_mod
@@ -101,9 +99,7 @@ def test_main_window_constructs(monkeypatch, tmp_path):
 
 
 def test_main_window_clears_stale_candidate_on_reload(monkeypatch, tmp_path):
-    (tmp_path / "images").mkdir()
-    (tmp_path / "masks").mkdir()
-    Image.new("RGB", (10, 8)).save(tmp_path / "images" / "a.jpg")
+    Image.new("RGB", (10, 8)).save(tmp_path / "a.jpg")
     from annotation_tool.segmenter import base as base_mod
     monkeypatch.setattr(base_mod, "build_segmenter", lambda *a, **k: _Dummy())
     from annotation_tool.ui.main_window import MainWindow
@@ -118,11 +114,11 @@ def test_main_window_clears_stale_candidate_on_reload(monkeypatch, tmp_path):
 
 
 def test_main_window_load_dataset_switch(monkeypatch, tmp_path):
-    ds_a = tmp_path / "A"; (ds_a / "images").mkdir(parents=True); (ds_a / "masks").mkdir()
-    Image.new("RGB", (10, 8)).save(ds_a / "images" / "a.jpg")
-    ds_b = tmp_path / "B"; (ds_b / "images").mkdir(parents=True); (ds_b / "masks").mkdir()
-    Image.new("RGB", (12, 9)).save(ds_b / "images" / "b1.jpg")
-    Image.new("RGB", (12, 9)).save(ds_b / "images" / "b2.jpg")
+    ds_a = tmp_path / "A"; ds_a.mkdir()
+    Image.new("RGB", (10, 8)).save(ds_a / "a.jpg")
+    ds_b = tmp_path / "B"; ds_b.mkdir()
+    Image.new("RGB", (12, 9)).save(ds_b / "b1.jpg")
+    Image.new("RGB", (12, 9)).save(ds_b / "b2.jpg")
     from annotation_tool.segmenter import base as base_mod
     monkeypatch.setattr(base_mod, "build_segmenter", lambda *args, **k: _Dummy())
     from annotation_tool.ui.main_window import MainWindow
@@ -146,9 +142,7 @@ def test_main_window_no_autoload_without_dataset(monkeypatch):
 
 
 def test_main_window_brush_and_eraser_edit_layer(monkeypatch, tmp_path):
-    (tmp_path / "images").mkdir()
-    (tmp_path / "masks").mkdir()
-    Image.new("RGB", (10, 8)).save(tmp_path / "images" / "a.jpg")
+    Image.new("RGB", (10, 8)).save(tmp_path / "a.jpg")
     from annotation_tool.segmenter import base as base_mod
     monkeypatch.setattr(base_mod, "build_segmenter", lambda *args, **k: _Dummy())
     from annotation_tool.ui.main_window import MainWindow
@@ -168,13 +162,13 @@ def test_main_window_brush_and_eraser_edit_layer(monkeypatch, tmp_path):
 
 
 def test_main_window_invalid_folder_is_noop(monkeypatch, tmp_path):
-    ds_a = tmp_path / "A"; (ds_a / "images").mkdir(parents=True); (ds_a / "masks").mkdir()
-    Image.new("RGB", (10, 8)).save(ds_a / "images" / "a.jpg")
+    ds_a = tmp_path / "A"; ds_a.mkdir()
+    Image.new("RGB", (10, 8)).save(ds_a / "a.jpg")
     from annotation_tool.segmenter import base as base_mod
     monkeypatch.setattr(base_mod, "build_segmenter", lambda *args, **k: _Dummy())
     from annotation_tool.ui.main_window import MainWindow
     w = MainWindow(dataset_dir=str(ds_a))
-    w.load_dataset(tmp_path / "no_such_dir", warn_if_empty=False)  # missing images/ -> ignored
+    w.load_dataset(tmp_path / "no_such_dir", warn_if_empty=False)  # nonexistent -> ignored
     assert w.list_widget.count() == 1              # unchanged
     assert w.dataset_dir == ds_a                   # unchanged
     w.close()

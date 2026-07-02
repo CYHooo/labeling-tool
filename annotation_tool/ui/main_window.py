@@ -70,7 +70,7 @@ class MainWindow(QMainWindow):
             self.load_dataset(self.dataset_dir, warn_if_empty=False)
         else:
             self.statusBar().showMessage(
-                "请用 File ▸ Open Folder (Ctrl+O) 选择包含 images/ 的数据集文件夹")
+                "请用 File ▸ Open Folder (Ctrl+O) 选择存放图片的文件夹")
 
     # --- UI construction ---
     def _build_class_panel(self):
@@ -147,7 +147,7 @@ class MainWindow(QMainWindow):
     def open_folder(self):
         start = str(self.dataset_dir) if self.dataset_dir.exists() else str(Path.home())
         chosen = QFileDialog.getExistingDirectory(
-            self, "Select dataset folder (must contain an images/ subfolder)", start)
+            self, "Select an image folder (images are read directly from it)", start)
         if chosen:
             self.load_dataset(Path(chosen), warn_if_empty=True)
 
@@ -159,8 +159,7 @@ class MainWindow(QMainWindow):
         except FileNotFoundError:
             if warn_if_empty:
                 QMessageBox.warning(
-                    self, "Invalid folder",
-                    f"No 'images/' subfolder found in:\n{dataset_dir}")
+                    self, "Invalid folder", f"Folder not found:\n{dataset_dir}")
             return
 
         # commit the switch and reset per-image editing state
@@ -186,7 +185,7 @@ class MainWindow(QMainWindow):
             self.list_widget.setCurrentRow(0)  # triggers load_index(0)
         elif warn_if_empty:
             QMessageBox.information(
-                self, "No images", f"No .jpg images found in {dataset_dir / 'images'}")
+                self, "No images", f"No image files found directly in {dataset_dir}")
 
     def _install_shortcuts(self):
         for c in configs.CLASS_IDS:  # number keys 1..N select each class

@@ -84,7 +84,7 @@ python3 -m annotation_tool.main --dataset /home/cyh/Project/Few-shot/ConcJointDa
 python3 -m annotation_tool.main --dataset /home/cyh/Project/Few-shot/ConcJointDataset --backend sam3
 ```
 
-不带 `--backend` 时使用 `configs.BACKEND` 的默认值。`--dataset` 也可省略——启动后用菜单 **File → Open Folder…（`Ctrl+O`）** 选择数据集文件夹（需包含 `images/` 子目录）。GUI 需要图形显示（本机桌面 / X11 转发 / VNC）。
+不带 `--backend` 时使用 `configs.BACKEND` 的默认值。`--dataset` 也可省略——启动后用菜单 **File → Open Folder…（`Ctrl+O`）** 选择**存放图片的文件夹**（直接读取该文件夹内的图片；mask 会写到其下固定的 `masks/` 子目录）。GUI 需要图形显示（本机桌面 / X11 转发 / VNC）。
 
 ---
 

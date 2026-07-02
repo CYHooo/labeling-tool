@@ -10,9 +10,14 @@ import numpy as np
 from PIL import Image, ImageOps
 
 from annotation_tool.configs import (
-    IMAGES_SUBDIR, MASKS_SUBDIR, OVERLAYS_SUBDIR,
+    MASKS_SUBDIR, OVERLAYS_SUBDIR,
     CLASS_COLORS, OVERLAY_ALPHA,
 )
+
+# Image files are read directly from the selected folder (not a fixed
+# "images/" subdir). Masks/overlays still go to the fixed MASKS_SUBDIR /
+# OVERLAYS_SUBDIR under that folder.
+IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".bmp")
 
 
 @dataclass
@@ -27,19 +32,22 @@ def mask_filename(name: str) -> str:
 
 
 def list_images(dataset_dir: str | Path) -> list[ImageItem]:
+    """List image files directly inside `dataset_dir` (the chosen folder itself,
+    not an `images/` subdir). Mask existence is checked in the fixed masks/ subdir.
+    Files inside the masks/ and verify_overlays/ subfolders are never listed."""
     dataset_dir = Path(dataset_dir)
-    img_dir = dataset_dir / IMAGES_SUBDIR
-    if not img_dir.is_dir():
-        raise FileNotFoundError(f"image directory not found: {img_dir}")
+    if not dataset_dir.is_dir():
+        raise FileNotFoundError(f"folder not found: {dataset_dir}")
     mask_dir = dataset_dir / MASKS_SUBDIR
     items = []
-    for p in sorted(img_dir.glob("*.jpg")):
-        name = p.stem
-        items.append(ImageItem(
-            name=name,
-            image_path=p,
-            has_mask=(mask_dir / mask_filename(name)).exists(),
-        ))
+    for p in sorted(dataset_dir.iterdir()):
+        if p.is_file() and p.suffix.lower() in IMAGE_EXTS:
+            name = p.stem
+            items.append(ImageItem(
+                name=name,
+                image_path=p,
+                has_mask=(mask_dir / mask_filename(name)).exists(),
+            ))
     return items
 
 
