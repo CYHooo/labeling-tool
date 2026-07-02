@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtual env
+.venv/
+venv/
+
+# Model weights (download per README; too large for git)
+checkpoint/
+*.pt
+*.pth
+*.safetensors
