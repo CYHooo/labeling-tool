@@ -1,5 +1,6 @@
-"""Standalone offline labeling entry point: pick image + mask folders, edit
-crack/spalling masks locally, save to an output folder. No login/API."""
+"""Standalone offline labeling entry point: opens the main window directly.
+Pick the image folder + mask folder inside the GUI ("이미지 폴더" / "마스크 폴더"),
+edit crack/spalling masks locally, save to a Labeling/ output folder. No login/API."""
 
 from __future__ import annotations
 
@@ -10,7 +11,6 @@ os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = ""
 
 from PyQt5.QtWidgets import QApplication
 
-from labeling_tool.ui.folder_dialog import FolderDialog
 from labeling_tool.ui.local_main_window import LocalMainWindow
 
 
@@ -19,11 +19,7 @@ def main() -> int:
     from labeling_tool.core.window.styles import STYLESHEET
     app.setStyleSheet(STYLESHEET)
 
-    dlg = FolderDialog()
-    if not dlg.exec_():
-        return 0
-    dlg.output_dir.mkdir(parents=True, exist_ok=True)
-    win = LocalMainWindow(dlg.image_dir, dlg.mask_dir, dlg.output_dir)
+    win = LocalMainWindow()
     win.show()
     return app.exec_()
 
