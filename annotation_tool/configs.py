@@ -2,7 +2,8 @@
 from pathlib import Path
 
 # --- dataset paths (override at runtime via MainWindow "open folder") ---
-DEFAULT_DATASET_DIR = Path("/home/cyh/Project/Few-shot/ConcJointDataset")
+# Only used as the "Open Folder" dialog's starting point (no auto-load on launch).
+DEFAULT_DATASET_DIR = Path("./dataset")
 IMAGES_SUBDIR = "images"
 MASKS_SUBDIR = "masks"
 OVERLAYS_SUBDIR = "verify_overlays"
