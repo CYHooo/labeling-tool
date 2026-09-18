@@ -2,9 +2,11 @@
 
 用 SAM（SAM3 主 / SAM2.1 回退）做**点/框交互式分割**，为 ConcJoint few-shot 训练制作三分类像素级标注，导出与 `ConcJointDataset` 完全兼容的 `_mask.png`（0/1/2/3）。
 
-类别：`1=joint(줄눈)` `2=concrete` `3=scalebar` `4=shoe`，背景 `0`。
-颜色：红=joint、绿=concrete、蓝=scalebar、品红=shoe。
-优先级（重叠时取高者）：shoe > scalebar > joint > concrete > 背景。
+默认类别：`1=joint(줄눈)` `2=concrete` `3=scalebar` `4=shoe` `5=distractor`，背景 `0`。
+颜色：红=joint、绿=concrete、蓝=scalebar、品红=shoe、天蓝=distractor。
+默认优先级（重叠时取高者）：shoe > distractor > scalebar > joint > concrete > 背景。
+
+类别可在右侧面板中**添加 / 重命名 / 改色（点色块）/ 调整优先级**，保存在全局 `annotation_tool/classes.json`（详见根目录 README §8）。
 
 ---
 
@@ -13,9 +15,10 @@
 ```
 annotation_tool/
 ├── main.py                   # 入口（python -m annotation_tool.main）
-├── configs.py                # 路径 / 类别 / 优先级 / 颜色 / 后端开关
+├── configs.py                # 路径 / 默认类别 / 优先级 / 颜色 / 后端开关
 ├── core/
-│   ├── mask_state.py         # MaskState：三类二值图层 + 优先级合成 + 撤销/重做
+│   ├── class_registry.py     # 运行时类别注册表（增/改名/改色/优先级 + classes.json）
+│   ├── mask_state.py         # MaskState：多类二值图层（可动态加层）+ 优先级合成 + 撤销/重做
 │   └── dataset_io.py         # EXIF 读图 + 0/1/2/3 掩膜读写 + overlay 导出
 ├── segmenter/
 │   ├── base.py               # Segmenter 抽象接口 + build_segmenter 工厂
@@ -84,7 +87,7 @@ python3 -m annotation_tool.main --dataset /home/cyh/Project/Few-shot/ConcJointDa
 python3 -m annotation_tool.main --dataset /home/cyh/Project/Few-shot/ConcJointDataset --backend sam3
 ```
 
-不带 `--backend` 时使用 `configs.BACKEND` 的默认值。`--dataset` 也可省略——启动后用菜单 **File → Open Folder…（`Ctrl+O`）** 选择**存放图片的文件夹**（直接读取该文件夹内的图片；mask 会写到其下固定的 `masks/` 子目录）。GUI 需要图形显示（本机桌面 / X11 转发 / VNC）。
+不带 `--backend` 时使用 `configs.BACKEND` 的默认值。`--dataset` 也可省略——启动后用菜单 **File → Open Folder…（`Ctrl+O`）** 选择**存放图片的文件夹**（直接读取该文件夹内的图片；已有 mask 从其下 `masks/` 或上级 `masks/` 自动加载，见下文「输出」）。GUI 需要图形显示（本机桌面 / X11 转发 / VNC）。
 
 ---
 
@@ -94,7 +97,9 @@ python3 -m annotation_tool.main --dataset /home/cyh/Project/Few-shot/ConcJointDa
 
 | 操作 | 快捷键 / 鼠标 |
 |------|---------------|
-| 切换类别 joint/concrete/scalebar | `1` / `2` / `3`（或右侧单选） |
+| 切换类别 | `1`..`9`（按像素值；或右侧单选） |
+| 添加 / 重命名类别、调整优先级 | 右侧 `+ 添加` / `重命名` / `优先级 ↑` `↓` |
+| 修改类别颜色 | 点击类别右侧色块 |
 | 切工具：SAM点框 / 画笔 / 橡皮擦 | `V` / `B` / `E` |
 | 画笔涂抹 / 橡皮擦擦除（当前类别） | 选画笔或橡皮擦后左键拖拽 |
 | 笔刷调小 / 调大 | `[` / `]`（或右侧滑块） |
@@ -119,6 +124,12 @@ python3 -m annotation_tool.main --dataset /home/cyh/Project/Few-shot/ConcJointDa
 
 - `masks/<name>_mask.png`：单通道 `L` 模式 PNG，值 0/1/2/3，方向/尺寸与 EXIF 校正后的原图一致。
 - `verify_overlays/<name>_overlay.jpg`：彩色叠加校验图（可在 `configs.EXPORT_OVERLAY` 关闭）。
+
+**已有标注的自动加载**：打开文件夹时，每张图按以下顺序查找已有 mask，找到即自动加载（列表前缀 `✓`）：
+1. `<所选文件夹>/masks/<name>_mask.png`
+2. `<所选文件夹>/../masks/<name>_mask.png`（兼容旧结构 `dataset/images/` + `dataset/masks/`，此时打开 `dataset/images` 即可）
+
+已有 mask 保存时覆盖原位置；新 mask 写入 `<所选>/masks/`（若该目录不存在而上级 `masks/` 中已有本文件夹图片的 mask，则写入上级 `masks/`）。`verify_overlays/` 与所用的 `masks/` 同级。状态栏会显示实际使用的 mask 目录。若 mask 尺寸与图片不一致，则不加载并**禁止保存该图**，以免覆盖原文件。
 
 导出的 `masks/` 可被 `data/concjoint.py` 直接读取用于 few-shot 训练，无需额外转换。
 

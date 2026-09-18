@@ -13,3 +13,6 @@ checkpoint/
 *.pt
 *.pth
 *.safetensors
+
+# User-edited global class definitions (created by the annotation tool UI)
+annotation_tool/classes.json

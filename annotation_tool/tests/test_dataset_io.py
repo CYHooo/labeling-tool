@@ -82,3 +82,51 @@ def test_save_overlay_blends_class_color(tmp_path):
     result = np.array(Image.open(p))
     assert result[0, 0, 0] > 10   # red channel blended up
     assert result[0, 0, 1] < 60   # green channel stays near base (jpeg tolerance)
+
+
+def _old_layout(tmp_path):
+    """Legacy layout: dataset/images/*.jpg + dataset/masks/*_mask.png."""
+    img_dir = tmp_path / "images"; img_dir.mkdir()
+    mask_dir = tmp_path / "masks"; mask_dir.mkdir()
+    Image.new("RGB", (8, 6)).save(img_dir / "a.jpg")
+    Image.new("RGB", (8, 6)).save(img_dir / "b.jpg")
+    Image.new("L", (8, 6)).save(mask_dir / "a_mask.png")
+    return img_dir, mask_dir
+
+
+def test_find_mask_falls_back_to_parent_masks_dir(tmp_path):
+    img_dir, mask_dir = _old_layout(tmp_path)
+    assert dataset_io.find_mask(img_dir, "a") == mask_dir / "a_mask.png"
+    assert dataset_io.find_mask(img_dir, "b") is None
+    items = {it.name: it for it in dataset_io.list_images(img_dir)}
+    assert items["a"].has_mask and items["a"].mask_path == mask_dir / "a_mask.png"
+    assert not items["b"].has_mask and items["b"].mask_path is None
+
+
+def test_find_mask_prefers_own_masks_subdir(tmp_path):
+    img_dir, _ = _old_layout(tmp_path)
+    (img_dir / "masks").mkdir()
+    Image.new("L", (8, 6)).save(img_dir / "masks" / "a_mask.png")
+    assert dataset_io.find_mask(img_dir, "a") == img_dir / "masks" / "a_mask.png"
+
+
+def test_resolve_mask_dir_new_old_and_empty_layouts(tmp_path):
+    img_dir, mask_dir = _old_layout(tmp_path)
+    # legacy: parent masks/ holds masks for this folder's images -> save there
+    assert dataset_io.resolve_mask_dir(img_dir) == mask_dir
+    # nothing anywhere -> default own masks/ subdir
+    fresh = tmp_path / "fresh"; fresh.mkdir()
+    Image.new("RGB", (8, 6)).save(fresh / "z.jpg")
+    assert dataset_io.resolve_mask_dir(fresh) == fresh / "masks"
+    # own masks/ exists -> always wins
+    (img_dir / "masks").mkdir()
+    assert dataset_io.resolve_mask_dir(img_dir) == img_dir / "masks"
+
+
+def test_resolve_mask_dir_ignores_unrelated_parent_masks(tmp_path):
+    # parent has a masks/ dir, but nothing in it matches this folder's images
+    (tmp_path / "masks").mkdir()
+    Image.new("L", (8, 6)).save(tmp_path / "masks" / "other_mask.png")
+    ds = tmp_path / "ds"; ds.mkdir()
+    Image.new("RGB", (8, 6)).save(ds / "a.jpg")
+    assert dataset_io.resolve_mask_dir(ds) == ds / "masks"

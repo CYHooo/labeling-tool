@@ -172,3 +172,103 @@ def test_main_window_invalid_folder_is_noop(monkeypatch, tmp_path):
     assert w.list_widget.count() == 1              # unchanged
     assert w.dataset_dir == ds_a                   # unchanged
     w.close()
+
+
+def _make_window(monkeypatch, tmp_path):
+    ds = tmp_path / "ds"; ds.mkdir(parents=True)
+    Image.new("RGB", (10, 8)).save(ds / "a.jpg")
+    from annotation_tool.segmenter import base as base_mod
+    monkeypatch.setattr(base_mod, "build_segmenter", lambda *args, **k: _Dummy())
+    from annotation_tool.ui.main_window import MainWindow
+    w = MainWindow(dataset_dir=str(ds))
+    w.load_index(0)
+    return w
+
+
+def test_main_window_add_class_paint_save_and_persist(monkeypatch, tmp_path):
+    from annotation_tool import configs
+    from annotation_tool.core import dataset_io
+    w = _make_window(monkeypatch, tmp_path)
+    cid = w.add_class("crack", (1, 2, 3))
+    assert w.active_class == cid
+    assert w._class_group.button(cid) is not None
+    stroke = np.zeros((8, 10), dtype=bool)
+    stroke[0, :] = True
+    w._on_stroke(stroke, is_erase=False)      # paint new class on loaded image
+    assert w.state.layers[cid][0].all()
+    w.save_current()
+    saved = dataset_io.load_mask(dataset_io.mask_dir_of(w.dataset_dir) / "a_mask.png")
+    assert (saved[0] == cid).all()
+    assert configs.CLASSES_FILE.exists()      # persisted immediately
+    w.close()
+
+    w2 = _make_window(monkeypatch, tmp_path / "second")
+    assert w2.registry.name(cid) == "crack"   # reloaded from global JSON
+    w2.close()
+
+
+def test_main_window_rename_recolor_and_priority(monkeypatch, tmp_path):
+    w = _make_window(monkeypatch, tmp_path)
+    w.set_active_class(2)
+    w.rename_class(2, "slab")
+    assert w._class_group.button(2).text().startswith("2: slab")
+    w.set_class_color(2, (9, 9, 9))
+    assert w.canvas._brush_color == (9, 9, 9)
+    before = w.registry.export_order.index(2)
+    w.move_active_priority(+1)
+    assert w.registry.export_order.index(2) == before + 1
+    w.close()
+
+
+def test_main_window_corrupt_classes_file_uses_defaults(monkeypatch, tmp_path):
+    from annotation_tool import configs
+    configs.CLASSES_FILE.write_text("{broken")
+    w = _make_window(monkeypatch, tmp_path)
+    assert w.registry.class_ids == sorted(configs.CLASS_IDS)
+    w.add_class("crack", (1, 2, 3))
+    assert configs.CLASSES_FILE.read_text() == "{broken"  # never overwrite a broken file
+    w.close()
+
+
+def test_main_window_loads_and_saves_legacy_layout_masks(monkeypatch, tmp_path):
+    from annotation_tool.core import dataset_io
+    img_dir = tmp_path / "images"; img_dir.mkdir()
+    mask_dir = tmp_path / "masks"; mask_dir.mkdir()
+    Image.new("RGB", (10, 8)).save(img_dir / "a.jpg")
+    Image.new("RGB", (10, 8)).save(img_dir / "b.jpg")
+    existing = np.zeros((8, 10), dtype=np.uint8); existing[0, :] = 2
+    dataset_io.save_mask(mask_dir / "a_mask.png", existing)
+    from annotation_tool.segmenter import base as base_mod
+    monkeypatch.setattr(base_mod, "build_segmenter", lambda *args, **k: _Dummy())
+    from annotation_tool.ui.main_window import MainWindow
+    w = MainWindow(dataset_dir=str(img_dir))
+    assert w.list_widget.item(0).text().startswith("✓")
+    w.load_index(0)
+    assert w.state.layers[2][0].all()          # existing annotation loaded
+    w.load_index(1)
+    w.state.add(1, np.ones((8, 10), dtype=bool))
+    w.save_current()                            # new mask goes next to the old ones
+    assert (mask_dir / "b_mask.png").exists()
+    assert not (img_dir / "masks").exists()
+    assert (tmp_path / "verify_overlays" / "b_overlay.jpg").exists()
+    w.close()
+
+
+def test_main_window_size_mismatch_mask_is_not_overwritten(monkeypatch, tmp_path):
+    from annotation_tool.core import dataset_io
+    Image.new("RGB", (10, 8)).save(tmp_path / "a.jpg")
+    bad = np.full((5, 5), 1, dtype=np.uint8)
+    dataset_io.save_mask(tmp_path / "masks" / "a_mask.png", bad)
+    from annotation_tool.segmenter import base as base_mod
+    monkeypatch.setattr(base_mod, "build_segmenter", lambda *args, **k: _Dummy())
+    from annotation_tool.ui.main_window import MainWindow
+    from annotation_tool.ui import main_window as mw_mod
+    warned = []
+    monkeypatch.setattr(mw_mod.QMessageBox, "warning", lambda *a, **k: warned.append(a))
+    w = MainWindow(dataset_dir=str(tmp_path))  # must not crash on load
+    w.load_index(0)
+    assert w.state is not None
+    w.save_current()                             # must refuse to overwrite
+    assert warned
+    assert dataset_io.load_mask(tmp_path / "masks" / "a_mask.png").shape == (5, 5)
+    w.close()

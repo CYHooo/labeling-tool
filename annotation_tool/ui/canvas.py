@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QGraphicsEllipseItem, QGraphicsRectItem, QGraphicsItem,
 )
 
-from annotation_tool.configs import CLASS_COLORS, CLASS_IDS, OVERLAY_ALPHA, EXPORT_ORDER
+from annotation_tool.configs import CLASS_COLORS, OVERLAY_ALPHA, EXPORT_ORDER
 from annotation_tool.ui.geometry import clamp_point
 
 
@@ -85,20 +85,28 @@ class ImageCanvas(QGraphicsView):
     def image_size(self):
         return self._img_wh
 
-    def set_committed_layers(self, layers: dict[int, np.ndarray]):
+    def set_committed_layers(self, layers: dict[int, np.ndarray],
+                             colors: dict[int, tuple] | None = None,
+                             export_order: list[int] | None = None):
+        """Render committed class layers. `colors` / `export_order` come from the
+        runtime ClassRegistry; they default to the configs factory values."""
+        colors = CLASS_COLORS if colors is None else colors
+        order = EXPORT_ORDER if export_order is None else export_order
         w, h = self._img_wh
         for c, m in layers.items():
             if m is not None:
                 assert m.shape == (h, w), f"layer {c} shape {m.shape} != image (h,w)=({h},{w})"
-        for c in CLASS_IDS:
-            if c in self._layer_items and self._layer_items[c] is not None:
-                self._scene.removeItem(self._layer_items[c])
-                self._layer_items[c] = None
-            m = layers.get(c)
-            if m is not None and m.any():
-                item = QGraphicsPixmapItem(_mask_to_rgba_pixmap(m, CLASS_COLORS[c], OVERLAY_ALPHA))
-                # higher-priority classes render on top (concrete < joint < scalebar)
-                item.setZValue(1 + EXPORT_ORDER.index(c))
+        for item in self._layer_items.values():
+            if item is not None:
+                self._scene.removeItem(item)
+        self._layer_items.clear()
+        for c, m in layers.items():
+            if m is not None and m.any() and c in colors:
+                item = QGraphicsPixmapItem(_mask_to_rgba_pixmap(m, colors[c], OVERLAY_ALPHA))
+                # higher-priority classes render on top; all stay below the
+                # candidate (z=2) by squeezing into (1, 2)
+                rank = order.index(c) if c in order else len(order)
+                item.setZValue(1 + rank / (len(order) + 1))
                 self._scene.addItem(item)
                 self._layer_items[c] = item
 

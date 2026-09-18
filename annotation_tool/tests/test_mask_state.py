@@ -88,3 +88,34 @@ def test_undo_does_not_corrupt_history():
     assert not s.can_redo
     s.undo()                              # back to empty
     assert (s.flatten() == 0).all()
+
+
+def test_ensure_layer_adds_new_class_dynamically():
+    s = MaskState(4, 4)
+    s.ensure_layer(7)
+    s.add(7, _mask(4, 4, (0, 1, 0, 4)))
+    s.add(2, _mask(4, 4, (0, 4, 0, 4)))
+    out = s.flatten(export_order=[2, 7])   # 7 highest priority
+    assert (out[0] == 7).all()
+    assert (out[1:] == 2).all()
+    assert 7 in s.stats()
+
+
+def test_undo_past_layer_creation_keeps_new_layer():
+    s = MaskState(4, 4)
+    s.add(2, _mask(4, 4, (0, 4, 0, 4)))
+    s.ensure_layer(7)                      # added after the snapshot above
+    s.add(7, _mask(4, 4, (0, 1, 0, 4)))
+    s.undo()
+    s.undo()
+    assert 7 in s.layers and not s.layers[7].any()
+    s.redo()
+    s.redo()
+    assert s.layers[7][0].all()
+
+
+def test_load_from_reads_dynamic_classes():
+    s = MaskState(2, 2)
+    s.ensure_layer(9)
+    s.load_from(np.full((2, 2), 9, dtype=np.uint8))
+    assert s.layers[9].all()

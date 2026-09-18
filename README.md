@@ -14,7 +14,7 @@
 - **文件夹批量标注**：`File ▸ Open Folder` 选数据集，列表导航，已标注标 `✓`，自动/手动保存 + 彩色 overlay 校验图。
 - **深色界面**、缩放/平移（`Ctrl`+拖拽）、撤销/重做。
 
-默认类别（可在 `annotation_tool/configs.py` 修改）：
+默认类别（出厂默认值在 `annotation_tool/configs.py`；运行时可在界面中添加类别、改名、改色、调整优先级，见 §8）：
 
 | 值 | 类别 | 颜色 | 优先级 |
 |:--:|------|------|:--:|
@@ -22,9 +22,10 @@
 | 1 | joint（줄눈/接缝）| 红 | |
 | 2 | concrete（混凝土）| 绿 | 最低（前景类中）|
 | 3 | scalebar（比例尺）| 蓝 | |
+| 5 | distractor（干扰物）| 天蓝 | |
 | 4 | shoe（鞋子）| 品红 | 最高 |
 
-优先级（重叠取高者）：**shoe > scalebar > joint > concrete > 背景**。
+默认优先级（重叠取高者）：**shoe > distractor > scalebar > joint > concrete > 背景**。
 
 ---
 
@@ -33,8 +34,10 @@
 ```
 annotation_tool/
 ├── main.py            # 入口：python -m annotation_tool.main
-├── configs.py         # 类别 / 优先级 / 颜色 / 后端开关 / 权重路径
+├── configs.py         # 默认类别 / 优先级 / 颜色 / 后端开关 / 权重路径
+├── classes.json       # 运行时类别定义（界面编辑后自动生成，已 gitignore）
 ├── core/
+│   ├── class_registry.py # 运行时类别注册表：增加 / 改名 / 改色 / 优先级 + JSON 持久化
 │   ├── mask_state.py  # 多类二值图层 + 优先级合成 + 撤销/重做（纯逻辑）
 │   └── dataset_io.py  # EXIF 读图 + 0/1/2/3/4 掩膜读写 + overlay 导出
 ├── segmenter/
@@ -122,6 +125,12 @@ python -m annotation_tool.main --backend sam2 --dataset /path/to/YourDataset
 - `masks/<name>_mask.png`：单通道 `L` 模式，值 `0/1/2/3/4`（可直接用于 few-shot 训练）。
 - `verify_overlays/<name>_overlay.jpg`：彩色叠加校验图。
 
+**已有标注的自动加载**：打开文件夹时，每张图按以下顺序查找已有 mask，找到即自动加载（列表前缀 `✓`）：
+1. `<所选文件夹>/masks/<name>_mask.png`
+2. `<所选文件夹>/../masks/<name>_mask.png`（兼容旧结构 `dataset/images/` + `dataset/masks/`，此时打开 `dataset/images` 即可）
+
+已有 mask 保存时覆盖原位置；新 mask 写入 `<所选>/masks/`（若该目录不存在而上级 `masks/` 中已有本文件夹图片的 mask，则写入上级 `masks/`）。`verify_overlays/` 与所用的 `masks/` 同级。状态栏会显示实际使用的 mask 目录。若 mask 尺寸与图片不一致，则不加载并**禁止保存该图**，以免覆盖原文件。
+
 > GUI 需要图形显示（本机桌面 / X11 转发 / VNC）。若 `PYTHONPATH` 指向了 ROS 等环境导致冲突，先 `unset PYTHONPATH`。
 
 ---
@@ -130,7 +139,7 @@ python -m annotation_tool.main --backend sam2 --dataset /path/to/YourDataset
 
 | 操作 | 快捷键 |
 |------|--------|
-| 切类别 | `1`..`N`（或右侧单选） |
+| 切类别 | `1`..`9`（按像素值；或右侧单选） |
 | 切工具：SAM点框 / 画笔 / 橡皮擦 | `V` / `B` / `E` |
 | 加正点 / 负点 / 框选 | 左键 / 右键 / 左键拖拽（SAM 工具下）|
 | 画笔涂抹 / 橡皮擦擦除 | 选画笔或橡皮擦后左键拖拽 |
@@ -154,4 +163,15 @@ QT_QPA_PLATFORM=offscreen python3 -m pytest annotation_tool/tests/ -q
 
 ## 8. 扩展类别
 
-改 `annotation_tool/configs.py` 的 `CLASSES` / `CLASS_IDS` / `EXPORT_ORDER` / `CLASS_COLORS` 即可增删类别，UI（类别按钮、快捷键、画笔颜色、图层渲染）会自动适配。
+**在界面中管理（推荐）**：右侧 Classes 面板
+
+- `+ 添加`：输入名称 → 选择颜色，自动分配最小空闲像素值（1–255），新类别默认为**最高优先级**并自动选中。
+- `重命名`：修改当前类别名称（像素值不变，已有 mask 不受影响）。
+- 点击类别右侧**色块**：修改颜色（影响画布、画笔与 overlay 导出）。
+- `优先级 ↑` / `↓`：调整当前类别的导出优先级；面板下方显示当前顺序（低→高）。
+
+所有修改立即写入全局文件 `annotation_tool/classes.json`，对所有数据集生效。删除该文件即恢复 `configs.py` 中的默认值。若该文件损坏，工具会使用默认类别并在状态栏提示，且**不会覆盖**该文件（本次修改仅在会话内有效）。
+
+> 注意：目前不支持删除类别。若打开的 mask 中含未定义的像素值，状态栏会警告，保存时这些像素会被清为背景——请先添加对应类别。
+
+**修改出厂默认值**：改 `annotation_tool/configs.py` 的 `CLASSES` / `CLASS_IDS` / `EXPORT_ORDER` / `CLASS_COLORS`（仅在 `classes.json` 不存在时生效）。

@@ -9,11 +9,18 @@ MASKS_SUBDIR = "masks"
 OVERLAYS_SUBDIR = "verify_overlays"
 
 # --- class definition: pixel value -> name ---
-CLASSES = {1: "joint", 2: "concrete", 3: "scalebar", 4: "shoe"}
-CLASS_IDS = [1, 2, 3, 4]
+# These are FACTORY DEFAULTS only. At runtime classes come from
+# core.class_registry.ClassRegistry, persisted to CLASSES_FILE; classes added /
+# renamed / recolored / re-prioritized in the UI are stored there. Delete that
+# file to reset to these defaults.
+CLASSES = {1: "joint", 2: "concrete", 3: "scalebar", 4: "shoe", 5: "distractor"}
+CLASS_IDS = [1, 2, 3, 4, 5]
 
 # export priority, low -> high (later writes overwrite earlier ones)
-EXPORT_ORDER = [2, 1, 3, 4]  # concrete < joint < scalebar < shoe (shoe on top)
+EXPORT_ORDER = [2, 1, 3, 5, 4]  # concrete < joint < scalebar < distractor < shoe (shoe on top)
+
+# global, user-editable class definitions (shared by all datasets)
+CLASSES_FILE = Path(__file__).parent / "classes.json"
 
 # RGB colors per class value (for overlay + canvas highlight)
 CLASS_COLORS = {
@@ -21,6 +28,7 @@ CLASS_COLORS = {
     2: (0, 200, 0),    # concrete -> green
     3: (0, 80, 255),   # scalebar -> blue
     4: (230, 60, 220), # shoe -> magenta
+    5: (0, 128, 220),  # distractor -> sky blue
 }
 OVERLAY_ALPHA = 0.45
 
