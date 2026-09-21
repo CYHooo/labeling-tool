@@ -8,10 +8,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-# Package root (the labeling_tool/ directory); workspace data lives under it
-# so a checkout of the tool carries its sessions with it (no ~/ scattering).
+from labeling_tool.core.app_paths import writable_path
+
+# Package root (the labeling_tool/ directory); from source, workspace data lives
+# under it so a checkout carries its sessions (no ~/ scattering). In the exe it
+# lives next to LabelingTool.exe instead.
 _PACKAGE_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_DATA_ROOT = _PACKAGE_ROOT / "data"
+DEFAULT_DATA_ROOT = writable_path(_PACKAGE_ROOT / "data", "data")
 
 
 @dataclass

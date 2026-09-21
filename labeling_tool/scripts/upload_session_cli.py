@@ -20,8 +20,7 @@ from labeling_tool.annotation_payload import build_annotation_item
 from labeling_tool.api.client import ViewerApiClient
 from labeling_tool.api.uploader import upload_session
 from labeling_tool.logging_setup import attach_session_log, vlog
-
-CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
+from labeling_tool.ui.dialog_helpers import CONFIG_PATH
 
 
 def main(session_id: int) -> int:

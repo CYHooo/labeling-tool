@@ -6,7 +6,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
+from labeling_tool.core.app_paths import writable_path
+
+CONFIG_PATH = writable_path(
+    Path(__file__).resolve().parent.parent / "config.json", "config.json")
 
 
 def load_config() -> dict:
