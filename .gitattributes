@@ -1,0 +1,4 @@
+# Launchers must keep native line endings regardless of core.autocrlf:
+# cmd.exe misparses LF-only .bat files, bash rejects CRLF .sh files.
+*.bat text eol=crlf
+*.sh text eol=lf

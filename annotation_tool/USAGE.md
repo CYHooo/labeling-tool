@@ -112,16 +112,25 @@ wget -P checkpoint https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2
 
 ## 5. 运行
 
+**推荐：直接用仓库根目录的启动脚本**——自动切到仓库根目录并使用 `.venv` 中的 Python，无需手动 activate / cd，在任意目录都能运行：
+
+```bash
+./run_fewshot.sh                      # Linux
+run_fewshot.bat                       # Windows：双击即可；出错时窗口会停住显示错误
+
+# 参数原样透传：用回退后端 / 指定数据集
+./run_fewshot.sh --backend sam2 --dataset /path/to/YourDataset
+```
+
+也可以沿用原来的方式（须在仓库根目录、激活 venv 后）：
+
 ```bash
 source .venv/bin/activate
 # 默认 SAM3；不带 --dataset 时启动后用 File ▸ Open Folder (Ctrl+O) 选文件夹
 python -m annotation_tool.main
-
-# 用回退后端 / 指定数据集
-python -m annotation_tool.main --backend sam2 --dataset /path/to/YourDataset
 ```
 
-数据集文件夹需含 `images/` 子目录（`*.jpg`）。保存产物：
+所选文件夹内直接存放图片（`.jpg/.jpeg/.png/.bmp`）。保存产物：
 - `masks/<name>_mask.png`：单通道 `L` 模式，值 `0/1/2/3/4`（可直接用于 few-shot 训练）。
 - `verify_overlays/<name>_overlay.jpg`：彩色叠加校验图。
 
