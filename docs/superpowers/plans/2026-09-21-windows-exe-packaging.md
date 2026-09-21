@@ -6,7 +6,7 @@
 
 **Architecture:** 新增 `labeling_tool/core/app_paths.py`，在打包运行（`sys.frozen`）时把可写文件（config.json、data/、checkpoint/、classes.json）放到 exe 旁边，源码运行时路径完全不变。`labeling_tool/selftest.py` 提供 `--selftest=lite|full` 导入级冒烟测试，供 CI 在打包后直接运行 exe。一个 PyInstaller spec 通过 `LT_VARIANT` 切换是否包含 few-shot（torch + SAM3 + SAM2），一个 workflow 以 matrix 并行打包两个版本。
 
-**Tech Stack:** Python 3.12、PyQt5、PyInstaller 6.22.3、GitHub Actions `windows-latest`、torch 2.5.1+cu124、triton-windows 3.1.0.post17、sam3 0.1.4、sam2（git `2b90b9f5ceec907a1c18123530e92e794ad901a4`）、7-Zip（runner 预装）。
+**Tech Stack:** Python 3.12、PyQt5、PyInstaller 6.22.3、GitHub Actions `windows-latest`、torch 2.5.1+cu124、sam2（git `2b90b9f5ceec907a1c18123530e92e794ad901a4`，SAM2.1 base_plus 首次使用时下载）、7-Zip（runner 预装）。（修订：full 版不再包含 sam3 / triton，见 Task 3b）
 
 **Spec:** `docs/superpowers/specs/2026-09-21-windows-exe-packaging-design.md`
 
@@ -532,6 +532,409 @@ git commit -m "build: PyInstaller spec for lite / full LabelingTool"
 
 ---
 
+### Task 3b: full 版只用 SAM2.1，首次使用时下载权重
+
+> 计划修订（2026-09-21，用户决定）：SAM3 需在 HuggingFace 申请权限且在 Windows 上依赖 triton，full exe 改为**只用 SAM2.1 base_plus**，权重**不打包**，首次打开 few-shot 时下载到 `<exe目录>/checkpoint/`。源码运行仍默认 SAM3。
+
+**Files:**
+- Create: `annotation_tool/segmenter/weights.py`（纯逻辑：URL / SHA256 / 下载，无 Qt）
+- Create: `labeling_tool/ui/sam2_weights_dialog.py`（确认 + 进度 + 取消，韩文界面）
+- Modify: `annotation_tool/configs.py`（`BACKEND`）、`labeling_tool/app.py`（`_open_fewshot_window`）、`labeling_tool/selftest.py`（full 检查项）、`packaging/labeling_tool.spec`（full 分支）
+- Test: `annotation_tool/tests/test_weights.py`（新）、`labeling_tool/tests/test_sam2_weights_dialog.py`（新）、`tests/test_selftest.py`（修改）、`tests/test_app_paths.py`（追加）
+
+**Interfaces:**
+- Consumes: `app_paths.is_frozen()`（Task 1）；`selftest._checks`（Task 2）；spec 的 `VARIANT` 分支（Task 3）
+- Produces:
+  - `annotation_tool.segmenter.weights`: `SAM2_WEIGHTS_URL: str`、`SAM2_WEIGHTS_SHA256: str`、`SAM2_WEIGHTS_SIZE: int`、`class DownloadCancelled(Exception)`、`download_weights(url: str, dest: Path, sha256: str, progress=None, chunk_size: int = 1 << 20, timeout: float = 30) -> None`（`progress(done: int, total: int) -> bool | None`，返回 `False` 即取消）
+  - `labeling_tool.ui.sam2_weights_dialog.ensure_sam2_weights(parent=None) -> bool`
+  - `annotation_tool.configs.BACKEND`：frozen 时 `"sam2"`，源码 `"sam3"`
+
+- [ ] **Step 1: 写失败测试**
+
+`annotation_tool/tests/test_weights.py`：
+
+```python
+"""SAM2.1 weight download: checksum-verified, atomic, cancellable."""
+import hashlib
+import http.server
+import threading
+from functools import partial
+
+import pytest
+
+from annotation_tool.segmenter import weights
+
+PAYLOAD = b"fake-sam2-weights" * 1000
+
+
+@pytest.fixture
+def server(tmp_path):
+    (tmp_path / "srv").mkdir()
+    (tmp_path / "srv" / "w.pt").write_bytes(PAYLOAD)
+    handler = partial(http.server.SimpleHTTPRequestHandler, directory=str(tmp_path / "srv"))
+    handler.log_message = lambda *a: None
+    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{httpd.server_address[1]}/w.pt"
+    httpd.shutdown()
+
+
+def test_official_constants():
+    assert weights.SAM2_WEIGHTS_URL == (
+        "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt")
+    assert weights.SAM2_WEIGHTS_SHA256 == (
+        "a2345aede8715ab1d5d31b4a509fb160c5a4af1970f199d9054ccfb746c004c5")
+    assert weights.SAM2_WEIGHTS_SIZE == 323_606_802
+
+
+def test_download_ok_reports_progress(server, tmp_path):
+    dest = tmp_path / "checkpoint" / "sam2.pt"
+    seen = []
+    weights.download_weights(server, dest, hashlib.sha256(PAYLOAD).hexdigest(),
+                             progress=lambda done, total: seen.append((done, total)),
+                             chunk_size=4096)
+    assert dest.read_bytes() == PAYLOAD
+    assert not dest.with_name("sam2.pt.part").exists()
+    assert seen[-1] == (len(PAYLOAD), len(PAYLOAD))
+
+
+def test_checksum_mismatch_leaves_nothing(server, tmp_path):
+    dest = tmp_path / "sam2.pt"
+    with pytest.raises(ValueError, match="checksum"):
+        weights.download_weights(server, dest, "0" * 64)
+    assert not dest.exists() and not dest.with_name("sam2.pt.part").exists()
+
+
+def test_cancel_leaves_nothing(server, tmp_path):
+    dest = tmp_path / "sam2.pt"
+    with pytest.raises(weights.DownloadCancelled):
+        weights.download_weights(server, dest, hashlib.sha256(PAYLOAD).hexdigest(),
+                                 progress=lambda done, total: False, chunk_size=4096)
+    assert not dest.exists() and not dest.with_name("sam2.pt.part").exists()
+
+
+def test_existing_weights_untouched_on_failure(server, tmp_path):
+    dest = tmp_path / "sam2.pt"
+    dest.write_bytes(b"old")
+    with pytest.raises(ValueError):
+        weights.download_weights(server, dest, "0" * 64)
+    assert dest.read_bytes() == b"old"
+```
+
+`labeling_tool/tests/test_sam2_weights_dialog.py`：
+
+```python
+"""First-use SAM2.1 weight download prompt shown before the few-shot tool opens."""
+from pathlib import Path
+
+import pytest
+from PyQt5.QtWidgets import QApplication, QMessageBox
+
+from annotation_tool import configs
+from annotation_tool.segmenter import weights
+from labeling_tool.ui import sam2_weights_dialog as dlg
+
+_app = QApplication.instance() or QApplication([])
+
+
+@pytest.fixture
+def ckpt(monkeypatch, tmp_path):
+    path = tmp_path / "checkpoint" / "sam2.1_hiera_base_plus.pt"
+    monkeypatch.setattr(configs, "SAM2_CHECKPOINT", str(path))
+    return path
+
+
+def test_present_weights_need_no_prompt(ckpt, monkeypatch):
+    ckpt.parent.mkdir(parents=True)
+    ckpt.write_bytes(b"x")
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: pytest.fail("asked"))
+    assert dlg.ensure_sam2_weights() is True
+
+
+def test_user_declines(ckpt, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.No)
+    monkeypatch.setattr(weights, "download_weights", lambda *a, **k: pytest.fail("downloaded"))
+    assert dlg.ensure_sam2_weights() is False
+
+
+def test_user_accepts_and_download_succeeds(ckpt, monkeypatch):
+    calls = []
+
+    def fake_download(url, dest, sha256, progress=None, **kw):
+        calls.append((url, Path(dest), sha256))
+        progress(50, 100)
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        Path(dest).write_bytes(b"w")
+
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Yes)
+    monkeypatch.setattr(weights, "download_weights", fake_download)
+    assert dlg.ensure_sam2_weights() is True
+    assert calls == [(weights.SAM2_WEIGHTS_URL, ckpt, weights.SAM2_WEIGHTS_SHA256)]
+
+
+def test_download_error_is_reported(ckpt, monkeypatch):
+    shown = []
+
+    def boom(*a, **k):
+        raise OSError("network down")
+
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Yes)
+    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: shown.append(a[2]))
+    monkeypatch.setattr(weights, "download_weights", boom)
+    assert dlg.ensure_sam2_weights() is False
+    assert "network down" in shown[0]
+
+
+def test_cancel_is_silent(ckpt, monkeypatch):
+    def cancelled(*a, **k):
+        raise weights.DownloadCancelled()
+
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Yes)
+    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: pytest.fail("error shown"))
+    monkeypatch.setattr(weights, "download_weights", cancelled)
+    assert dlg.ensure_sam2_weights() is False
+
+
+def test_app_skips_fewshot_when_weights_unavailable(monkeypatch):
+    from labeling_tool import app
+    import annotation_tool.ui.main_window as fs_mw
+    monkeypatch.setattr(configs, "BACKEND", "sam2")
+    monkeypatch.setattr(dlg, "ensure_sam2_weights", lambda parent=None: False)
+    monkeypatch.setattr(fs_mw, "MainWindow", lambda: pytest.fail("window built"))
+    assert app.open_tool_window("fewshot") is None
+```
+
+`tests/test_app_paths.py` 追加：
+
+```python
+def test_backend_is_sam2_only_in_exe(tmp_path):
+    from annotation_tool import configs
+    assert configs.BACKEND == "sam3"          # source runs keep SAM3
+    code = ("import sys; sys.frozen = True; sys.executable = %r\n"
+            "from annotation_tool import configs; print(configs.BACKEND)\n"
+            ) % str(tmp_path / "LabelingTool.exe")
+    out = subprocess.run([sys.executable, "-c", code], cwd=ROOT,
+                         capture_output=True, text=True, check=True).stdout.strip()
+    assert out == "sam2"
+```
+
+`tests/test_selftest.py`：在 `test_full_reports_missing_module` 中删除 `monkeypatch.setattr(selftest, "_check_bpe", lambda: None)` 一行，并加入 `monkeypatch.setattr(selftest, "_check_backend", lambda: None)`；追加：
+
+```python
+def test_full_checks_have_no_sam3():
+    names = [name for name, _ in selftest._checks("full")]
+    assert not any("sam3" in n for n in names)
+    assert "SAM2 hydra config composes" in names
+    assert "exe backend is sam2" in names
+```
+
+- [ ] **Step 2: 运行确认失败**
+
+Run: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest annotation_tool/tests/test_weights.py labeling_tool/tests/test_sam2_weights_dialog.py tests/test_app_paths.py tests/test_selftest.py -q -p no:cacheprovider`
+Expected: FAIL（`weights` / `sam2_weights_dialog` 模块不存在、BACKEND 仍为 sam3、selftest 仍含 sam3）
+
+- [ ] **Step 3: 实现**
+
+`annotation_tool/segmenter/weights.py`：
+
+```python
+"""SAM2.1 base_plus weights: official URL + checksum, and a safe downloader.
+
+The Windows exe does not bundle weights (keeps the download smaller and lets
+upgrades reuse <exe>/checkpoint/); they are fetched on first few-shot use.
+Download goes to ``<dest>.part`` and is renamed only after the SHA256 matches,
+so an interrupted or corrupted download never looks like usable weights.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import urllib.request
+from pathlib import Path
+
+SAM2_WEIGHTS_URL = (
+    "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt")
+SAM2_WEIGHTS_SHA256 = "a2345aede8715ab1d5d31b4a509fb160c5a4af1970f199d9054ccfb746c004c5"
+SAM2_WEIGHTS_SIZE = 323_606_802
+
+
+class DownloadCancelled(Exception):
+    """The progress callback asked to stop."""
+
+
+def download_weights(url: str, dest: Path, sha256: str, progress=None,
+                     chunk_size: int = 1 << 20, timeout: float = 30) -> None:
+    """Download ``url`` to ``dest`` if its SHA256 equals ``sha256``.
+
+    ``progress(done, total)`` is called after every chunk (total is 0 when the
+    server sends no Content-Length); returning False cancels. On any failure
+    the partial file is removed and an existing ``dest`` is left untouched.
+    """
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    part = dest.with_name(dest.name + ".part")
+    digest = hashlib.sha256()
+    done = 0
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp, open(part, "wb") as out:
+            total = int(resp.headers.get("Content-Length") or 0)
+            while chunk := resp.read(chunk_size):
+                out.write(chunk)
+                digest.update(chunk)
+                done += len(chunk)
+                if progress is not None and progress(done, total) is False:
+                    raise DownloadCancelled()
+        if digest.hexdigest() != sha256:
+            raise ValueError(f"checksum mismatch for {url}: got {digest.hexdigest()}")
+        part.replace(dest)
+    finally:
+        part.unlink(missing_ok=True)
+```
+
+`labeling_tool/ui/sam2_weights_dialog.py`：
+
+```python
+"""Ask for and download the SAM2.1 weights the first time few-shot opens.
+
+Follows the fetch dialog's pattern: a synchronous download that keeps the UI
+alive with processEvents() from the progress callback.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QApplication, QMessageBox, QProgressDialog
+
+
+def ensure_sam2_weights(parent=None) -> bool:
+    """True when the SAM2.1 checkpoint exists or was just downloaded."""
+    from annotation_tool import configs
+    from annotation_tool.segmenter import weights
+
+    dest = Path(configs.SAM2_CHECKPOINT)
+    if dest.is_file():
+        return True
+    size_mb = weights.SAM2_WEIGHTS_SIZE // (1024 * 1024)
+    answer = QMessageBox.question(
+        parent, "SAM2.1 모델 다운로드",
+        f"Few-shot 라벨링에는 SAM2.1 모델(약 {size_mb} MB)이 필요합니다.\n"
+        f"처음 한 번만 내려받으며, 다음부터는 바로 사용됩니다.\n\n"
+        f"저장 위치: {dest}\n\n지금 다운로드할까요?",
+        QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+    if answer != QMessageBox.Yes:
+        return False
+
+    bar = QProgressDialog("SAM2.1 모델 다운로드 중…", "취소", 0, 100, parent)
+    bar.setWindowTitle("SAM2.1 모델 다운로드")
+    bar.setWindowModality(Qt.ApplicationModal)
+    bar.setMinimumDuration(0)
+    bar.setValue(0)
+
+    def on_progress(done: int, total: int) -> bool:
+        total = total or weights.SAM2_WEIGHTS_SIZE
+        bar.setValue(min(100, done * 100 // total))
+        bar.setLabelText(f"SAM2.1 모델 다운로드 중… {done // (1024 * 1024)} / "
+                         f"{total // (1024 * 1024)} MB")
+        QApplication.processEvents()
+        return not bar.wasCanceled()
+
+    try:
+        weights.download_weights(weights.SAM2_WEIGHTS_URL, dest,
+                                 weights.SAM2_WEIGHTS_SHA256, progress=on_progress)
+        return True
+    except weights.DownloadCancelled:
+        return False
+    except Exception as exc:  # noqa: BLE001 - network / disk / checksum: tell the user
+        QMessageBox.critical(
+            parent, "다운로드 실패",
+            f"SAM2.1 모델을 내려받지 못했습니다.\n{type(exc).__name__}: {exc}\n\n"
+            f"인터넷 연결을 확인하거나, 파일을 직접 받아 {dest} 에 두세요:\n"
+            f"{weights.SAM2_WEIGHTS_URL}")
+        return False
+    finally:
+        bar.close()
+```
+
+`annotation_tool/configs.py`（`from labeling_tool.core.app_paths import is_frozen, writable_path`）：
+
+```python
+# The Windows exe ships SAM2.1 only (SAM3 weights are HF-gated and SAM3 needs
+# triton, which has no official Windows build); source runs keep SAM3.
+BACKEND = "sam2" if is_frozen() else "sam3"  # "sam3" (main) | "sam2" (fallback)
+```
+
+`labeling_tool/app.py` 的 `_open_fewshot_window()`：在创建 `notice` **之前**加入
+
+```python
+    from annotation_tool import configs as fewshot_configs
+    if fewshot_configs.BACKEND == "sam2":
+        from labeling_tool.ui.sam2_weights_dialog import ensure_sam2_weights
+        if not ensure_sam2_weights():
+            return None  # declined / failed -> back to the login screen
+```
+
+（`annotation_tool.configs` 只依赖 `pathlib` 和 `app_paths`，不会引入 torch。）
+
+`labeling_tool/selftest.py`：
+- `FULL_MODULES` 改为 `("torch", "sam2.build_sam", "sam2.sam2_image_predictor", "annotation_tool.ui.main_window", "annotation_tool.segmenter.weights", "labeling_tool.ui.sam2_weights_dialog")`
+- 删除 `_check_bpe` 及其 yield
+- `_check_sam2_cfg` 改为真正用 hydra 组合配置（打包最易漏掉的是 hydra 在运行时读取的 yaml）：
+
+```python
+def _check_sam2_cfg() -> None:
+    """Compose the SAM2.1 config through hydra exactly as build_sam2 does."""
+    import sam2  # noqa: F401 - registers sam2's hydra config module
+    from hydra import compose
+    from annotation_tool import configs
+    compose(config_name=configs.SAM2_MODEL_CFG)
+
+
+def _check_backend() -> None:
+    from annotation_tool import configs
+    from labeling_tool.core.app_paths import is_frozen
+    if is_frozen() and configs.BACKEND != "sam2":
+        raise RuntimeError(f"exe backend is {configs.BACKEND!r}, expected 'sam2'")
+```
+
+- `_checks` 的 full 部分：`yield "SAM2 hydra config composes", _check_sam2_cfg` 与 `yield "exe backend is sam2", _check_backend`
+
+`packaging/labeling_tool.spec` 的 full 分支：
+
+```python
+if VARIANT == "full":
+    hiddenimports += collect_submodules("annotation_tool", filter=_not_tests_or_scripts)
+    # never ship a developer's classes.json; weights are downloaded on first use
+    datas += collect_data_files("annotation_tool", excludes=["**/classes.json"])
+    # sam2 builds models from hydra yaml configs resolved at runtime
+    for pkg in ("sam2", "hydra", "omegaconf"):
+        d, b, h = collect_all(pkg)
+        datas += d
+        binaries += b
+        hiddenimports += h
+    excludes = ["sam3", "triton", "timm"]
+```
+
+lite 分支不变。
+
+- [ ] **Step 4: 运行确认通过，并跑全部测试**
+
+Run: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests labeling_tool/tests annotation_tool/tests -q -p no:cacheprovider`
+Expected: 全部 PASS。并重新本地打包 lite（同 Task 3 Step 2–3）确认 `--selftest=lite` 仍为 PASS（lite 不应包含 `annotation_tool.segmenter.weights`，`labeling_tool/ui/sam2_weights_dialog.py` 只在函数内导入 annotation_tool，lite 中被 excludes 屏蔽）。
+
+- [ ] **Step 5: 提交**
+
+```bash
+git add annotation_tool/segmenter/weights.py labeling_tool/ui/sam2_weights_dialog.py \
+        annotation_tool/configs.py labeling_tool/app.py labeling_tool/selftest.py \
+        packaging/labeling_tool.spec annotation_tool/tests/test_weights.py \
+        labeling_tool/tests/test_sam2_weights_dialog.py tests/test_selftest.py tests/test_app_paths.py
+git commit -m "feat: exe few-shot uses SAM2.1 with first-use weight download"
+```
+
+---
+
 ### Task 4: GitHub Actions 打包 workflow
 
 **Files:**
@@ -601,9 +1004,9 @@ jobs:
           SAM2_BUILD_CUDA: "0"
         run: |
           pip install "torch==2.5.1" "torchvision==0.20.1" --index-url https://download.pytorch.org/whl/cu124
-          pip install "triton-windows==3.1.0.post17" "sam3==0.1.4" huggingface_hub psutil
-          pip install "git+https://github.com/facebookresearch/sam2.git@2b90b9f5ceec907a1c18123530e92e794ad901a4"
-          python -c "import sam3.model_builder, sam2.build_sam; print('few-shot imports OK')"
+          # sam2's build needs the torch installed above (no CUDA extension: SAM2_BUILD_CUDA=0)
+          pip install --no-build-isolation "git+https://github.com/facebookresearch/sam2.git@2b90b9f5ceec907a1c18123530e92e794ad901a4"
+          python -c "import sam2.build_sam; print('few-shot imports OK')"
 
       - name: Tests
         run: |
@@ -680,7 +1083,7 @@ Expected: lite / full 两个 job 均通过；artifact 可在 run 页面下载。
 
 - [ ] **Step 4: 按 CI 日志修复**
 
-对 `Selftest packaged exe` 中的每个 `FAIL import X`：在 spec 中加入 `hiddenimports += ["X"]`（或对该包 `collect_all`）；对缺失数据文件：加入 `datas`。每轮提交并 push，直到两个 job 均为绿色。若 `import sam3.model_builder` 在 Windows 上即使安装 `triton-windows` 仍无法导入，按设计文档第 6 节：full 版把 `configs.BACKEND` 默认改为 `sam2`，并从 `FULL_MODULES` 中移除 sam3 项，在 PR 中说明。
+对 `Selftest packaged exe` 中的每个 `FAIL import X`：在 spec 中加入 `hiddenimports += ["X"]`（或对该包 `collect_all`）；对缺失数据文件：加入 `datas`。每轮提交并 push，直到两个 job 均为绿色。（SAM3 已按 Task 3b 从 full 版移除，无需 triton。）
 
 ---
 
@@ -705,7 +1108,8 @@ GitHub 의 **Releases**(태그 버전) 또는 **Actions → build-windows** 실�
    full 판은 **7-Zip 으로 `.7z.001` 을 열어** 풉니다 (분할 압축).
 2. 처음 실행 시 "Windows 의 PC 보호" 창이 뜨면 **「추가 정보」→「실행」** 을 누릅니다 (코드 서명 없음).
 3. 로그인 정보(`config.json`)와 받은 작업(`data\`)은 **exe 와 같은 폴더**에 저장됩니다.
-4. full 판: SAM 가중치를 `LabelingTool\checkpoint\` 에 넣으세요 (`sam3.pt`, `sam2.1_hiera_base_plus.pt`).
+4. full 판: Few-shot 라벨링을 처음 열 때 SAM2.1 모델(약 308 MB)을 자동으로 내려받아 `LabelingTool\checkpoint\` 에 저장합니다 (인터넷 필요, 한 번만).
+   오프라인 PC 에서는 https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt 를 받아 같은 폴더에 두세요.
 
 **업그레이드**: 새 버전을 다른 폴더에 풀고, 이전 폴더의 `config.json`, `data\`, `checkpoint\` 를 복사합니다.
 ```
@@ -713,10 +1117,13 @@ GitHub 의 **Releases**(태그 버전) 또는 **Actions → build-windows** 실�
 - [ ] **Step 2: `annotation_tool/USAGE.md` 在「## 5. 运行」末尾追加**
 
 ```markdown
-**Windows exe（full 版）**：无需安装 Python。用 7-Zip 解压 `LabelingTool-full-<版本>.7z.001`，
-把权重放到 `LabelingTool\checkpoint\`（`sam3.pt`、`sam2.1_hiera_base_plus.pt`），双击
-`LabelingTool.exe` → 登录界面「Few-shot 라벨링」标签页。`classes.json` 保存在 exe 同目录。
+**Windows exe（full 版）**：无需安装 Python。用 7-Zip 解压 `LabelingTool-full-<版本>.7z.001`，双击
+`LabelingTool.exe` → 登录界面「Few-shot 라벨링」标签页。exe 中只使用 **SAM2.1 base_plus**（SAM3 需申请
+HuggingFace 权限，不随 exe 提供）；首次打开时自动下载权重（约 308 MB，校验 SHA256）到
+`LabelingTool\checkpoint\`，之后离线可用。`classes.json` 保存在 exe 同目录。
 ```
+
+- [ ] **Step 3a: 设计文档加入修订说明**：在"## 1."之前加一节"## 0. 修订（2026-09-21）"：full 版只用 SAM2.1 base_plus（SAM3 需 HF 授权且依赖 triton），权重不打包，首次使用时下载并校验 SHA256；源码运行仍默认 SAM3；第 3 节 full 分支与第 4 节依赖以本修订为准（不再有 sam3 / triton-windows / timm）。
 
 - [ ] **Step 3: 修正设计文档第 1 节**：表格"few-shot 权重"行的源码列改为 `./checkpoint/…`（相对当前工作目录，**不变**）；删除"few-shot 的 `./checkpoint` 改为锚定仓库根目录"一句，改为"few-shot 的权重与数据集路径在源码运行时仍相对当前工作目录（保持现有 `cd` 到其他目录运行的用法）"。
 
