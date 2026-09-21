@@ -159,3 +159,17 @@ python -m pytest labeling_tool/tests -q
     ├── scripts/            헤드리스 업로드 CLI
     └── tests/              단위 테스트
 ```
+
+---
+
+## Few-shot 반자동 라벨링 도구 (`annotation_tool/`)
+
+ConcJoint few-shot 학습용 다중 클래스 마스크를 만드는 **별도 도구**입니다.
+위의 생산용 도구(`labeling_tool/`)와 코드·의존성을 공유하지 않으며, 서로 영향을 주지 않습니다.
+
+- 실행: `python -m annotation_tool.main`
+- SAM3 / SAM2.1 사용 → **torch(GPU) 필요**: `pip install -r annotation_tool/requirements-gpu.txt`
+  (생산용 `requirements.txt` 에는 torch 가 포함되지 않습니다)
+- 클래스 추가 / 이름 변경 / 색상 / 우선순위를 GUI 에서 편집 가능
+- 설치·가중치 다운로드·사용법: [`annotation_tool/USAGE.md`](annotation_tool/USAGE.md),
+  모듈 구조: [`annotation_tool/README.md`](annotation_tool/README.md) (중국어)

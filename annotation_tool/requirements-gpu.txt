@@ -1,0 +1,11 @@
+# GPU inference environment for annotation_tool (install into project-root .venv/)
+# python3 -m venv .venv && . .venv/bin/activate && pip install -r annotation_tool/requirements-gpu.txt
+torch
+torchvision
+PyQt5
+pillow
+numpy
+pytest
+# sam2 (fallback backend): pip install -e segment-anything2/sam2
+# sam3 (main backend):     pip install sam3 huggingface_hub psutil  +  huggingface-cli login
+#   (sam3 needs psutil at import time but does not declare it; install explicitly)
