@@ -66,7 +66,14 @@ def open_tool_window(mode: str):
     raise ValueError(f"not a standalone tool mode: {mode}")
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    for arg in argv:
+        if arg.startswith("--selftest"):
+            # build smoke test (CI): no window, exit code = result
+            from labeling_tool import selftest
+            return selftest.run_selftest(arg.partition("=")[2] or "lite")
+
     app = QApplication(sys.argv)
     # Apply the dark theme app-wide so the login/fetch dialogs and every
     # QMessageBox match the main window (set before the first dialog shows).
