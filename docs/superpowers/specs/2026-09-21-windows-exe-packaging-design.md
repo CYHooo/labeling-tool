@@ -1,8 +1,8 @@
 # Windows exe 打包（lite / full 双版本）
 
 日期：2026-09-21
-状态：设计待确认
-分支：`feat/windows-exe`（基于 `feat/launch-scripts`：依赖其"登录界面选择工具"）
+状态：已确认设计，实现中
+分支：`feat/windows-exe`（已包含启动脚本、登录界面选择工具、로컬 작업 标签页）；完成后以**一个 PR 合入 `main`**，不另建长期分支
 
 ## 背景 / 目标
 
@@ -11,7 +11,7 @@
 - 同一套 PyInstaller 配置产出两个版本：
   | 版本 | 内容 | 预计体积（zip / 解压） | 目标机器 |
   |---|---|---|---|
-  | `LabelingTool-lite` | 在线标注 + 本地文件夹（`labeling_tool`，MobileSAM ONNX / CPU） | ~150–200 MB / ~400 MB | 生产用户普通 PC |
+  | `LabelingTool-lite` | 在线标注 + 本地作业（已下载 job，`labeling_tool`，MobileSAM ONNX / CPU） | ~150–200 MB / ~400 MB | 生产用户普通 PC |
   | `LabelingTool-full` | lite + few-shot（`annotation_tool`，torch CUDA + SAM3 + SAM2） | ~2.5–3 GB / ~5 GB | 有 NVIDIA GPU 的标注 PC |
 - 在 **GitHub Actions**（`windows-latest`）上打包，不依赖本地 Windows 环境。
 - 形式：**onedir 文件夹 + zip**（非单文件 exe：单文件每次启动需解压数百 MB、且更易被杀毒误报）。
@@ -56,7 +56,7 @@ def app_home() -> Path:
 
 ## 2. 自检入口 `--selftest`
 
-`labeling_tool/app.py` 新增 `--selftest`：不创建窗口，导入所有入口模块（`labeling_tool.ui.*`、`LocalMainWindow`、ONNX 模型文件存在性；full 版额外导入 `torch`、`sam3.model_builder`、`sam2.build_sam`、`annotation_tool.ui.main_window`），打印结果后以 0/1 退出。
+`labeling_tool/app.py` 新增 `--selftest`：不创建窗口，导入所有入口模块（`labeling_tool.ui.*`（登录界面、获取数据、主窗口）、ONNX 模型文件存在性；full 版额外导入 `torch`、`sam3.model_builder`、`sam2.build_sam`、`annotation_tool.ui.main_window`），打印结果后以 0/1 退出。
 
 用途：CI 在打包后直接运行 exe 做冒烟测试，捕获 PyInstaller 漏打的模块/数据文件（这是打包 torch/SAM 最常见的失败点）。
 

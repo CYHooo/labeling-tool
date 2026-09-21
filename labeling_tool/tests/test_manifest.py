@@ -44,3 +44,17 @@ def test_filenames_in_report_order():
     mf.add(PhotoEntry(filename="stitched_10.jpg", timestamp=10, photo_id=1,
                       report_photo_num=1, px_per_cm=10.0, scale_source="aruco"))
     assert mf.filenames_in_order() == ["stitched_10.jpg", "stitched_20.jpg"]
+
+
+def test_inspection_name_roundtrip(tmp_path):
+    path = tmp_path / "manifest.json"
+    Manifest(session_id=7, base="https://x", inspection_name="B1 주차장").save(path)
+    assert Manifest.load(path).inspection_name == "B1 주차장"
+
+
+def test_load_old_manifest_without_inspection_name(tmp_path):
+    import json
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps({"sessionId": 7, "base": "https://x",
+                                "fetchedAt": None, "photos": {}}))
+    assert Manifest.load(path).inspection_name is None

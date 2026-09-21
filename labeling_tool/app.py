@@ -3,8 +3,8 @@
 The login screen's tabs pick the tool:
   * online:  login + data-fetch dialogs (fetch + download) -> main labeling
              window wired to the per-session workspace -> manual batch upload
-  * session: an already-downloaded session opened offline -> main window
-  * local:   folder-based LocalMainWindow (no login / upload)
+  * session: an already-downloaded job picked on the 로컬 작업 tab -> main
+             window (uploads when URL + key were given)
   * fewshot: annotation_tool (SAM3/SAM2, needs torch; imported only on demand)
 Run on a LOCAL PC (not the AI server).
 """
@@ -22,7 +22,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QLabel, QMessageBox
 
 from labeling_tool.logging_setup import vlog
-from labeling_tool.ui.login_dialog import LoginDialog, MODE_LOCAL, MODE_FEWSHOT
+from labeling_tool.ui.login_dialog import LoginDialog, MODE_FEWSHOT
 from labeling_tool.ui.fetch_dialog import FetchDialog
 from labeling_tool.ui.main_window import ViewerMainWindow
 from labeling_tool.api.client import ViewerApiClient
@@ -61,9 +61,6 @@ def open_tool_window(mode: str):
     """Build the window for a tool that needs no server session.
 
     Returns None when it could not be opened (caller goes back to login)."""
-    if mode == MODE_LOCAL:
-        from labeling_tool.ui.local_main_window import LocalMainWindow
-        return LocalMainWindow()
     if mode == MODE_FEWSHOT:
         return _open_fewshot_window()
     raise ValueError(f"not a standalone tool mode: {mode}")
@@ -83,7 +80,7 @@ def main() -> int:
         if not login.exec_():
             return 0  # user cancelled
 
-        if login.mode in (MODE_LOCAL, MODE_FEWSHOT):
+        if login.mode == MODE_FEWSHOT:
             tool_win = open_tool_window(login.mode)
             if tool_win is None:
                 continue  # failed to open -> back to the login screen

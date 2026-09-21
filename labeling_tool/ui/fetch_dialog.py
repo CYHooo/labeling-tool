@@ -53,6 +53,9 @@ class FetchDialog(QDialog):
         self.workspace: Workspace | None = None
         self.manifest: Manifest | None = None
         self._sessions_loaded = False
+        # sessionId -> inspectionName from the server list, saved into the
+        # manifest so the local job list can show it later
+        self._session_names: dict[int, str] = {}
 
         self.cb_session = QComboBox()
         self.sp_from = QSpinBox(); self.sp_from.setRange(0, 10_000_000)
@@ -106,6 +109,8 @@ class FetchDialog(QDialog):
         for s in sessions:
             sid = s["sessionId"]
             name = s.get("inspectionName")
+            if name:
+                self._session_names[int(sid)] = name
             label = f"session {sid}" if not name else f"session {sid} · {name}"
             if s.get("photoCount") is not None:
                 label += f"  ({s['photoCount']}장)"
@@ -137,7 +142,8 @@ class FetchDialog(QDialog):
         attach_session_log(ws.session_dir)
         vlog().info("=== session %s fetch start (base=%s fromNum=%s toNum=%s) ===",
                     sid, self.base, from_num, to_num)
-        manifest = Manifest(session_id=sid, base=self.base)
+        manifest = Manifest(session_id=sid, base=self.base,
+                            inspection_name=self._session_names.get(sid))
 
         try:
             all_photos = self._fetch_all_photos(self.client, sid)

@@ -236,4 +236,24 @@ STYLESHEET = """
             border-bottom: 2px solid #2d6cdf;
         }
         QTabBar::tab:hover:!selected { background-color: #2d333d; color: #e0e0e0; }
+        /* login screen job list (로컬 작업), matching the QListWidget palette */
+        QTableWidget {
+            background-color: #181b20;
+            alternate-background-color: #1c2026;
+            color: #d0d4dc;
+            gridline-color: #2c313a;
+            border: 1px solid #2c313a;
+            border-radius: 4px;
+        }
+        QTableWidget::item { padding: 3px 6px; }
+        QTableWidget::item:selected { background-color: #2d6cdf; color: #ffffff; }
+        QHeaderView::section {
+            background-color: #232830;
+            color: #9ea3aa;
+            border: none;
+            border-right: 1px solid #2c313a;
+            border-bottom: 1px solid #3a4048;
+            padding: 4px 6px;
+        }
+        QTableCornerButton::section { background-color: #232830; border: none; }
         """
