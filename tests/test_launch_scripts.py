@@ -36,7 +36,16 @@ def test_sh_launcher(name, module):
     data = path.read_bytes()
     assert b"\r\n" not in data, "sh launcher must use LF line endings"
     assert data.startswith(b"#!/usr/bin/env bash\n")
-    assert path.stat().st_mode & stat.S_IXUSR, "sh launcher must be executable"
+    if os.name == "nt":
+        # NTFS has no exec bit, so st_mode is meaningless on Windows CI.
+        # Check the executable bit recorded in the git index instead.
+        result = subprocess.run(
+            ["git", "ls-files", "-s", f"{name}.sh"],
+            cwd=ROOT, capture_output=True, text=True, check=True,
+        )
+        assert result.stdout.startswith("100755"), "sh launcher must be executable in git index"
+    else:
+        assert path.stat().st_mode & stat.S_IXUSR, "sh launcher must be executable"
     text = data.decode()
     assert f"-m {module} " in text and '"$@"' in text
     assert ".venv/bin/python" in text

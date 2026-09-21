@@ -1,0 +1,112 @@
+# Build the Windows LabelingTool exe (lite + full) with PyInstaller.
+# Triggers: manual run, version tags (v*) -> GitHub Release, and PRs that
+# touch the build so packaging breakage shows up before merging.
+name: build-windows
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "packaging/**"
+      - ".github/workflows/build-windows.yml"
+      - "requirements*.txt"
+      - "labeling_tool/app.py"
+      - "labeling_tool/selftest.py"
+      - "labeling_tool/core/app_paths.py"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [lite, full]
+    env:
+      LT_VARIANT: ${{ matrix.variant }}
+      QT_QPA_PLATFORM: offscreen
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Version
+        run: |
+          $ver = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { "dev-" + $env:GITHUB_SHA.Substring(0, 7) }
+          "LT_VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Install production dependencies
+        run: pip install -r requirements-dev.txt "pyinstaller==6.22.3"
+
+      - name: Install few-shot dependencies (full)
+        if: matrix.variant == 'full'
+        env:
+          SAM2_BUILD_CUDA: "0"
+        run: |
+          pip install "torch==2.5.1" "torchvision==0.20.1" --index-url https://download.pytorch.org/whl/cu124
+          # sam2's build needs the torch installed above (no CUDA extension: SAM2_BUILD_CUDA=0)
+          pip install --no-build-isolation "git+https://github.com/facebookresearch/sam2.git@2b90b9f5ceec907a1c18123530e92e794ad901a4"
+          python -c "import sam2.build_sam; print('few-shot imports OK')"
+
+      - name: Tests
+        run: |
+          $suites = @("tests", "labeling_tool/tests")
+          if ($env:LT_VARIANT -eq 'full') { $suites += "annotation_tool/tests" }
+          python -m pytest @suites -q -p no:cacheprovider
+
+      - name: Build exe
+        run: pyinstaller --noconfirm --log-level WARN packaging/labeling_tool.spec
+
+      - name: Selftest packaged exe
+        run: |
+          $p = Start-Process -FilePath dist\LabelingTool\LabelingTool.exe -ArgumentList "--selftest=$env:LT_VARIANT" -Wait -PassThru
+          Get-Content dist\LabelingTool\selftest.log
+          Remove-Item dist\LabelingTool\selftest.log
+          if ($p.ExitCode -ne 0) { throw "selftest failed with exit code $($p.ExitCode)" }
+
+      - name: Launch smoke test (login screen stays up)
+        run: |
+          $p = Start-Process -FilePath dist\LabelingTool\LabelingTool.exe -PassThru
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) { throw "LabelingTool.exe exited early with code $($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
+          # the app may create these next to the exe; never ship them
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue dist\LabelingTool\data, dist\LabelingTool\config.json
+
+      - name: Package
+        run: |
+          Set-Content -Path dist\LabelingTool\VERSION.txt -Value "$env:LT_VERSION ($env:LT_VARIANT)"
+          Remove-Item -Recurse -Force build
+          pip cache purge
+          New-Item -ItemType Directory -Force out | Out-Null
+          $name = "LabelingTool-$env:LT_VARIANT-$env:LT_VERSION"
+          if ($env:LT_VARIANT -eq 'lite') {
+            7z a -tzip "out\$name.zip" .\dist\LabelingTool
+          } else {
+            # GitHub Release assets must be < 2 GiB each
+            7z a -v1900m "out\$name.7z" .\dist\LabelingTool
+          }
+          Get-ChildItem out | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LabelingTool-${{ matrix.variant }}-${{ env.LT_VERSION }}
+          path: out/*
+          compression-level: 0
+
+      - name: Publish release assets (tags only)
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
