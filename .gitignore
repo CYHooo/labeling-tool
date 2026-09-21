@@ -16,3 +16,10 @@ checkpoint/
 
 # User-edited global class definitions (created by the annotation tool UI)
 annotation_tool/classes.json
+
+# Runtime data / credentials of the production labeling_tool — never commit.
+# (This checkout often holds an untracked labeling_tool/ from main.)
+labeling_tool/data/
+labeling_tool/config.json
+dataset/
+**/data/session_*/
