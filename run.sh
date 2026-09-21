@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Launch the production labeling tool (online: login -> fetch -> label -> upload).
-# Run from anywhere: ./run_labeling.sh [args...]  (arguments are passed through)
+# Launch the labeling tool; pick online / local folder / few-shot on the login screen.
+# Run from anywhere: ./run.sh [args...]  (arguments are passed through)
 # Uses .venv/bin/python when present, otherwise python3 / python on PATH.
 
 # Work from the repo root so the package and relative paths (./checkpoint) resolve.

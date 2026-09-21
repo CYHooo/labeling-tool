@@ -112,22 +112,25 @@ wget -P checkpoint https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2
 
 ## 5. 运行
 
-**推荐：直接用仓库根目录的启动脚本**——自动切到仓库根目录并使用 `.venv` 中的 Python，无需手动 activate / cd，在任意目录都能运行：
+**推荐：用仓库根目录的统一启动脚本**——自动切到仓库根目录并使用 `.venv` 中的 Python，无需手动 activate / cd：
 
 ```bash
-./run_fewshot.sh                      # Linux
-run_fewshot.bat                       # Windows：双击即可；出错时窗口会停住显示错误
-
-# 参数原样透传：用回退后端 / 指定数据集
-./run_fewshot.sh --backend sam2 --dataset /path/to/YourDataset
+./run.sh          # Linux
+run.bat           # Windows：双击即可；出错时窗口会停住显示错误
 ```
 
-也可以沿用原来的方式（须在仓库根目录、激活 venv 后）：
+启动后在登录界面选择 **「Few-shot 라벨링」** 标签页 → 「열기」。后端使用 `configs.BACKEND`（默认 SAM3）。
+未安装 torch 时该按钮为灰色；模型加载失败（缺权重、HF 未授权等）会弹窗说明并回到登录界面。
+
+需要指定后端 / 数据集参数时，直接运行模块（须在仓库根目录、激活 venv 后）：
 
 ```bash
 source .venv/bin/activate
 # 默认 SAM3；不带 --dataset 时启动后用 File ▸ Open Folder (Ctrl+O) 选文件夹
 python -m annotation_tool.main
+
+# 用回退后端 / 指定数据集
+python -m annotation_tool.main --backend sam2 --dataset /path/to/YourDataset
 ```
 
 所选文件夹内直接存放图片（`.jpg/.jpeg/.png/.bmp`）。保存产物：

@@ -87,7 +87,7 @@ python3 -m annotation_tool.main --dataset /home/cyh/Project/Few-shot/ConcJointDa
 python3 -m annotation_tool.main --dataset /home/cyh/Project/Few-shot/ConcJointDataset --backend sam3
 ```
 
-也可以直接用仓库根目录的启动脚本 `./run_fewshot.sh`（Linux）/ `run_fewshot.bat`（Windows 双击），它会自动切到仓库根目录并使用 `.venv`，参数原样透传，例如 `./run_fewshot.sh --backend sam2`。
+也可以用仓库根目录的统一启动脚本 `./run.sh`（Linux）/ `run.bat`（Windows 双击），在登录界面选择「Few-shot 라벨링」标签页打开（使用 `configs.BACKEND`；需要 `--backend` / `--dataset` 参数时用上面的 `python -m` 方式）。
 
 不带 `--backend` 时使用 `configs.BACKEND` 的默认值。`--dataset` 也可省略——启动后用菜单 **File → Open Folder…（`Ctrl+O`）** 选择**存放图片的文件夹**（直接读取该文件夹内的图片；已有 mask 从其下 `masks/` 或上级 `masks/` 自动加载，见下文「输出」）。GUI 需要图形显示（本机桌面 / X11 转发 / VNC）。
 

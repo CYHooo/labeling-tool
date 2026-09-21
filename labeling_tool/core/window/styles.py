@@ -209,4 +209,31 @@ STYLESHEET = """
             border: 1px solid #2c4e58;
             border-radius: 4px;
         }
+        /* login screen tool tabs: without these the pane falls back to the
+           light native palette and the light label text becomes unreadable */
+        QTabWidget::pane {
+            background-color: #1f2329;
+            border: 1px solid #3a4048;
+            border-radius: 4px;
+            top: -1px;
+        }
+        QTabWidget > QWidget, QTabWidget QStackedWidget > QWidget {
+            background-color: #1f2329;
+        }
+        QTabBar::tab {
+            background-color: #181b20;
+            color: #9ea3aa;
+            border: 1px solid #3a4048;
+            border-bottom: none;
+            border-top-left-radius: 4px;
+            border-top-right-radius: 4px;
+            padding: 6px 14px;
+            margin-right: 2px;
+        }
+        QTabBar::tab:selected {
+            background-color: #1f2329;
+            color: #f0f0f0;
+            border-bottom: 2px solid #2d6cdf;
+        }
+        QTabBar::tab:hover:!selected { background-color: #2d333d; color: #e0e0e0; }
         """

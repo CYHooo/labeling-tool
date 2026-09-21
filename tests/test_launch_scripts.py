@@ -1,8 +1,9 @@
 # tests/test_launch_scripts.py
-"""Contract for the double-click launchers in the repo root.
+"""Contract for the double-click launcher in the repo root.
 
-Each entry point has a Windows (.bat, CRLF) and a Linux (.sh, LF, executable)
-launcher that cds to the repo root, prefers .venv's python and runs
+One launcher pair starts labeling_tool.app, whose login screen selects the
+tool (online / local folder / few-shot): a Windows .bat (CRLF) and a Linux
+.sh (LF, executable). Both cd to the repo root, prefer .venv's python and run
 `python -m <module>` with the arguments passed through."""
 import importlib.util
 import os
@@ -15,10 +16,13 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 
 LAUNCHERS = {
-    "run_labeling": "labeling_tool.app",
-    "run_local": "labeling_tool.app_local",
-    "run_fewshot": "annotation_tool.main",
+    "run": "labeling_tool.app",
 }
+
+
+def test_only_one_launcher_pair():
+    found = sorted(p.name for p in ROOT.glob("run*") if p.suffix in (".sh", ".bat"))
+    assert found == ["run.bat", "run.sh"]
 
 
 @pytest.mark.parametrize("name,module", LAUNCHERS.items())
@@ -58,8 +62,9 @@ def test_gitattributes_pins_line_endings():
 
 @pytest.mark.skipif(os.name == "nt", reason="bash launcher")
 def test_sh_launcher_runs_from_another_directory(tmp_path):
-    # --help makes argparse exit 0 before any Qt window is created
-    out = subprocess.run([str(ROOT / "run_fewshot.sh"), "--help"], cwd=tmp_path,
-                         capture_output=True, text=True, timeout=60)
-    assert out.returncode == 0, out.stderr
-    assert "--backend" in out.stdout
+    # The login dialog blocks, so give it a moment, then stop it: still running
+    # (timeout) means the package resolved and the GUI started.
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen")
+    with pytest.raises(subprocess.TimeoutExpired):
+        subprocess.run([str(ROOT / "run.sh")], cwd=tmp_path, env=env,
+                       capture_output=True, text=True, timeout=8)

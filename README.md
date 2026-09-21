@@ -36,13 +36,18 @@ pip install -r requirements.txt
 
 ## 실행
 
-저장소 폴더의 **실행 스크립트를 더블클릭**하세요 (가상환경 활성화·폴더 이동이 필요 없습니다).
+저장소 폴더의 **실행 스크립트 하나로 모든 도구를 실행**합니다 (가상환경 활성화·폴더 이동이 필요 없습니다).
 
-| 실행 대상 | Windows (더블클릭) | Linux (터미널) |
-|---|---|---|
-| 온라인 라벨링 (로그인 → 가져오기 → 업로드) | `run_labeling.bat` | `./run_labeling.sh` |
-| 로컬 폴더 라벨링 (로그인·업로드 없음) | `run_local.bat` | `./run_local.sh` |
-| Few-shot 라벨링 도구 (아래 참고) | `run_fewshot.bat` | `./run_fewshot.sh` |
+- Windows: `run.bat` **더블클릭**
+- Linux: `./run.sh`
+
+실행하면 로그인 화면 상단의 **탭에서 사용할 도구를 선택**합니다.
+
+| 탭 | 내용 |
+|---|---|
+| **온라인 라벨링** (기본) | 로그인 → 데이터 가져오기 → 라벨링 → EC2 업로드 (기존 흐름 그대로) |
+| **로컬 폴더** | 이미지/마스크 폴더를 직접 선택해 라벨링 (로그인·업로드 없음) |
+| **Few-shot 라벨링** | SAM3/SAM2 기반 다중 클래스 라벨링 (torch 필요, 아래 참고). torch 가 없으면 버튼이 비활성화됩니다 |
 
 - 스크립트는 자동으로 저장소 폴더로 이동하고, `.venv` 가 있으면 그 Python 을 사용합니다
   (없으면 PATH 의 `python` / `python3`). 추가 인자는 그대로 전달됩니다.
@@ -57,7 +62,7 @@ pip install -r requirements.txt
 
 시작하면 **로그인 화면**과 **데이터 가져오기 화면**이 차례로 뜹니다.
 
-**로그인 화면**
+**로그인 화면** (「온라인 라벨링」 탭)
 - `BASE URL`, `X-Viewer-Api-Key` 를 입력하고 **「다음」** 을 누릅니다.
   (값은 `labeling_tool/config.json` 에 저장되어 다음부터 자동 입력됩니다. 네트워크 검증은 하지 않습니다.)
 - 이미 받은 세션은 하단 **「이미 받은 세션 열기」** 드롭다운에서 골라 오프라인으로 바로 열 수 있습니다 (로그인 불필요).
@@ -146,7 +151,7 @@ python -m pytest labeling_tool/tests -q
   `pip install opencv-python-headless` 로 바꿔 보세요.
 - **업로드 시 "스케일 없음"**: 해당 사진에 ArUco 가 검출되지 않았고 수동 측정도 안 한 경우입니다.
   「수동 측정」으로 px/cm 를 먼저 설정하세요 (업로드에는 pxPerCm 가 필수).
-- **`labeling_tool` 모듈을 못 찾음**: `run_labeling.bat` / `run_labeling.sh` 로 실행하세요.
+- **`labeling_tool` 모듈을 못 찾음**: `run.bat` / `run.sh` 로 실행하세요.
   `python -m` 으로 직접 실행할 때는 반드시 이 README 가 있는 폴더(= `labeling_tool/` 의 상위)에서 실행해야 합니다.
 
 ---
@@ -174,7 +179,9 @@ python -m pytest labeling_tool/tests -q
 ConcJoint few-shot 학습용 다중 클래스 마스크를 만드는 **별도 도구**입니다.
 위의 생산용 도구(`labeling_tool/`)와 코드·의존성을 공유하지 않으며, 서로 영향을 주지 않습니다.
 
-- 실행: `run_fewshot.bat` (Windows 더블클릭) / `./run_fewshot.sh` (Linux) — 또는 `python -m annotation_tool.main`
+- 실행: `run.bat` / `./run.sh` → 로그인 화면의 **「Few-shot 라벨링」** 탭 → 「열기」
+  (`--backend` / `--dataset` 인자가 필요하면 `python -m annotation_tool.main` 으로 직접 실행)
+- 모델 로딩에 실패하면(가중치 없음, HF 인증 등) 오류 메시지를 보여 주고 로그인 화면으로 돌아갑니다.
 - SAM3 / SAM2.1 사용 → **torch(GPU) 필요**: `pip install -r annotation_tool/requirements-gpu.txt`
   (생산용 `requirements.txt` 에는 torch 가 포함되지 않습니다)
 - 클래스 추가 / 이름 변경 / 색상 / 우선순위를 GUI 에서 편집 가능
