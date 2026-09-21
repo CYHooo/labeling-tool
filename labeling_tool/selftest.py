@@ -11,7 +11,6 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import os
-from pathlib import Path
 
 from labeling_tool.core.app_paths import app_home
 
@@ -23,11 +22,11 @@ COMMON_MODULES = (
 )
 FULL_MODULES = (
     "torch",
-    "sam3.model_builder",
-    "sam3.model.sam3_image_processor",
     "sam2.build_sam",
     "sam2.sam2_image_predictor",
     "annotation_tool.ui.main_window",
+    "annotation_tool.segmenter.weights",
+    "labeling_tool.ui.sam2_weights_dialog",
 )
 
 _qt_app = None  # keep the QApplication alive for the whole run
@@ -56,18 +55,19 @@ def _check_no_torch() -> None:
         raise RuntimeError("torch is present in a lite build")
 
 
-def _check_bpe() -> None:
-    from annotation_tool import configs
-    if not Path(configs.SAM3_BPE_PATH).is_file():
-        raise FileNotFoundError(configs.SAM3_BPE_PATH)
-
-
 def _check_sam2_cfg() -> None:
-    from importlib.resources import files
+    """Compose the SAM2.1 config through hydra exactly as build_sam2 does."""
+    import sam2  # noqa: F401 - registers sam2's hydra config module
+    from hydra import compose
     from annotation_tool import configs
-    cfg = files("sam2").joinpath(configs.SAM2_MODEL_CFG)
-    if not cfg.is_file():
-        raise FileNotFoundError(f"sam2/{configs.SAM2_MODEL_CFG}")
+    compose(config_name=configs.SAM2_MODEL_CFG)
+
+
+def _check_backend() -> None:
+    from annotation_tool import configs
+    from labeling_tool.core.app_paths import is_frozen
+    if is_frozen() and configs.BACKEND != "sam2":
+        raise RuntimeError(f"exe backend is {configs.BACKEND!r}, expected 'sam2'")
 
 
 def _checks(variant: str):
@@ -81,8 +81,8 @@ def _checks(variant: str):
         return
     for mod in FULL_MODULES:
         yield f"import {mod}", lambda mod=mod: importlib.import_module(mod)
-    yield "SAM3 BPE vocab", _check_bpe
-    yield "SAM2 model config", _check_sam2_cfg
+    yield "SAM2 hydra config composes", _check_sam2_cfg
+    yield "exe backend is sam2", _check_backend
 
 
 def run_selftest(variant: str) -> int:

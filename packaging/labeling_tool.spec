@@ -26,13 +26,15 @@ excludes = []
 
 if VARIANT == "full":
     hiddenimports += collect_submodules("annotation_tool", filter=_not_tests_or_scripts)
-    # BPE vocab etc.; never ship a developer's classes.json
+    # never ship a developer's classes.json; weights are downloaded on first use
     datas += collect_data_files("annotation_tool", excludes=["**/classes.json"])
-    for pkg in ("sam3", "sam2", "timm"):
+    # sam2 builds models from hydra yaml configs resolved at runtime
+    for pkg in ("sam2", "hydra", "omegaconf"):
         d, b, h = collect_all(pkg)
         datas += d
         binaries += b
         hiddenimports += h
+    excludes = ["sam3", "triton", "timm"]
 else:
     excludes = ["torch", "torchvision", "torchaudio", "triton",
                 "sam2", "sam3", "timm", "annotation_tool"]

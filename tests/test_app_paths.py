@@ -58,3 +58,14 @@ def test_upload_cli_reuses_config_path():
     from labeling_tool.scripts import upload_session_cli
     from labeling_tool.ui import dialog_helpers
     assert upload_session_cli.CONFIG_PATH is dialog_helpers.CONFIG_PATH
+
+
+def test_backend_is_sam2_only_in_exe(tmp_path):
+    from annotation_tool import configs
+    assert configs.BACKEND == "sam3"          # source runs keep SAM3
+    code = ("import sys; sys.frozen = True; sys.executable = %r\n"
+            "from annotation_tool import configs; print(configs.BACKEND)\n"
+            ) % str(tmp_path / "LabelingTool.exe")
+    out = subprocess.run([sys.executable, "-c", code], cwd=ROOT,
+                         capture_output=True, text=True, check=True).stdout.strip()
+    assert out == "sam2"

@@ -32,12 +32,19 @@ def test_full_reports_missing_module(monkeypatch, tmp_path):
     monkeypatch.setattr(selftest, "_check_onnx", lambda: None)
     monkeypatch.setattr(selftest, "_check_login_dialog", lambda: None)
     monkeypatch.setattr(selftest, "FULL_MODULES", ("definitely_missing_mod_xyz",))
-    monkeypatch.setattr(selftest, "_check_bpe", lambda: None)
     monkeypatch.setattr(selftest, "_check_sam2_cfg", lambda: None)
+    monkeypatch.setattr(selftest, "_check_backend", lambda: None)
     assert selftest.run_selftest("full") == 1
     log = (tmp_path / "selftest.log").read_text(encoding="utf-8")
     assert "FAIL import definitely_missing_mod_xyz" in log
     assert "RESULT: FAIL" in log
+
+
+def test_full_checks_have_no_sam3():
+    names = [name for name, _ in selftest._checks("full")]
+    assert not any("sam3" in n for n in names)
+    assert "SAM2 hydra config composes" in names
+    assert "exe backend is sam2" in names
 
 
 def test_unknown_variant():

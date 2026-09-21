@@ -1,7 +1,7 @@
 """Central configuration: paths, classes, priority, colors, backend switch."""
 from pathlib import Path
 
-from labeling_tool.core.app_paths import writable_path
+from labeling_tool.core.app_paths import is_frozen, writable_path
 
 # --- dataset paths (override at runtime via MainWindow "open folder") ---
 # Only used as the "Open Folder" dialog's starting point (no auto-load on launch).
@@ -35,7 +35,9 @@ CLASS_COLORS = {
 OVERLAY_ALPHA = 0.45
 
 # --- SAM backend ---
-BACKEND = "sam3"  # "sam3" (main) | "sam2" (zero-download fallback)
+# The Windows exe ships SAM2.1 only (SAM3 weights are HF-gated and SAM3 needs
+# triton, which has no official Windows build); source runs keep SAM3.
+BACKEND = "sam2" if is_frozen() else "sam3"  # "sam3" (main) | "sam2" (fallback)
 SAM2_CHECKPOINT = str(writable_path(Path("./checkpoint/sam2.1_hiera_base_plus.pt"),
                                     "checkpoint/sam2.1_hiera_base_plus.pt"))
 SAM2_MODEL_CFG = "configs/sam2.1/sam2.1_hiera_b+.yaml"

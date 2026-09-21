@@ -34,6 +34,12 @@ def _open_fewshot_window():
     Building it loads the SAM model synchronously, so show a busy notice. Any
     failure (no weights, HF auth, CUDA, ...) must return to the login screen
     instead of killing the app."""
+    from annotation_tool import configs as fewshot_configs
+    if fewshot_configs.BACKEND == "sam2":
+        from labeling_tool.ui.sam2_weights_dialog import ensure_sam2_weights
+        if not ensure_sam2_weights():
+            return None  # declined / failed -> back to the login screen
+
     notice = QLabel("Few-shot 모델 로딩 중… 잠시 기다려 주세요.")
     notice.setWindowFlags(Qt.SplashScreen | Qt.WindowStaysOnTopHint)
     notice.setMargin(24)
