@@ -16,7 +16,7 @@ full 版只用 SAM2.1 base_plus（SAM3 需 HuggingFace 授权且依赖 triton）
   | 版本 | 内容 | 预计体积（zip / 解压） | 目标机器 |
   |---|---|---|---|
   | `LabelingTool-lite` | 在线标注 + 本地作业（已下载 job，`labeling_tool`，MobileSAM ONNX / CPU） | ~150–200 MB / ~400 MB | 生产用户普通 PC |
-  | `LabelingTool-full` | lite + few-shot（`annotation_tool`，torch CUDA + SAM3 + SAM2） | ~2.5–3 GB / ~5 GB | 有 NVIDIA GPU 的标注 PC |
+  | `LabelingTool-full` | lite + few-shot（`annotation_tool`，torch CUDA + SAM2.1） | ~2.5–3 GB / ~5 GB | 有 NVIDIA GPU 的标注 PC |
 - 在 **GitHub Actions**（`windows-latest`）上打包，不依赖本地 Windows 环境。
 - 形式：**onedir 文件夹 + zip**（非单文件 exe：单文件每次启动需解压数百 MB、且更易被杀毒误报）。
 - **源码运行方式（`run.sh` / `run.bat` / `python -m …`）的行为完全不变。**
@@ -60,7 +60,7 @@ def app_home() -> Path:
 
 ## 2. 自检入口 `--selftest`
 
-`labeling_tool/app.py` 新增 `--selftest`：不创建窗口，导入所有入口模块（`labeling_tool.ui.*`（登录界面、获取数据、主窗口）、ONNX 模型文件存在性；full 版额外导入 `torch`、`sam3.model_builder`、`sam2.build_sam`、`annotation_tool.ui.main_window`），打印结果后以 0/1 退出。
+`labeling_tool/app.py` 新增 `--selftest`：不创建窗口，导入所有入口模块（`labeling_tool.ui.*`（登录界面、获取数据、主窗口）、ONNX 模型文件存在性；full 版额外导入 `torch`、`sam2.build_sam`、`annotation_tool.ui.main_window`，并校验 SAM2.1 的 hydra 配置能正常组装），打印结果后以 0/1 退出。
 
 用途：CI 在打包后直接运行 exe 做冒烟测试，捕获 PyInstaller 漏打的模块/数据文件（这是打包 torch/SAM 最常见的失败点）。
 
@@ -70,8 +70,8 @@ def app_home() -> Path:
 
 - 入口：`labeling_tool/app.py`；onedir；`console=False`；exe 名 `LabelingTool.exe`；输出目录名 `LabelingTool/`。
 - 通过环境变量 `LT_VARIANT=lite|full` 切换：
-  - **lite**：`excludes=["torch", "torchvision", "sam2", "sam3", "annotation_tool", "triton"]`（防止开发环境中存在 torch 时被意外打入）。Few-shot 标签页因 `find_spec("torch")` 为 None 自动变灰（已有逻辑）。
-  - **full**：`hiddenimports += collect_submodules("annotation_tool")`，`collect_all("sam3")`、`collect_all("sam2")`（含 hydra yaml 配置），`collect_data_files("annotation_tool")`（BPE 词表）。torch 使用 PyInstaller 自带 hook。
+  - **lite**：`excludes=["torch", "torchvision", "sam2", "annotation_tool", "triton"]`（防止开发环境中存在 torch 时被意外打入）。Few-shot 标签页因 `find_spec("torch")` 为 None 自动变灰（已有逻辑）。
+  - **full**：`hiddenimports += collect_submodules("annotation_tool")`，`collect_all("sam2")`（含 hydra yaml 配置）、`collect_all("hydra")`、`collect_all("omegaconf")`，`collect_data_files("annotation_tool")`（BPE 词表）。torch 使用 PyInstaller 自带 hook；不安装 `sam3` / `triton-windows`。
 - 共同数据：`labeling_tool/models/sam/*.onnx`。
 - 不打包：`config.json`、`data/`、`checkpoint/`、任何权重（`.gitignore` 已保证仓库里没有）。
 
@@ -81,7 +81,7 @@ def app_home() -> Path:
 - `strategy.matrix.variant: [lite, full]`，`windows-latest`，Python 3.12。
 - 依赖安装：
   - lite：`pip install -r requirements.txt pyinstaller`
-  - full：上述 + `torch/torchvision`（CUDA 12.4 wheel，`--index-url https://download.pytorch.org/whl/cu124`）+ `sam3 huggingface_hub psutil` + `sam2`（从官方 git 固定 commit 安装，`SAM2_BUILD_CUDA=0` 跳过 CUDA 扩展编译）。
+  - full：上述 + `torch/torchvision`（CUDA 12.4 wheel，`--index-url https://download.pytorch.org/whl/cu124`）+ `huggingface_hub psutil` + `sam2`（从官方 git 固定 commit 安装，`SAM2_BUILD_CUDA=0` 跳过 CUDA 扩展编译；不安装 `sam3` / `triton-windows`）。
 - 步骤：安装 → 跑 `pytest`（lite：`labeling_tool/tests` + `tests/`；full：再加 `annotation_tool/tests`）→ `pyinstaller packaging/labeling_tool.spec` → `LabelingTool.exe --selftest` → 压缩。
 - 产出：
   - 始终上传 Actions artifact：`LabelingTool-<variant>-<version>`（公开仓库免费，保留 90 天）。
