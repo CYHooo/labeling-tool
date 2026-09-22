@@ -51,8 +51,10 @@ def _check_login_dialog() -> None:
 
 
 def _check_no_torch() -> None:
-    if importlib.util.find_spec("torch") is not None:
-        raise RuntimeError("torch is present in a lite build")
+    missing = [mod for mod in ("torch", "annotation_tool", "sam2")
+               if importlib.util.find_spec(mod) is not None]
+    if missing:
+        raise RuntimeError(f"{', '.join(missing)} present in a lite build")
 
 
 def _check_sam2_cfg() -> None:
@@ -70,6 +72,12 @@ def _check_backend() -> None:
         raise RuntimeError(f"exe backend is {configs.BACKEND!r}, expected 'sam2'")
 
 
+def _check_fewshot_available() -> None:
+    from labeling_tool.ui.login_dialog import fewshot_available
+    if not fewshot_available():
+        raise RuntimeError("fewshot_available() is False in a full build")
+
+
 def _checks(variant: str):
     """(name, callable) pairs; each callable raises on failure."""
     for mod in COMMON_MODULES:
@@ -77,18 +85,21 @@ def _checks(variant: str):
     yield "MobileSAM ONNX models", _check_onnx
     yield "Qt login dialog (offscreen)", _check_login_dialog
     if variant == "lite":
-        yield "torch not bundled", _check_no_torch
+        yield "few-shot stack not bundled", _check_no_torch
         return
     for mod in FULL_MODULES:
         yield f"import {mod}", lambda mod=mod: importlib.import_module(mod)
     yield "SAM2 hydra config composes", _check_sam2_cfg
     yield "exe backend is sam2", _check_backend
+    yield "few-shot stack available", _check_fewshot_available
 
 
 def run_selftest(variant: str) -> int:
     """Run every check; 0 = all passed, 1 = failures, 2 = unknown variant."""
     if variant not in ("lite", "full"):
-        print(f"unknown selftest variant: {variant!r} (use lite or full)")
+        message = f"unknown selftest variant: {variant!r} (use lite or full)\n"
+        print(message, end="")
+        (app_home() / "selftest.log").write_text(message, encoding="utf-8")
         return 2
     lines, failed = [f"selftest variant={variant} home={app_home()}"], 0
     for name, check in _checks(variant):

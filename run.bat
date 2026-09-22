@@ -1,5 +1,5 @@
 @echo off
-rem Launch the labeling tool; pick online / local folder / few-shot on the login screen.
+rem Launch the labeling tool; pick online / local job / few-shot on the login screen.
 rem Double-click, or run from anywhere: run.bat [args...]  (arguments are passed through)
 rem Uses .venv\Scripts\python.exe when present, otherwise python on PATH.
 setlocal

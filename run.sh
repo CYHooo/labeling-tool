@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launch the labeling tool; pick online / local folder / few-shot on the login screen.
+# Launch the labeling tool; pick online / local job / few-shot on the login screen.
 # Run from anywhere: ./run.sh [args...]  (arguments are passed through)
 # Uses .venv/bin/python when present, otherwise python3 / python on PATH.
 

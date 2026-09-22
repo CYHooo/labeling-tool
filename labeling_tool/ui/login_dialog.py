@@ -185,19 +185,30 @@ class LoginDialog(QDialog):
 
     def _build_fewshot_page(self) -> QWidget:
         """Tab 3: few-shot annotation tool (annotation_tool, needs torch)."""
+        from labeling_tool.core.app_paths import is_frozen
+
         self.btn_fewshot = QPushButton("열기")
         self.btn_fewshot.clicked.connect(lambda: self._accept_mode(MODE_FEWSHOT))
         self.lbl_fewshot_hint = QLabel("")
         if not fewshot_available():
             self.btn_fewshot.setEnabled(False)
             self.lbl_fewshot_hint.setStyleSheet("color: #e0a040;")
-            self.lbl_fewshot_hint.setText(
-                "⚠ torch 가 설치되어 있지 않아 사용할 수 없습니다.\n"
-                "설치: pip install -r annotation_tool/requirements-gpu.txt")
-        return _tool_page(
+            if is_frozen():
+                self.lbl_fewshot_hint.setText(
+                    "⚠ 이 빌드는 lite 버전이라 few-shot 도구를 사용할 수 없습니다.\n"
+                    "few-shot 도구가 필요하면 full 빌드를 설치하세요.")
+            else:
+                self.lbl_fewshot_hint.setText(
+                    "⚠ torch 가 설치되어 있지 않아 사용할 수 없습니다.\n"
+                    "설치: pip install -r annotation_tool/requirements-gpu.txt")
+        description = (
+            "SAM2.1 기반 다중 클래스 반자동 라벨링 도구 (few-shot 학습 데이터용).\n"
+            "GPU(torch)와 SAM 가중치가 필요하며, 처음 열 때 모델 로딩에 시간이 걸립니다."
+            if is_frozen() else
             "SAM3 / SAM2.1 기반 다중 클래스 반자동 라벨링 도구 (few-shot 학습 데이터용).\n"
-            "GPU(torch)와 SAM 가중치가 필요하며, 처음 열 때 모델 로딩에 시간이 걸립니다.",
-            self.btn_fewshot, self.lbl_fewshot_hint)
+            "GPU(torch)와 SAM 가중치가 필요하며, 처음 열 때 모델 로딩에 시간이 걸립니다."
+        )
+        return _tool_page(description, self.btn_fewshot, self.lbl_fewshot_hint)
 
     # -------------------------------------------------------------- actions
     def _accept_mode(self, mode: str) -> None:
@@ -224,8 +235,11 @@ class LoginDialog(QDialog):
         job = self._selected_job()
         self.btn_open_job.setEnabled(job is not None)
         # upload must go back to the server the job was fetched from
-        if job is not None and job.base:
-            self.ed_local_base.setText(job.base)
+        if job is not None:
+            if job.base:
+                self.ed_local_base.setText(job.base)
+            else:
+                self.ed_local_base.clear()
 
     def _update_upload_state(self):
         if self.ed_local_base.text().strip() and self.ed_local_key.text().strip():
@@ -248,11 +262,27 @@ class LoginDialog(QDialog):
         # offline (upload disabled in the main window).
         base = self.ed_local_base.text().strip()
         key = self.ed_local_key.text().strip()
+        if base and key and job.base:
+            if base.rstrip("/") != job.base.rstrip("/"):
+                QMessageBox.warning(
+                    self, "서버 불일치",
+                    f"이 작업은 {job.base} 에서 받아왔습니다.\n"
+                    "다른 서버로 업로드할 수 없습니다.\n"
+                    "URL을 원래 서버로 되돌리거나, URL/Key를 비우고 오프라인으로 여세요.",
+                )
+                return
         if base and key:
             save_config(base, key)
             self.base, self.key = base, key
         self.workspace = ws
-        self.manifest = Manifest.load(ws.manifest_path)
+        try:
+            self.manifest = Manifest.load(ws.manifest_path)
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            QMessageBox.warning(
+                self, "매니페스트 오류",
+                f"로컬 매니페스트를 읽을 수 없습니다: {ws.manifest_path}\n{exc}",
+            )
+            return
         attach_session_log(ws.session_dir)
         vlog().info("=== session %s opened (local, upload=%s) ===",
                     job.session_id, "on" if (base and key) else "off")

@@ -12,12 +12,12 @@ on:
       - "packaging/**"
       - ".github/workflows/build-windows.yml"
       - "requirements*.txt"
-      - "labeling_tool/app.py"
-      - "labeling_tool/selftest.py"
-      - "labeling_tool/core/app_paths.py"
+      - "labeling_tool/**"
+      - "annotation_tool/**"
+      - "tests/**"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -46,9 +46,6 @@ jobs:
           $ver = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { "dev-" + $env:GITHUB_SHA.Substring(0, 7) }
           "LT_VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Install VC++ runtime (onnxruntime needs the current redistributable)
-        run: choco install vcredist140 -y --no-progress
-
       - name: Install production dependencies
         run: pip install -c packaging/build-constraints.txt -r requirements-dev.txt "pyinstaller==6.22.3"
 
@@ -74,8 +71,12 @@ jobs:
       - name: Selftest packaged exe
         run: |
           $p = Start-Process -FilePath dist\LabelingTool\LabelingTool.exe -ArgumentList "--selftest=$env:LT_VARIANT" -Wait -PassThru
-          Get-Content dist\LabelingTool\selftest.log
-          Remove-Item dist\LabelingTool\selftest.log
+          if (Test-Path dist\LabelingTool\selftest.log) {
+            Get-Content dist\LabelingTool\selftest.log
+            Remove-Item dist\LabelingTool\selftest.log
+          } else {
+            Write-Host "selftest.log not found (early crash?)"
+          }
           if ($p.ExitCode -ne 0) { throw "selftest failed with exit code $($p.ExitCode)" }
 
       - name: Launch smoke test (login screen stays up)
@@ -108,8 +109,19 @@ jobs:
           path: out/*
           compression-level: 0
 
-      - name: Publish release assets (tags only)
-        if: github.ref_type == 'tag'
+  release:
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: out
+
+      - name: Publish release assets
         uses: softprops/action-gh-release@v2
         with:
           files: out/*
