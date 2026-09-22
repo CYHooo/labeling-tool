@@ -46,6 +46,9 @@ jobs:
           $ver = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { "dev-" + $env:GITHUB_SHA.Substring(0, 7) }
           "LT_VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+      - name: Install VC++ runtime (onnxruntime needs the current redistributable)
+        run: choco install vcredist2022 -y --no-progress
+
       - name: Install production dependencies
         run: pip install -r requirements-dev.txt "pyinstaller==6.22.3"
 
