@@ -116,6 +116,74 @@ def test_open_job_without_credentials_stays_offline(tmp_path):
     assert SAVED == []
 
 
+def test_open_job_refuses_upload_to_a_different_server(monkeypatch, tmp_path):
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning",
+                         lambda *a, **k: warnings.append(a))
+    _job(tmp_path, 16, base="https://a.example.com")
+    dlg = ld.LoginDialog()
+    dlg.tbl_jobs.selectRow(0)
+    dlg.ed_local_base.setText("https://other.example.com")
+    dlg.btn_open_job.click()
+    assert dlg.mode is None
+    assert dlg.result() != dlg.Accepted
+    assert warnings
+    assert SAVED == []
+
+
+def test_open_job_allows_trailing_slash_difference(tmp_path):
+    _job(tmp_path, 16, base="https://a.example.com")
+    dlg = ld.LoginDialog()
+    dlg.tbl_jobs.selectRow(0)
+    dlg.ed_local_base.setText("https://a.example.com/")
+    dlg.btn_open_job.click()
+    assert dlg.mode == ld.MODE_SESSION
+    assert dlg.result() == dlg.Accepted
+
+
+def test_open_job_clearing_url_and_key_opens_offline(tmp_path):
+    _job(tmp_path, 16, base="https://a.example.com")
+    dlg = ld.LoginDialog()
+    dlg.tbl_jobs.selectRow(0)
+    dlg.ed_local_base.setText("")
+    dlg.ed_local_key.setText("")
+    dlg.btn_open_job.click()
+    assert dlg.mode == ld.MODE_SESSION
+    assert dlg.result() == dlg.Accepted
+    assert (dlg.base, dlg.key) == ("", "")
+    assert SAVED == []
+
+
+def test_selecting_job_with_empty_base_clears_url_field(tmp_path):
+    _job(tmp_path, 16, base="https://a.example.com", mtime=2000)
+    _job(tmp_path, 17, base="", mtime=1000)
+    dlg = ld.LoginDialog()
+    dlg.tbl_jobs.selectRow(0)
+    assert dlg.ed_local_base.text() == "https://a.example.com"
+    dlg.tbl_jobs.selectRow(1)
+    assert dlg.ed_local_base.text() == ""
+
+
+def test_open_job_with_unloadable_manifest_warns_and_stays_open(monkeypatch, tmp_path):
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning",
+                         lambda *a, **k: warnings.append(a))
+    import os
+    d = tmp_path / "session_16"
+    d.mkdir()
+    mf = d / "manifest.json"
+    # listed (readable, has "photos") but not Manifest.load-able: no sessionId
+    mf.write_text(json.dumps({"base": "https://a.example.com", "photos": {}}))
+    os.utime(mf, (1000, 1000))
+    dlg = ld.LoginDialog()
+    assert dlg.btn_open_job.isEnabled() or dlg.tbl_jobs.rowCount() >= 0
+    dlg.tbl_jobs.selectRow(0)
+    dlg.btn_open_job.click()
+    assert dlg.mode is None
+    assert dlg.result() != dlg.Accepted
+    assert warnings
+
+
 def test_fewshot_tab_enabled_when_torch_installed(monkeypatch):
     monkeypatch.setattr(ld, "fewshot_available", lambda: True)
     dlg = ld.LoginDialog()

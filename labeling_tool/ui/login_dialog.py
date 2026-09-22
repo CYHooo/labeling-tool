@@ -224,8 +224,11 @@ class LoginDialog(QDialog):
         job = self._selected_job()
         self.btn_open_job.setEnabled(job is not None)
         # upload must go back to the server the job was fetched from
-        if job is not None and job.base:
-            self.ed_local_base.setText(job.base)
+        if job is not None:
+            if job.base:
+                self.ed_local_base.setText(job.base)
+            else:
+                self.ed_local_base.clear()
 
     def _update_upload_state(self):
         if self.ed_local_base.text().strip() and self.ed_local_key.text().strip():
@@ -248,11 +251,27 @@ class LoginDialog(QDialog):
         # offline (upload disabled in the main window).
         base = self.ed_local_base.text().strip()
         key = self.ed_local_key.text().strip()
+        if base and key and job.base:
+            if base.rstrip("/") != job.base.rstrip("/"):
+                QMessageBox.warning(
+                    self, "서버 불일치",
+                    f"이 작업은 {job.base} 에서 받아왔습니다.\n"
+                    "다른 서버로 업로드할 수 없습니다.\n"
+                    "URL을 원래 서버로 되돌리거나, URL/Key를 비우고 오프라인으로 여세요.",
+                )
+                return
         if base and key:
             save_config(base, key)
             self.base, self.key = base, key
         self.workspace = ws
-        self.manifest = Manifest.load(ws.manifest_path)
+        try:
+            self.manifest = Manifest.load(ws.manifest_path)
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            QMessageBox.warning(
+                self, "매니페스트 오류",
+                f"로컬 매니페스트를 읽을 수 없습니다: {ws.manifest_path}\n{exc}",
+            )
+            return
         attach_session_log(ws.session_dir)
         vlog().info("=== session %s opened (local, upload=%s) ===",
                     job.session_id, "on" if (base and key) else "off")
