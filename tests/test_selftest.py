@@ -7,12 +7,14 @@ from labeling_tool import selftest
 def test_lite_passes_and_writes_log(monkeypatch, tmp_path):
     monkeypatch.setattr(selftest, "app_home", lambda: tmp_path)
     real_find_spec = importlib.util.find_spec
+    not_bundled = ("torch", "sam2", "annotation_tool")
     monkeypatch.setattr(importlib.util, "find_spec",
-                        lambda name, *a: None if name == "torch" else real_find_spec(name, *a))
+                        lambda name, *a: None if name in not_bundled else real_find_spec(name, *a))
     assert selftest.run_selftest("lite") == 0
     log = (tmp_path / "selftest.log").read_text(encoding="utf-8")
     assert "OK   import labeling_tool.ui.login_dialog" in log
     assert "OK   MobileSAM ONNX models" in log
+    assert "OK   few-shot stack not bundled" in log
     assert "RESULT: PASS" in log
 
 
@@ -23,7 +25,9 @@ def test_lite_fails_when_torch_is_bundled(monkeypatch, tmp_path):
     monkeypatch.setattr(selftest, "_check_onnx", lambda: None)
     monkeypatch.setattr(selftest, "_check_login_dialog", lambda: None)
     assert selftest.run_selftest("lite") == 1
-    assert "FAIL torch not bundled" in (tmp_path / "selftest.log").read_text(encoding="utf-8")
+    log = (tmp_path / "selftest.log").read_text(encoding="utf-8")
+    assert "FAIL few-shot stack not bundled" in log
+    assert "torch" in log and "annotation_tool" in log and "sam2" in log
 
 
 def test_full_reports_missing_module(monkeypatch, tmp_path):
@@ -34,10 +38,25 @@ def test_full_reports_missing_module(monkeypatch, tmp_path):
     monkeypatch.setattr(selftest, "FULL_MODULES", ("definitely_missing_mod_xyz",))
     monkeypatch.setattr(selftest, "_check_sam2_cfg", lambda: None)
     monkeypatch.setattr(selftest, "_check_backend", lambda: None)
+    monkeypatch.setattr(selftest, "_check_fewshot_available", lambda: None)
     assert selftest.run_selftest("full") == 1
     log = (tmp_path / "selftest.log").read_text(encoding="utf-8")
     assert "FAIL import definitely_missing_mod_xyz" in log
     assert "RESULT: FAIL" in log
+
+
+def test_full_checks_fewshot_available(monkeypatch, tmp_path):
+    monkeypatch.setattr(selftest, "app_home", lambda: tmp_path)
+    monkeypatch.setattr(selftest, "COMMON_MODULES", ())
+    monkeypatch.setattr(selftest, "FULL_MODULES", ())
+    monkeypatch.setattr(selftest, "_check_onnx", lambda: None)
+    monkeypatch.setattr(selftest, "_check_login_dialog", lambda: None)
+    monkeypatch.setattr(selftest, "_check_sam2_cfg", lambda: None)
+    monkeypatch.setattr(selftest, "_check_backend", lambda: None)
+    monkeypatch.setattr("labeling_tool.ui.login_dialog.fewshot_available", lambda: False)
+    assert selftest.run_selftest("full") == 1
+    log = (tmp_path / "selftest.log").read_text(encoding="utf-8")
+    assert "FAIL few-shot stack available" in log
 
 
 def test_full_checks_have_no_sam3():
@@ -47,8 +66,11 @@ def test_full_checks_have_no_sam3():
     assert "exe backend is sam2" in names
 
 
-def test_unknown_variant():
+def test_unknown_variant(monkeypatch, tmp_path):
+    monkeypatch.setattr(selftest, "app_home", lambda: tmp_path)
     assert selftest.run_selftest("medium") == 2
+    log = (tmp_path / "selftest.log").read_text(encoding="utf-8")
+    assert "unknown selftest variant: 'medium'" in log
 
 
 def test_app_main_dispatches_selftest(monkeypatch):

@@ -80,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
             from labeling_tool import selftest
             return selftest.run_selftest(arg.partition("=")[2] or "lite")
 
-    app = QApplication(sys.argv)
+    app = QApplication([sys.argv[0], *argv])
     # Apply the dark theme app-wide so the login/fetch dialogs and every
     # QMessageBox match the main window (set before the first dialog shows).
     from labeling_tool.core.window.styles import STYLESHEET

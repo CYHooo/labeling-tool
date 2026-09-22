@@ -4,7 +4,7 @@ few-shot, and app.py opening the matching window."""
 import json
 
 import pytest
-from PyQt5.QtWidgets import QApplication, QMessageBox
+from PyQt5.QtWidgets import QApplication, QLabel, QMessageBox
 
 from labeling_tool.ui import login_dialog as ld
 
@@ -197,6 +197,39 @@ def test_fewshot_tab_disabled_without_torch(monkeypatch):
     dlg = ld.LoginDialog()
     assert not dlg.btn_fewshot.isEnabled()
     assert "requirements-gpu.txt" in dlg.lbl_fewshot_hint.text()
+
+
+def test_fewshot_tab_source_run_description_mentions_sam3(monkeypatch):
+    monkeypatch.setattr(ld, "fewshot_available", lambda: True)
+    import labeling_tool.core.app_paths as app_paths
+    monkeypatch.setattr(app_paths, "is_frozen", lambda: False)
+    dlg = ld.LoginDialog()
+    fewshot_page = dlg.tabs.widget(ld.TAB_FEWSHOT)
+    text = fewshot_page.findChild(QLabel).text()
+    assert "SAM3 / SAM2.1" in text
+
+
+def test_fewshot_tab_frozen_description_says_sam21_only(monkeypatch):
+    monkeypatch.setattr(ld, "fewshot_available", lambda: True)
+    import labeling_tool.core.app_paths as app_paths
+    monkeypatch.setattr(app_paths, "is_frozen", lambda: True)
+    dlg = ld.LoginDialog()
+    fewshot_page = dlg.tabs.widget(ld.TAB_FEWSHOT)
+    text = fewshot_page.findChild(QLabel).text()
+    assert "SAM2.1" in text
+    assert "SAM3" not in text
+
+
+def test_fewshot_tab_frozen_hint_points_to_full_build(monkeypatch):
+    monkeypatch.setattr(ld, "fewshot_available", lambda: False)
+    import labeling_tool.core.app_paths as app_paths
+    monkeypatch.setattr(app_paths, "is_frozen", lambda: True)
+    dlg = ld.LoginDialog()
+    assert not dlg.btn_fewshot.isEnabled()
+    hint = dlg.lbl_fewshot_hint.text()
+    assert "lite" in hint
+    assert "full" in hint
+    assert "pip install" not in hint
 
 
 def test_fewshot_available_does_not_import_torch(monkeypatch):
