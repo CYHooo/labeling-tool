@@ -36,11 +36,23 @@ pip install -r requirements.txt
 
 ## 실행
 
-**반드시 이 README가 있는 폴더(= `labeling_tool/` 의 상위)에서** 실행하세요.
+저장소 폴더의 **실행 스크립트 하나로 모든 도구를 실행**합니다 (가상환경 활성화·폴더 이동이 필요 없습니다).
 
-```bash
-python -m labeling_tool.app
-```
+- Windows: `run.bat` **더블클릭**
+- Linux: `./run.sh`
+
+실행하면 로그인 화면 상단의 **탭에서 사용할 도구를 선택**합니다.
+
+| 탭 | 내용 |
+|---|---|
+| **온라인 라벨링** (기본) | 로그인 → 데이터 가져오기 → 라벨링 → EC2 업로드 (기존 흐름 그대로) |
+| **로컬 작업** | 이미 받은 작업(세션)을 목록에서 골라 이어서 라벨링. URL/Key 가 있으면 업로드도 가능 |
+| **Few-shot 라벨링** | SAM3/SAM2 기반 다중 클래스 라벨링 (torch 필요, 아래 참고). torch 가 없으면 버튼이 비활성화됩니다 |
+
+- 스크립트는 자동으로 저장소 폴더로 이동하고, `.venv` 가 있으면 그 Python 을 사용합니다
+  (없으면 PATH 의 `python` / `python3`). 추가 인자는 그대로 전달됩니다.
+- Windows 에서 오류로 종료되면 창이 닫히지 않고 오류 메시지를 보여 줍니다.
+- 기존 방식도 그대로 동작합니다 (이 README 가 있는 폴더에서): `python -m labeling_tool.app`
 
 ---
 
@@ -50,10 +62,18 @@ python -m labeling_tool.app
 
 시작하면 **로그인 화면**과 **데이터 가져오기 화면**이 차례로 뜹니다.
 
-**로그인 화면**
+**로그인 화면** (「온라인 라벨링」 탭)
 - `BASE URL`, `X-Viewer-Api-Key` 를 입력하고 **「다음」** 을 누릅니다.
   (값은 `labeling_tool/config.json` 에 저장되어 다음부터 자동 입력됩니다. 네트워크 검증은 하지 않습니다.)
-- 이미 받은 세션은 하단 **「이미 받은 세션 열기」** 드롭다운에서 골라 오프라인으로 바로 열 수 있습니다 (로그인 불필요).
+- 이미 받은 작업은 **「로컬 작업」 탭**에서 엽니다 (아래 참고).
+
+**로컬 작업 탭** (이미 받은 작업 이어서 하기)
+- `labeling_tool/data/session_<id>/` 에 받아 둔 작업이 **최근 수정 순**으로 자동 표시됩니다
+  (세션 · 점검명 · 사진/업로드 수 · 서버 · 최근 수정). 행을 더블클릭하거나 선택 후 **「열기」**.
+- 작업을 선택하면 `BASE URL` 이 **그 작업을 받은 서버 주소로 자동 입력**됩니다 (다른 서버로 업로드 방지).
+  Key 는 저장된 값이 미리 채워집니다.
+- URL/Key 가 모두 있으면 업로드 가능, 비워 두면 로컬 저장만 합니다 (하단에 상태 표시).
+- 점검명은 이번 버전 이후에 받은 작업부터 표시됩니다 (이전 작업은 「—」).
 
 **데이터 가져오기 화면**
 - `sessionId` 는 서버에서 받아온 **드롭다운**으로 고릅니다 (세션 이름 · 사진 수 표시).
@@ -139,8 +159,8 @@ python -m pytest labeling_tool/tests -q
   `pip install opencv-python-headless` 로 바꿔 보세요.
 - **업로드 시 "스케일 없음"**: 해당 사진에 ArUco 가 검출되지 않았고 수동 측정도 안 한 경우입니다.
   「수동 측정」으로 px/cm 를 먼저 설정하세요 (업로드에는 pxPerCm 가 필수).
-- **`labeling_tool` 모듈을 못 찾음**: 반드시 이 README 가 있는 폴더(= `labeling_tool/` 의 상위)에서
-  `python -m labeling_tool.app` 으로 실행해야 합니다.
+- **`labeling_tool` 모듈을 못 찾음**: `run.bat` / `run.sh` 로 실행하세요.
+  `python -m` 으로 직접 실행할 때는 반드시 이 README 가 있는 폴더(= `labeling_tool/` 의 상위)에서 실행해야 합니다.
 
 ---
 
@@ -167,7 +187,9 @@ python -m pytest labeling_tool/tests -q
 ConcJoint few-shot 학습용 다중 클래스 마스크를 만드는 **별도 도구**입니다.
 위의 생산용 도구(`labeling_tool/`)와 코드·의존성을 공유하지 않으며, 서로 영향을 주지 않습니다.
 
-- 실행: `python -m annotation_tool.main`
+- 실행: `run.bat` / `./run.sh` → 로그인 화면의 **「Few-shot 라벨링」** 탭 → 「열기」
+  (`--backend` / `--dataset` 인자가 필요하면 `python -m annotation_tool.main` 으로 직접 실행)
+- 모델 로딩에 실패하면(가중치 없음, HF 인증 등) 오류 메시지를 보여 주고 로그인 화면으로 돌아갑니다.
 - SAM3 / SAM2.1 사용 → **torch(GPU) 필요**: `pip install -r annotation_tool/requirements-gpu.txt`
   (생산용 `requirements.txt` 에는 torch 가 포함되지 않습니다)
 - 클래스 추가 / 이름 변경 / 색상 / 우선순위를 GUI 에서 편집 가능

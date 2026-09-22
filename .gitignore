@@ -30,3 +30,7 @@ labeling_tool/models/sam/*.pt
 *.pt
 *.pth
 *.safetensors
+
+# PyInstaller output
+build/
+dist/

@@ -29,6 +29,9 @@ class Manifest:
     base: str
     fetched_at: str | None = None
     photos: dict[str, PhotoEntry] = field(default_factory=dict)
+    # server-side inspection name, shown in the local job list; None for
+    # manifests written before it was recorded
+    inspection_name: str | None = None
 
     def add(self, entry: PhotoEntry) -> None:
         self.photos[entry.filename] = entry
@@ -53,6 +56,7 @@ class Manifest:
             "sessionId": self.session_id,
             "base": self.base,
             "fetchedAt": self.fetched_at,
+            "inspectionName": self.inspection_name,
             "photos": {fn: asdict(e) for fn, e in self.photos.items()},
         }
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -64,6 +68,7 @@ class Manifest:
             session_id=data["sessionId"],
             base=data.get("base", ""),
             fetched_at=data.get("fetchedAt"),
+            inspection_name=data.get("inspectionName"),
         )
         for fn, d in data.get("photos", {}).items():
             mf.photos[fn] = PhotoEntry(**d)

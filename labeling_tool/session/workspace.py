@@ -8,10 +8,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-# Package root (the labeling_tool/ directory); workspace data lives under it
-# so a checkout of the tool carries its sessions with it (no ~/ scattering).
+from labeling_tool.core.app_paths import writable_path
+
+# Package root (the labeling_tool/ directory); from source, workspace data lives
+# under it so a checkout carries its sessions (no ~/ scattering). In the exe it
+# lives next to LabelingTool.exe instead.
 _PACKAGE_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_DATA_ROOT = _PACKAGE_ROOT / "data"
+DEFAULT_DATA_ROOT = writable_path(_PACKAGE_ROOT / "data", "data")
 
 
 @dataclass
@@ -61,20 +64,3 @@ class Workspace:
                   self.highlight_dir, self.repair15_dir):
             d.mkdir(parents=True, exist_ok=True)
 
-
-def list_local_session_ids(root: Path = DEFAULT_DATA_ROOT) -> list[int]:
-    """Session ids already downloaded under ``root`` (have a manifest.json).
-
-    Used by the offline open dropdown. Returns ascending int ids; a missing
-    root yields an empty list.
-    """
-    if not root.exists():
-        return []
-    ids: list[int] = []
-    for d in root.glob("session_*"):
-        if not d.is_dir() or not (d / "manifest.json").exists():
-            continue
-        suffix = d.name[len("session_"):]
-        if suffix.isdigit():
-            ids.append(int(suffix))
-    return sorted(ids)
