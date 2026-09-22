@@ -6,7 +6,7 @@
 
 ## 0. 修订（2026-09-21）
 
-full 版只用 SAM2.1 base_plus（SAM3 需 HuggingFace 授权且依赖 triton），权重不打包，首次使用时下载并校验 SHA256；源码运行仍默认 SAM3；第 3 节 full 分支与第 4 节依赖以本修订为准（不再有 sam3 / triton-windows / timm）。
+full 版只用 SAM2.1 base_plus（SAM3 需 HuggingFace 授权且依赖 triton），权重不打包，首次使用时下载并校验 SHA256；源码运行仍默认 SAM3；第 3–6 节（PyInstaller 配置、GitHub Actions、目标电脑使用、风险应对）以本修订为准（不再有 sam3 / triton-windows / timm）。
 
 ## 背景 / 目标
 
@@ -97,19 +97,19 @@ LabelingTool/
 ├── VERSION.txt
 ├── config.json             ← 首次登录后生成
 ├── data/                   ← 下载的会话数据
-└── checkpoint/             ← 仅 full 版：手动放入 sam3.pt（及 SAM2 权重）
+└── checkpoint/             ← 仅 full 版：首次打开 few-shot 时自动下载 SAM2.1 权重（~308 MB，SHA256 校验）；离线 PC 可手动下载放入
 ```
 
 - 升级：解压新版本到新文件夹，把旧文件夹的 `config.json`、`data/`、`checkpoint/` 拷过去（README 写明）。
-- full 版运行要求：NVIDIA GPU + 支持 CUDA 12.4 的驱动；无 GPU 时 torch 回退到 CPU（SAM3 会非常慢，但可用）。
-- SAM3 权重：优先使用 `checkpoint/sam3.pt`；缺失时回退到 HF 下载（需 HF 授权），失败则弹窗并回到登录界面（已有逻辑）。
+- full 版运行要求：NVIDIA GPU + 支持 CUDA 12.4 的驱动；无 GPU 时 torch 回退到 CPU（SAM2.1 会较慢，但可用）。
+- 首次打开 few-shot 工具时自动下载 SAM2.1 base_plus 权重（~308 MB，SHA256 校验）到 `checkpoint/`；下载时弹出进度对话框（确认 → 进度条 → 关闭或取消；失败则弹窗说明并回到登录界面）。
 
 ## 6. 风险与应对
 
 | 风险 | 应对 |
 |---|---|
-| PyInstaller 漏打 torch/SAM3/SAM2 的动态导入或数据文件 | `--selftest` 在 CI 中导入全部关键模块；预计首轮需按 CI 日志补 hiddenimports / datas 若干次 |
-| `sam3` 依赖在 Windows 上不可用的包（如 triton） | full 构建第一步即 `python -c "import sam3.model_builder"` 验证；若不可用，full 版仅保留 SAM2 并在界面提示 |
+| PyInstaller 漏打 torch/SAM2 的动态导入或数据文件 | `--selftest` 在 CI 中导入全部关键模块；预计首轮需按 CI 日志补 hiddenimports / datas 若干次 |
+| `sam3` 依赖在 Windows 上不可用的包（如 triton） | **已解决**（修订 §0：exe 仅使用 SAM2.1 base_plus，不含 SAM3） |
 | full zip > 2 GiB 无法作为单个 Release 资产 | 7-Zip 分卷；artifact 另有完整包 |
 | Actions runner 磁盘（~14 GB 可用）不足 | full 构建后清理 pip 缓存与 `build/`；必要时改用 D: 盘工作目录 |
 | 杀毒软件 / SmartScreen 误报 | onedir（非单文件）降低误报；README 说明；代码签名作为后续可选项 |
