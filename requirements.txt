@@ -5,6 +5,7 @@ numpy>=1.21
 scikit-image>=0.19
 requests>=2.25
 # SAM 추론(로컬 ONNX, torch 불필요)
-# Upper-bounded: onnxruntime 1.30.0 crashes with "Windows fatal exception:
-# access violation" on import on GitHub Actions windows-latest runners.
-onnxruntime>=1.16,<1.30
+# Pinned: onnxruntime 1.29.x/1.30.x segfault or fail DLL init on import on
+# GitHub Actions windows-latest runners (CPU dispatch / native init bug in
+# their pybind extension); 1.17.x is a long-stable release known to work.
+onnxruntime==1.17.3
