@@ -1,14 +1,8 @@
 # 런타임 의존성 (labeling_tool 실행에 필요)
 PyQt5>=5.15
 opencv-python>=4.5
-# Upper-bounded: onnxruntime==1.17.3 below was compiled against NumPy 1.x's
-# C-API; NumPy 2.x refuses to load it ("compiled using NumPy 1.x cannot be
-# run in NumPy 2.x").
-numpy>=1.21,<2
+numpy>=1.21
 scikit-image>=0.19
 requests>=2.25
 # SAM 추론(로컬 ONNX, torch 불필요)
-# Pinned: onnxruntime 1.29.x/1.30.x segfault or fail DLL init on import on
-# GitHub Actions windows-latest runners (CPU dispatch / native init bug in
-# their pybind extension); 1.17.x is a long-stable release known to work.
-onnxruntime==1.17.3
+onnxruntime>=1.16

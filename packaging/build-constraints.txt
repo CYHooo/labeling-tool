@@ -1,0 +1,14 @@
+# pip constraints for the Windows exe build only (see .github/workflows/build-windows.yml).
+# Not applied to requirements.txt: these pins are a CI/build workaround, not a
+# change to what production users install from source.
+#
+# onnxruntime 1.29.0/1.30.0 fail to import on GitHub Actions windows-latest
+# runners: 1.30.0 crashes the whole process ("Windows fatal exception: access
+# violation") and 1.29.0 raises "DLL load failed ... initialization routine
+# failed"; installing vcredist140 did not fix it. 1.17.3 is a long-stable
+# release with a cp312-win_amd64 wheel that imports cleanly there.
+onnxruntime==1.17.3
+# onnxruntime==1.17.3 was compiled against NumPy 1.x's C-API; NumPy 2.x
+# refuses to load it ("compiled using NumPy 1.x cannot be run in NumPy 2.x").
+# Cap numpy so pip resolves a compatible version for this build.
+numpy>=1.21,<2

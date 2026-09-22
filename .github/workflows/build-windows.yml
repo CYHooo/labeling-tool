@@ -50,16 +50,16 @@ jobs:
         run: choco install vcredist140 -y --no-progress
 
       - name: Install production dependencies
-        run: pip install -r requirements-dev.txt "pyinstaller==6.22.3"
+        run: pip install -c packaging/build-constraints.txt -r requirements-dev.txt "pyinstaller==6.22.3"
 
       - name: Install few-shot dependencies (full)
         if: matrix.variant == 'full'
         env:
           SAM2_BUILD_CUDA: "0"
         run: |
-          pip install "torch==2.5.1" "torchvision==0.20.1" --index-url https://download.pytorch.org/whl/cu124
+          pip install -c packaging/build-constraints.txt "torch==2.5.1" "torchvision==0.20.1" --index-url https://download.pytorch.org/whl/cu124
           # sam2's build needs the torch installed above (no CUDA extension: SAM2_BUILD_CUDA=0)
-          pip install --no-build-isolation "git+https://github.com/facebookresearch/sam2.git@2b90b9f5ceec907a1c18123530e92e794ad901a4"
+          pip install -c packaging/build-constraints.txt --no-build-isolation "git+https://github.com/facebookresearch/sam2.git@2b90b9f5ceec907a1c18123530e92e794ad901a4"
           python -c "import sam2.build_sam; print('few-shot imports OK')"
 
       - name: Tests
