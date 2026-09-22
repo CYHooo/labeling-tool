@@ -4,6 +4,10 @@
 状态：已确认设计，实现中
 分支：`feat/windows-exe`（已包含启动脚本、登录界面选择工具、로컬 작업 标签页）；完成后以**一个 PR 合入 `main`**，不另建长期分支
 
+## 0. 修订（2026-09-21）
+
+full 版只用 SAM2.1 base_plus（SAM3 需 HuggingFace 授权且依赖 triton），权重不打包，首次使用时下载并校验 SHA256；源码运行仍默认 SAM3；第 3 节 full 分支与第 4 节依赖以本修订为准（不再有 sam3 / triton-windows / timm）。
+
 ## 背景 / 目标
 
 目前 Windows 上需要先装 Python、建 `.venv`、装依赖，再双击 `run.bat`。目标是**下载 zip → 解压 → 双击 `LabelingTool.exe`** 即可使用，目标电脑无需安装 Python。
@@ -47,11 +51,11 @@ def app_home() -> Path:
 |---|---|---|
 | `config.json` | `labeling_tool/config.json` | `<exe目录>/config.json` |
 | 会话数据 | `labeling_tool/data/` | `<exe目录>/data/` |
-| few-shot 权重 | `<repo>/checkpoint/…` | `<exe目录>/checkpoint/…` |
+| few-shot 权重 | `./checkpoint/…` | `<exe目录>/checkpoint/…` |
 | few-shot 类别定义 | `annotation_tool/classes.json` | `<exe目录>/classes.json` |
 | few-shot 默认数据集 | `./dataset` | `<exe目录>/dataset` |
 
-- 源码运行时 `config.json` / `data/` 仍在 `labeling_tool/` 下（与 `.gitignore`、现有用户数据一致），因此这两个用 `app_home()` 仅在 frozen 时切换；few-shot 的 `./checkpoint` 改为锚定仓库根目录（`run.sh` 已 cd 到根目录，行为等价，但从其他目录 `python -m` 时也能找到）。
+- 源码运行时 `config.json` / `data/` 仍在 `labeling_tool/` 下（与 `.gitignore`、现有用户数据一致），因此这两个用 `app_home()` 仅在 frozen 时切换；few-shot 的权重与数据集路径在源码运行时仍相对当前工作目录（保持现有 `cd` 到其他目录运行的用法）。
 - **只读资源**（MobileSAM ONNX、BPE 词表、SAM2 yaml 配置）继续用 `__file__` 相对路径——PyInstaller 会把它们放进 `_internal/`，`__file__` 解析仍然正确。
 
 ## 2. 自检入口 `--selftest`

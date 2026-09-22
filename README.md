@@ -34,6 +34,26 @@ pip install -r requirements.txt
 
 ---
 
+## Windows 실행 파일 (exe) — Python 설치 불필요
+
+GitHub 의 **Releases**(태그 버전) 또는 **Actions → build-windows** 실행 결과(artifact)에서 받습니다.
+
+| 파일 | 내용 | 대상 PC |
+|---|---|---|
+| `LabelingTool-lite-<버전>.zip` | 온라인 라벨링 + 로컬 작업 | 일반 PC (GPU 불필요) |
+| `LabelingTool-full-<버전>.7z.001, .002 …` | lite + Few-shot 라벨링 (torch, SAM3/SAM2) | NVIDIA GPU PC |
+
+1. 압축을 풀고 `LabelingTool\LabelingTool.exe` 를 더블클릭합니다.
+   full 판은 **7-Zip 으로 `.7z.001` 을 열어** 풉니다 (분할 압축).
+2. 처음 실행 시 "Windows 의 PC 보호" 창이 뜨면 **「추가 정보」→「실행」** 을 누릅니다 (코드 서명 없음).
+3. 로그인 정보(`config.json`)와 받은 작업(`data\`)은 **exe 와 같은 폴더**에 저장됩니다.
+4. full 판: Few-shot 라벨링을 처음 열 때 SAM2.1 모델(약 308 MB)을 자동으로 내려받아 `LabelingTool\checkpoint\` 에 저장합니다 (인터넷 필요, 한 번만).
+   오프라인 PC 에서는 https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt 를 받아 같은 폴더에 두세요.
+
+**업그레이드**: 새 버전을 다른 폴더에 풀고, 이전 폴더의 `config.json`, `data\`, `checkpoint\` 를 복사합니다.
+
+---
+
 ## 실행
 
 저장소 폴더의 **실행 스크립트 하나로 모든 도구를 실행**합니다 (가상환경 활성화·폴더 이동이 필요 없습니다).

@@ -145,6 +145,11 @@ python -m annotation_tool.main --backend sam2 --dataset /path/to/YourDataset
 
 > GUI 需要图形显示（本机桌面 / X11 转发 / VNC）。若 `PYTHONPATH` 指向了 ROS 等环境导致冲突，先 `unset PYTHONPATH`。
 
+**Windows exe（full 版）**：无需安装 Python。用 7-Zip 解压 `LabelingTool-full-<版本>.7z.001`，双击
+`LabelingTool.exe` → 登录界面「Few-shot 라벨링」标签页。exe 中只使用 **SAM2.1 base_plus**（SAM3 需申请
+HuggingFace 权限，不随 exe 提供）；首次打开时自动下载权重（约 308 MB，校验 SHA256）到
+`LabelingTool\checkpoint\`，之后离线可用。`classes.json` 保存在 exe 同目录。
+
 ---
 
 ## 6. 快捷键
