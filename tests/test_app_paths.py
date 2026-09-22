@@ -60,6 +60,28 @@ def test_upload_cli_reuses_config_path():
     assert upload_session_cli.CONFIG_PATH is dialog_helpers.CONFIG_PATH
 
 
+def test_importing_app_paths_does_not_pull_in_main_window():
+    # labeling_tool.core.__init__ must lazily export MainWindow so that importing
+    # annotation_tool.configs (which only needs labeling_tool.core.app_paths) does
+    # not drag in PyQt5/cv2/the whole main window.
+    code = (
+        "import sys\n"
+        "import annotation_tool.configs\n"
+        "assert 'labeling_tool.core.window' not in sys.modules\n"
+        "assert 'PyQt5' not in sys.modules\n"
+        "print('ok')\n"
+    )
+    out = subprocess.run([sys.executable, "-c", code], cwd=ROOT,
+                         capture_output=True, text=True, check=True).stdout.strip()
+    assert out == "ok"
+
+
+def test_core_main_window_still_importable():
+    from labeling_tool.core import MainWindow
+    from labeling_tool.core.window.main_window import MainWindow as CoreMainWindow
+    assert MainWindow is CoreMainWindow
+
+
 def test_backend_is_sam2_only_in_exe(tmp_path):
     from annotation_tool import configs
     assert configs.BACKEND == "sam3"          # source runs keep SAM3
