@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+from PyQt5 import sip
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QMessageBox, QProgressDialog
 
@@ -14,6 +15,14 @@ from labeling_tool.update import checker, installer, state
 from labeling_tool.update.version import read_build_info
 
 UPDATE, LATER, SKIP = "update", "later", "skip"
+
+# Threads started by check_for_updates() need an owner independent of what
+# the caller does with the returned value (app.py's startup check discards
+# it entirely) - otherwise CPython can drop the last reference to a running
+# QThread and Qt aborts with "QThread: Destroyed while thread is still
+# running". Every thread we start is kept here until its `finished` signal
+# fires, then it is released and scheduled for deletion.
+_RUNNING_CHECKS: set[QThread] = set()
 
 
 class UpdateCheckThread(QThread):
@@ -102,20 +111,39 @@ def check_for_updates(parent, *, force: bool = False, home: Path | None = None):
     if not force and not state.should_check(st):
         return None
 
-    thread = UpdateCheckThread(info.version, info.variant, parent)
+    # Deliberately not Qt-parented to `parent`: Qt would then destroy this
+    # QThread automatically if that widget is destroyed first (e.g. the
+    # login dialog is recreated every loop iteration in app.py), which is
+    # exactly the "destroyed while still running" crash this module must
+    # avoid. Lifetime is owned by _RUNNING_CHECKS/_on_finished instead.
+    thread = UpdateCheckThread(info.version, info.variant)
 
     def _on_found(found):
+        # The found signal is a queued cross-thread connection, so this can
+        # run well after the caller moved on - e.g. app.py recreates the
+        # login dialog on every loop iteration, so `parent` may already be a
+        # destroyed C++ object by the time this fires. A parentless message
+        # box is fine; a dangling pointer is not.
+        box_parent = parent
+        if box_parent is not None and sip.isdeleted(box_parent):
+            box_parent = None
         state.mark_checked(home)
         if found is None:
             if force:
-                QMessageBox.information(parent, "업데이트",
+                QMessageBox.information(box_parent, "업데이트",
                                         "최신 버전을 사용 중입니다.")
             return
         if not force and state.load(home).skipped_version == found.version:
             return
-        if prompt_and_install(parent, found, home):
+        if prompt_and_install(box_parent, found, home):
             QApplication.quit()   # the installer restarts the new version
 
+    def _on_finished():
+        _RUNNING_CHECKS.discard(thread)
+        thread.deleteLater()
+
     thread.found.connect(_on_found)
+    thread.finished.connect(_on_finished)
+    _RUNNING_CHECKS.add(thread)
     thread.start()
     return thread

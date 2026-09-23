@@ -83,6 +83,9 @@ class LoginDialog(QDialog):
         # downloaded-job outputs
         self.workspace: Workspace | None = None
         self.manifest: Manifest | None = None
+        # keeps the manual update-check thread alive; see ui.py's own
+        # module-level registry for the startup check's equivalent.
+        self._update_thread = None
 
         cfg = load_config()
 
@@ -102,7 +105,8 @@ class LoginDialog(QDialog):
         self.lbl_version.setStyleSheet("color: #9ea3aa;")
         self.btn_check_update = QPushButton("업데이트 확인")
         self.btn_check_update.clicked.connect(
-            lambda: check_for_updates(self, force=True))
+            lambda: setattr(self, "_update_thread",
+                            check_for_updates(self, force=True)))
         bottom = QHBoxLayout()
         bottom.addWidget(self.lbl_version, 1)
         bottom.addWidget(self.btn_check_update)

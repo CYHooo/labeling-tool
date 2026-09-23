@@ -1,6 +1,7 @@
 """Update prompt: three buttons, progress, and handing over to the installer."""
 import pytest
-from PyQt5.QtWidgets import QApplication, QMessageBox
+from PyQt5 import sip
+from PyQt5.QtWidgets import QApplication, QMessageBox, QWidget
 
 from labeling_tool.update import checker, state, ui
 
@@ -9,15 +10,16 @@ _app = QApplication.instance() or QApplication([])
 
 @pytest.fixture(autouse=True)
 def _drain_qt_events():
-    """Flush any queued cross-thread signal left by a background QThread.
+    """Test-isolation only: drain queued cross-thread signals between tests.
 
     UpdateCheckThread.found is a queued connection, so a test that starts a
-    thread and only calls thread.wait() (without pumping the event loop) can
-    leave its _on_found callback pending. If left alone it would fire later,
-    inside some unrelated test's QApplication.processEvents() call, and pop a
-    real (blocking) QMessageBox under the offscreen platform. Neutralize the
-    message boxes and drain the queue after every test in this module so
-    nothing leaks into the rest of the suite.
+    thread and only calls thread.wait() (without pumping the event loop)
+    leaves its _on_found callback queued rather than run. Thread ownership
+    and parent-widget lifetime are handled in production code (see
+    _RUNNING_CHECKS and the sip.isdeleted() guard in ui.py); this fixture
+    just makes sure a pending callback runs (against a neutralized
+    QMessageBox) before the next test, instead of firing at an arbitrary
+    later point in the suite.
     """
     yield
     orig_info, orig_crit = QMessageBox.information, QMessageBox.critical
@@ -120,3 +122,31 @@ def test_forced_check_ignores_throttle_and_skip(monkeypatch, tmp_path):
     thread = ui.check_for_updates(None, force=True, home=tmp_path)
     thread.wait(5000)
     assert calls
+
+
+def test_running_check_is_retained_then_released(monkeypatch, tmp_path):
+    from labeling_tool.update.version import BuildInfo
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "lite", None))
+    monkeypatch.setattr(ui.checker, "find_update", lambda *a, **k: None)
+    # force=False: an empty tmp_path has no last_check, so should_check() is
+    # already True - this avoids the "up to date" QMessageBox that force=True
+    # would pop for a found=None result.
+    thread = ui.check_for_updates(None, home=tmp_path)
+    assert thread in ui._RUNNING_CHECKS
+    thread.wait(5000)
+    _app.processEvents()  # let the queued `finished` signal run _on_finished
+    assert thread not in ui._RUNNING_CHECKS
+
+
+def test_on_found_with_deleted_parent_does_not_raise(monkeypatch, tmp_path):
+    parent = QWidget()
+    sip.delete(parent)  # force immediate C++ destruction (not deferred)
+    assert sip.isdeleted(parent)
+
+    from labeling_tool.update.version import BuildInfo
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "lite", None))
+    monkeypatch.setattr(ui.checker, "find_update", lambda *a, **k: INFO)
+    monkeypatch.setattr(ui, "_ask", lambda *a, **k: ui.LATER)
+    thread = ui.check_for_updates(parent, home=tmp_path)
+    thread.wait(5000)
+    _app.processEvents()  # runs _on_found (and _on_finished) against the dead parent
