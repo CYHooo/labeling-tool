@@ -88,19 +88,47 @@ jobs:
           # the app may create these next to the exe; never ship them
           Remove-Item -Recurse -Force -ErrorAction SilentlyContinue dist\LabelingTool\data, dist\LabelingTool\config.json
 
+      - name: Write build info
+        run: |
+          $ver = $env:LT_VERSION -replace '^v', ''
+          $info = @{ version = $ver; variant = $env:LT_VARIANT; commit = $env:GITHUB_SHA.Substring(0,7) }
+          $info | ConvertTo-Json -Compress | Set-Content -Path dist\LabelingTool\build-info.json -Encoding utf8
+          Get-Content dist\LabelingTool\build-info.json
+
+      - name: Build installer
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          $ver = $env:LT_VERSION -replace '^v', ''
+          New-Item -ItemType Directory -Force out | Out-Null
+          & $iscc /DMyVariant=$env:LT_VARIANT /DMyVersion=$ver /DMySource=dist\LabelingTool /DMyOutDir=out packaging\installer.iss
+          $setup = Get-ChildItem out\*.exe | Select-Object -First 1
+          "LT_SETUP=$($setup.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          # GitHub release assets must stay below 2 GiB
+          if ($setup.Length -ge 1.9GB) { throw "installer too large for a release asset: $($setup.Length) bytes" }
+
+      - name: Installer smoke test (install, selftest, uninstall)
+        run: |
+          $target = "$env:RUNNER_TEMP\lt-install"
+          $p = Start-Process -FilePath $env:LT_SETUP -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=$target","/LOG=$env:RUNNER_TEMP\install.log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\install.log" -Tail 40; throw "install failed ($($p.ExitCode))" }
+          if (-not (Test-Path "$target\build-info.json")) { throw "build-info.json missing from the install" }
+          $s = Start-Process -FilePath "$target\LabelingTool.exe" -ArgumentList "--selftest=$env:LT_VARIANT" -Wait -PassThru
+          if (Test-Path "$target\selftest.log") { Get-Content "$target\selftest.log" }
+          if ($s.ExitCode -ne 0) { throw "installed selftest failed ($($s.ExitCode))" }
+          $u = Get-ChildItem "$target\unins*.exe" | Select-Object -First 1
+          Start-Process -FilePath $u.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES" -Wait
+
       - name: Package
         run: |
-          Set-Content -Path dist\LabelingTool\VERSION.txt -Value "$env:LT_VERSION ($env:LT_VARIANT)"
           Remove-Item -Recurse -Force build
           pip cache purge
-          New-Item -ItemType Directory -Force out | Out-Null
           $name = "LabelingTool-$env:LT_VARIANT-$env:LT_VERSION"
-          if ($env:LT_VARIANT -eq 'lite') {
-            7z a -tzip "out\$name.zip" .\dist\LabelingTool
-          } else {
-            # GitHub Release assets must be < 2 GiB each
-            7z a -v1900m "out\$name.7z" .\dist\LabelingTool
-          }
+          if ($env:LT_VARIANT -eq 'lite') { 7z a -tzip "out\$name.zip" .\dist\LabelingTool }
+          else { 7z a -v1900m "out\$name.7z" .\dist\LabelingTool }
+          $setup = Split-Path $env:LT_SETUP -Leaf
+          $hash = (Get-FileHash $env:LT_SETUP -Algorithm SHA256).Hash.ToLower()
+          "$hash  $setup" | Set-Content -Path "out\SHA256SUMS-$env:LT_VARIANT.txt" -Encoding ascii
           Get-ChildItem out | Format-Table Name, Length
 
       - uses: actions/upload-artifact@v4
@@ -120,6 +148,17 @@ jobs:
         with:
           merge-multiple: true
           path: out
+
+      - name: Assemble release assets
+        # release runs on ubuntu-latest (bash by default), unlike the build
+        # job's pwsh; rewritten to bash for the native shell here. Same
+        # effect: merge the per-variant checksums into one file, drop the
+        # zip/7z packaging artifacts, and publish only installers + checksums.
+        run: |
+          cat out/SHA256SUMS-*.txt > out/SHA256SUMS.txt
+          rm -f out/*.zip out/*.7z*
+          rm -f out/SHA256SUMS-*.txt
+          ls -l out
 
       - name: Publish release assets
         uses: softprops/action-gh-release@v2
