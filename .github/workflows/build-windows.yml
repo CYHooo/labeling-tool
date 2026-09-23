@@ -107,12 +107,18 @@ jobs:
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
           if (-not (Test-Path $iscc)) { throw "ISCC.exe not found even after installing Inno Setup" }
-          # ArchitecturesAllowed=x64compatible needs Inno Setup >= 6.3; the
-          # choco fallback above only triggers when ISCC is missing entirely,
-          # so a runner image with an older preinstalled Inno Setup would
-          # otherwise silently build a broken installer. Fail loudly instead.
-          $isccVersion = [version](Get-Item $iscc).VersionInfo.ProductVersion
-          if ($isccVersion -lt [version]"6.3") { throw "Inno Setup $isccVersion found; ArchitecturesAllowed=x64compatible needs >= 6.3" }
+          # ArchitecturesAllowed=x64compatible needs Inno Setup >= 6.3, but
+          # ISCC.exe's VersionInfo.ProductVersion reports 0.0.0.0 on the
+          # GitHub runner image, so it cannot be asserted here. The compile
+          # below is the real gate: an Inno Setup too old for
+          # ArchitecturesAllowed=x64compatible fails ISCC with its own
+          # explicit error, which is the loud failure we want anyway. Print
+          # the banner (first lines only) so the log at least shows what
+          # ran; a non-zero exit from the bare version query must not fail
+          # this step.
+          $ErrorActionPreference = "Continue"
+          & $iscc /? 2>&1 | Select-Object -First 3 | Out-String | Write-Host
+          $ErrorActionPreference = "Stop"
           $ver = $env:LT_VERSION -replace '^v', ''
           New-Item -ItemType Directory -Force out | Out-Null
           # MySource/MyOutDir must be absolute: Inno resolves relative
