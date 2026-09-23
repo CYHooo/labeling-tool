@@ -86,11 +86,16 @@ def main(argv: list[str] | None = None) -> int:
     from labeling_tool.core.window.styles import STYLESHEET
     app.setStyleSheet(STYLESHEET)
 
+    # startup update check (silent when offline / throttled / a dev build)
+    from labeling_tool.update.ui import check_for_updates, wait_for_checks
+    check_for_updates(None)
+
     base = key = ""
     workspace = manifest = None
     while True:
         login = LoginDialog()
         if not login.exec_():
+            wait_for_checks()
             return 0  # user cancelled
 
         if login.mode == MODE_FEWSHOT:
@@ -98,7 +103,9 @@ def main(argv: list[str] | None = None) -> int:
             if tool_win is None:
                 continue  # failed to open -> back to the login screen
             tool_win.show()
-            return app.exec_()
+            code = app.exec_()
+            wait_for_checks()
+            return code
 
         base, key = login.base, login.key
         if login.workspace is not None:
@@ -111,8 +118,10 @@ def main(argv: list[str] | None = None) -> int:
         if not fetch.exec_():
             if fetch.go_back:
                 continue  # back to login screen, reopen LoginDialog
+            wait_for_checks()
             return 0
         if fetch.workspace is None or fetch.manifest is None:
+            wait_for_checks()
             return 0
         workspace, manifest = fetch.workspace, fetch.manifest
         break
@@ -123,7 +132,9 @@ def main(argv: list[str] | None = None) -> int:
 
     win = ViewerMainWindow(workspace, manifest, client)
     win.show()
-    return app.exec_()
+    code = app.exec_()
+    wait_for_checks()
+    return code
 
 
 if __name__ == "__main__":

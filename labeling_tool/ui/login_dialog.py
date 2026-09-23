@@ -30,6 +30,8 @@ from labeling_tool.session.workspace import Workspace, DEFAULT_DATA_ROOT
 from labeling_tool.session.local_jobs import LocalJob, list_local_jobs
 from labeling_tool.session.manifest import Manifest
 from labeling_tool.logging_setup import attach_session_log, vlog
+from labeling_tool.update.ui import check_for_updates
+from labeling_tool.update.version import read_build_info
 
 MODE_ONLINE = "online"
 MODE_SESSION = "session"
@@ -81,6 +83,9 @@ class LoginDialog(QDialog):
         # downloaded-job outputs
         self.workspace: Workspace | None = None
         self.manifest: Manifest | None = None
+        # keeps the manual update-check thread alive; see ui.py's own
+        # module-level registry for the startup check's equivalent.
+        self._update_thread = None
 
         cfg = load_config()
 
@@ -92,6 +97,33 @@ class LoginDialog(QDialog):
 
         root = QVBoxLayout(self)
         root.addWidget(self.tabs)
+
+        # bottom row: build identity + manual update check
+        info = read_build_info()
+        self.lbl_version = QLabel(f"버전 {info.version}"
+                                  + (f" ({info.variant})" if info.variant else ""))
+        self.lbl_version.setStyleSheet("color: #9ea3aa;")
+        self.btn_check_update = QPushButton("업데이트 확인")
+        self.btn_check_update.clicked.connect(self._on_check_update_clicked)
+        bottom = QHBoxLayout()
+        bottom.addWidget(self.lbl_version, 1)
+        bottom.addWidget(self.btn_check_update)
+        root.addLayout(bottom)
+
+    def _on_check_update_clicked(self):
+        """Disable the button for the duration of the check.
+
+        A forced check that starts while another is already running (from
+        the startup check or a double click) returns None immediately, so
+        the button must be re-enabled right away in that case too.
+        """
+        self.btn_check_update.setEnabled(False)
+        thread = check_for_updates(self, force=True)
+        self._update_thread = thread
+        if thread is None:
+            self.btn_check_update.setEnabled(True)
+        else:
+            thread.finished.connect(lambda: self.btn_check_update.setEnabled(True))
 
     # ---------------------------------------------------------------- tabs
     def _build_online_page(self, cfg: dict) -> QWidget:
