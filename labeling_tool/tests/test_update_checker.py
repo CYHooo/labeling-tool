@@ -22,6 +22,9 @@ def test_asset_name_and_version_parsing():
     ("1.1", "1.0.5", True),
     ("garbage", "1.0.0", False),
     ("1.0.1", "0.0.0-dev", False),          # dev builds never auto-update
+    ("1.2.0", "1.2", False),                # trailing zeros normalized
+    ("1.2", "1.2.0", False),                # both directions normalized
+    ("1.2.1", "1.2", True),                 # but 1.2.1 > 1.2
 ])
 def test_is_newer(latest, current, expected):
     assert checker.is_newer(latest, current) is expected

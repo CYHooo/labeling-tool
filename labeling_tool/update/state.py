@@ -46,9 +46,9 @@ def should_check(st: UpdateState, now: datetime | None = None,
     now = now or datetime.now(timezone.utc)
     try:
         last = datetime.fromisoformat(st.last_check)
-    except ValueError:
+        return now - last >= timedelta(hours=interval_hours)
+    except (ValueError, TypeError):
         return True
-    return now - last >= timedelta(hours=interval_hours)
 
 
 def mark_checked(home: Path | None = None, now: datetime | None = None) -> None:

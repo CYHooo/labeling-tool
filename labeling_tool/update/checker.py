@@ -37,16 +37,25 @@ def asset_name_for(variant: str, version: str) -> str:
 def parse_version(text: str) -> tuple[int, ...] | None:
     """(1, 2, 3) for "v1.2.3"; None when it is not a plain numeric version."""
     parts = str(text).lstrip("vV").split(".")
-    if not parts or not all(p.isdigit() for p in parts):
+    if not all(p.isdigit() for p in parts):
         return None
     return tuple(int(p) for p in parts)
+
+
+def _normalize_version(v: tuple[int, ...]) -> tuple[int, ...]:
+    """Strip trailing zeros: (1, 2, 0) becomes (1, 2)."""
+    while v and v[-1] == 0:
+        v = v[:-1]
+    return v or (0,)
 
 
 def is_newer(latest: str, current: str) -> bool:
     if current == DEV_VERSION:
         return False  # never offer updates to a source/dev build
     a, b = parse_version(latest), parse_version(current)
-    return bool(a and b and a > b)
+    if not (a and b):
+        return False
+    return _normalize_version(a) > _normalize_version(b)
 
 
 def parse_sha256sums(text: str) -> dict[str, str]:
