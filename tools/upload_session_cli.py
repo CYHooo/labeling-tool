@@ -1,6 +1,6 @@
 """Headless upload of a saved local session to EC2 (mirrors ViewerMainWindow._on_upload).
 
-Usage: python -m labeling_tool.scripts.upload_session_cli <sessionId>
+Usage: python -m tools.upload_session_cli <sessionId>
 Reads BASE/apiKey from labeling_tool/config.json.
 """
 

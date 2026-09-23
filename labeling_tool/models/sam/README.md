@@ -8,8 +8,8 @@
 ## 생성 방법 (torch 가 있는 머신에서 1회)
 
 ```bash
-pip install -r requirements-export.txt
-python scripts/export_mobilesam_onnx.py        # 두 .onnx 를 이 폴더에 생성
+pip install -r tools/requirements-export.txt
+python -m tools.export_mobilesam_onnx              # 두 .onnx 를 이 폴더에 생성
 git add labeling_tool/models/sam/*.onnx
 git commit -m "chore: add MobileSAM ONNX models"
 ```

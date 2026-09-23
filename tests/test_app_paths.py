@@ -55,7 +55,7 @@ def test_frozen_module_constants_live_next_to_exe(tmp_path):
 
 
 def test_upload_cli_reuses_config_path():
-    from labeling_tool.scripts import upload_session_cli
+    from tools import upload_session_cli
     from labeling_tool.ui import dialog_helpers
     assert upload_session_cli.CONFIG_PATH is dialog_helpers.CONFIG_PATH
 
