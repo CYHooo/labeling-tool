@@ -86,6 +86,10 @@ def main(argv: list[str] | None = None) -> int:
     from labeling_tool.core.window.styles import STYLESHEET
     app.setStyleSheet(STYLESHEET)
 
+    # startup update check (silent when offline / throttled / a dev build)
+    from labeling_tool.update.ui import check_for_updates
+    check_for_updates(None)
+
     base = key = ""
     workspace = manifest = None
     while True:

@@ -268,3 +268,14 @@ def test_open_tool_window_fewshot_failure_returns_to_login(monkeypatch):
     assert app.open_tool_window(ld.MODE_FEWSHOT) is None
     assert shown and "sam3.pt" in shown[0][2]
     assert QApplication.overrideCursor() is None  # busy cursor restored
+
+
+def test_login_shows_version_and_check_button(monkeypatch):
+    from labeling_tool.update.version import BuildInfo
+    monkeypatch.setattr(ld, "read_build_info", lambda: BuildInfo("1.2.3", "lite", None))
+    dlg = ld.LoginDialog()
+    assert "1.2.3" in dlg.lbl_version.text()
+    clicked = []
+    monkeypatch.setattr(ld, "check_for_updates", lambda parent, force=False: clicked.append(force))
+    dlg.btn_check_update.click()
+    assert clicked == [True]

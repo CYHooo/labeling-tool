@@ -30,6 +30,8 @@ from labeling_tool.session.workspace import Workspace, DEFAULT_DATA_ROOT
 from labeling_tool.session.local_jobs import LocalJob, list_local_jobs
 from labeling_tool.session.manifest import Manifest
 from labeling_tool.logging_setup import attach_session_log, vlog
+from labeling_tool.update.ui import check_for_updates
+from labeling_tool.update.version import read_build_info
 
 MODE_ONLINE = "online"
 MODE_SESSION = "session"
@@ -92,6 +94,19 @@ class LoginDialog(QDialog):
 
         root = QVBoxLayout(self)
         root.addWidget(self.tabs)
+
+        # bottom row: build identity + manual update check
+        info = read_build_info()
+        self.lbl_version = QLabel(f"버전 {info.version}"
+                                  + (f" ({info.variant})" if info.variant else ""))
+        self.lbl_version.setStyleSheet("color: #9ea3aa;")
+        self.btn_check_update = QPushButton("업데이트 확인")
+        self.btn_check_update.clicked.connect(
+            lambda: check_for_updates(self, force=True))
+        bottom = QHBoxLayout()
+        bottom.addWidget(self.lbl_version, 1)
+        bottom.addWidget(self.btn_check_update)
+        root.addLayout(bottom)
 
     # ---------------------------------------------------------------- tabs
     def _build_online_page(self, cfg: dict) -> QWidget:
