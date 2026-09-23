@@ -7,7 +7,9 @@ from pathlib import Path
 
 from PyQt5 import sip
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from PyQt5.QtWidgets import QApplication, QMessageBox, QProgressDialog
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QMessageBox, QProgressDialog,
+)
 
 from labeling_tool.core import net_download
 from labeling_tool.logging_setup import vlog
@@ -26,8 +28,14 @@ _RUNNING_CHECKS: set[QThread] = set()
 
 
 class UpdateCheckThread(QThread):
-    """Look for an update off the UI thread; emits UpdateInfo or None."""
+    """Look for an update off the UI thread; emits UpdateInfo, None, or the
+    exception that made the check fail (the caller decides whether a failure
+    is worth reporting - see check_for_updates._on_found)."""
     found = pyqtSignal(object)
+
+    # Bounds the worst case of a hung proxy / dead network so
+    # wait_for_checks() at shutdown has a predictable ceiling.
+    CHECK_TIMEOUT = 5
 
     def __init__(self, current_version: str, variant: str, parent=None):
         super().__init__(parent)
@@ -35,10 +43,37 @@ class UpdateCheckThread(QThread):
 
     def run(self):
         try:
-            self.found.emit(checker.find_update(self._version, self._variant))
-        except Exception as exc:  # noqa: BLE001 - a failed check must stay silent
+            self.found.emit(checker.find_update(
+                self._version, self._variant, timeout=self.CHECK_TIMEOUT))
+        except Exception as exc:  # noqa: BLE001 - reporting is the caller's call
             vlog().info("update check failed: %s: %s", type(exc).__name__, exc)
-            self.found.emit(None)
+            self.found.emit(exc)
+
+
+def wait_for_checks(msec: int = 3000) -> None:
+    """Block until every running check thread finishes (or the timeout hits).
+
+    Call this before the process exits: dropping the last reference to a
+    QThread that is still running aborts with "QThread: Destroyed while
+    thread is still running".
+    """
+    for thread in list(_RUNNING_CHECKS):
+        thread.wait(msec)
+
+
+def _session_in_progress() -> bool:
+    """True once a labeling/few-shot main window is open.
+
+    The login dialog is a QDialog; ViewerMainWindow and the few-shot tool's
+    MainWindow are both QMainWindow subclasses. Used to avoid prompting to
+    install (and therefore calling QApplication.quit()) once the user has an
+    active session with unsaved work, even if the found signal arrives late.
+    """
+    app = QApplication.instance()
+    if app is None:
+        return False
+    return any(isinstance(w, QMainWindow) and w.isVisible()
+              for w in app.topLevelWidgets())
 
 
 def _ask(parent, info) -> str:
@@ -48,8 +83,15 @@ def _ask(parent, info) -> str:
     box = QMessageBox(parent)
     box.setWindowTitle("업데이트")
     box.setIcon(QMessageBox.Information)
-    box.setText(f"새 버전이 있습니다: v{info.version}\n"
-                f"다운로드 크기: 약 {size_mb} MB")
+    # A release body is untrusted remote text: PlainText keeps AutoText from
+    # rendering it as rich text (which could otherwise fetch remote images).
+    box.setTextFormat(Qt.PlainText)
+    text = (f"새 버전이 있습니다: v{info.version}\n"
+           f"다운로드 크기: 약 {size_mb} MB")
+    if info.variant == "full":
+        text += "\n\n⚠ full 버전 업데이트는 약 1.5 GB 를 다운로드합니다. " \
+               "충분한 네트워크/디스크 공간을 확인하세요."
+    box.setText(text)
     box.setInformativeText(f"설치 후 자동으로 다시 시작됩니다.\n\n{notes}")
     btn_update = box.addButton("지금 업데이트", QMessageBox.AcceptRole)
     box.addButton("나중에", QMessageBox.RejectRole)
@@ -69,7 +111,10 @@ def prompt_and_install(parent, info, home: Path | None = None) -> bool:
     if choice != UPDATE:
         return False
 
-    target_dir = Path(tempfile.gettempdir()) / "LabelingTool-update"
+    # A fresh directory per download avoids the TOCTOU on a fixed,
+    # user-writable path and stops installers (up to ~1.5 GB each)
+    # accumulating forever under a single well-known name.
+    target_dir = Path(tempfile.mkdtemp(prefix="LabelingTool-update-"))
     dest = target_dir / info.asset_name
     bar = QProgressDialog("업데이트 다운로드 중…", "취소", 0, 100, parent)
     bar.setWindowTitle("업데이트")
@@ -106,6 +151,16 @@ def check_for_updates(parent, *, force: bool = False, home: Path | None = None):
     """Start a background check. Returns the thread, or None when skipped."""
     info = read_build_info()
     if not info.is_release_build:
+        if force:
+            QMessageBox.information(parent, "업데이트",
+                                    "개발 빌드에서는 업데이트를 확인할 수 없습니다.")
+        return None
+    if _RUNNING_CHECKS:
+        # Never run two checks at once: two writers into the same download
+        # dir, a second prompt nested over the modal progress dialog, and
+        # twice the unauthenticated GitHub API calls against a 60/hr/IP quota.
+        if force:
+            QMessageBox.information(parent, "업데이트", "업데이트 확인 중입니다.")
         return None
     st = state.load(home)
     if not force and not state.should_check(st):
@@ -128,12 +183,28 @@ def check_for_updates(parent, *, force: bool = False, home: Path | None = None):
         if box_parent is not None and sip.isdeleted(box_parent):
             box_parent = None
         state.mark_checked(home)
+        if isinstance(found, Exception):
+            # Silent by default (offline/rate-limited networks are routine);
+            # a forced check must not lie by reporting "up to date" instead.
+            if force:
+                QMessageBox.warning(
+                    box_parent, "업데이트 확인 실패",
+                    f"업데이트 확인 중 오류가 발생했습니다: "
+                    f"{type(found).__name__}: {found}\n\n"
+                    f"https://github.com/{checker.GITHUB_REPO}/releases/latest")
+            return
         if found is None:
             if force:
                 QMessageBox.information(box_parent, "업데이트",
                                         "최신 버전을 사용 중입니다.")
             return
         if not force and state.load(home).skipped_version == found.version:
+            return
+        if _session_in_progress():
+            # A session with unsaved work is already open. Quitting via
+            # QApplication.quit() would bypass ViewerMainWindow.closeEvent
+            # and lose it, so stay silent - the next launch/manual check
+            # asks again.
             return
         if prompt_and_install(box_parent, found, home):
             QApplication.quit()   # the installer restarts the new version

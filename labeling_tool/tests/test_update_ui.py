@@ -1,9 +1,14 @@
 """Update prompt: three buttons, progress, and handing over to the installer."""
+import tempfile
+import threading
+
 import pytest
 from PyQt5 import sip
-from PyQt5.QtWidgets import QApplication, QMessageBox, QWidget
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox, QWidget
 
 from labeling_tool.update import checker, state, ui
+from labeling_tool.update.version import BuildInfo
 
 _app = QApplication.instance() or QApplication([])
 
@@ -150,3 +155,202 @@ def test_on_found_with_deleted_parent_does_not_raise(monkeypatch, tmp_path):
     thread = ui.check_for_updates(parent, home=tmp_path)
     thread.wait(5000)
     _app.processEvents()  # runs _on_found (and _on_finished) against the dead parent
+
+
+# --------------------------------------------------------------- C2: a failed
+# check must never be reported as "up to date", and must only surface at all
+# when the user explicitly asked (force=True).
+
+def test_forced_failed_check_warns_instead_of_lying(monkeypatch, tmp_path):
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "lite", None))
+    monkeypatch.setattr(ui.checker, "find_update",
+                        lambda *a, **k: (_ for _ in ()).throw(TimeoutError("no network")))
+    warned, informed = [], []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(a[2]))
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: informed.append(a[2]))
+    thread = ui.check_for_updates(None, force=True, home=tmp_path)
+    thread.wait(5000)
+    _app.processEvents()
+    assert warned and "TimeoutError" in warned[0]
+    assert not informed  # never the "최신 버전" lie
+
+
+def test_unforced_failed_check_stays_silent(monkeypatch, tmp_path):
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "lite", None))
+    monkeypatch.setattr(ui.checker, "find_update",
+                        lambda *a, **k: (_ for _ in ()).throw(TimeoutError("no network")))
+    monkeypatch.setattr(QMessageBox, "warning",
+                        lambda *a, **k: pytest.fail("warned on an unforced failure"))
+    monkeypatch.setattr(QMessageBox, "information",
+                        lambda *a, **k: pytest.fail("reported anything on an unforced failure"))
+    thread = ui.check_for_updates(None, home=tmp_path)
+    thread.wait(5000)
+    _app.processEvents()
+
+
+# ----------------------------------------------------- I3: shutdown must wait
+# for an in-flight check instead of destroying a running QThread.
+
+def test_wait_for_checks_blocks_until_thread_finishes(monkeypatch, tmp_path):
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "lite", None))
+    release = threading.Event()
+
+    def slow_find(*a, **k):
+        release.wait(5)
+        return None
+
+    monkeypatch.setattr(ui.checker, "find_update", slow_find)
+    thread = ui.check_for_updates(None, home=tmp_path)
+    assert thread in ui._RUNNING_CHECKS
+    release.set()
+    ui.wait_for_checks(5000)
+    assert thread.isFinished()
+    _app.processEvents()  # drain the queued found/finished callbacks
+
+
+# --------------------------------------------- I4: a live session (main
+# window open) must never be torn down by QApplication.quit() from a late
+# update prompt.
+
+def test_found_update_stays_silent_once_a_session_window_is_open(monkeypatch, tmp_path):
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "lite", None))
+    monkeypatch.setattr(ui.checker, "find_update", lambda *a, **k: INFO)
+    monkeypatch.setattr(ui, "_ask",
+                        lambda *a, **k: pytest.fail("prompted while a session was open"))
+    win = QMainWindow()
+    win.show()
+    try:
+        thread = ui.check_for_updates(None, home=tmp_path)
+        thread.wait(5000)
+        _app.processEvents()
+    finally:
+        win.close()
+
+
+# ------------------------------------------------- I7: never run two checks
+# at once.
+
+def test_second_check_while_one_runs_does_not_start_another_thread(monkeypatch, tmp_path):
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "lite", None))
+    release = threading.Event()
+
+    def blocking_find(*a, **k):
+        release.wait(5)
+        return None
+
+    monkeypatch.setattr(ui.checker, "find_update", blocking_find)
+    thread1 = ui.check_for_updates(None, home=tmp_path)
+    assert thread1 is not None
+    thread2 = ui.check_for_updates(None, home=tmp_path)
+    assert thread2 is None
+    release.set()
+    thread1.wait(5000)
+    _app.processEvents()
+
+
+def test_second_forced_check_while_one_runs_tells_user_and_does_not_start(monkeypatch, tmp_path):
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "lite", None))
+    release = threading.Event()
+
+    def blocking_find(*a, **k):
+        release.wait(5)
+        return None
+
+    monkeypatch.setattr(ui.checker, "find_update", blocking_find)
+    informed = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: informed.append(a[2]))
+    thread1 = ui.check_for_updates(None, home=tmp_path)
+    thread2 = ui.check_for_updates(None, force=True, home=tmp_path)
+    assert thread2 is None
+    assert informed and "확인 중" in informed[0]
+    release.set()
+    thread1.wait(5000)
+    _app.processEvents()
+
+
+# ------------------------------------------------------- M4: a dev build
+# (force=True) must say so instead of the button silently doing nothing.
+
+def test_forced_check_on_dev_build_tells_the_user(monkeypatch, tmp_path):
+    informed = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: informed.append(a[2]))
+    monkeypatch.setattr(ui.checker, "find_update",
+                        lambda *a, **k: pytest.fail("network hit from a dev build"))
+    assert ui.check_for_updates(None, force=True, home=tmp_path) is None
+    assert informed
+
+
+# --------------------------------------------------------- M3: each download
+# gets its own fresh temp directory (no fixed, predictable path).
+
+def test_prompt_update_uses_a_fresh_temp_dir_each_time(monkeypatch, tmp_path):
+    seen_dirs = []
+
+    def fake_download(url, dest, sha256, progress=None, **kw):
+        seen_dirs.append(dest.parent)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"x")
+
+    monkeypatch.setattr(ui, "_ask", lambda *a, **k: ui.UPDATE)
+    monkeypatch.setattr(ui.net_download, "download_file", fake_download)
+    monkeypatch.setattr(ui.installer, "launch_installer", lambda *a, **k: None)
+    ui.prompt_and_install(None, INFO, home=tmp_path)
+    ui.prompt_and_install(None, INFO, home=tmp_path)
+    assert seen_dirs[0] != seen_dirs[1]
+    assert str(seen_dirs[0]).startswith(tempfile.gettempdir())
+
+
+# ----------------------------------------------------------------- M12: a
+# successful update hand-off must quit the app (the installer restarts it).
+
+def test_prompt_and_install_true_quits_the_app(monkeypatch, tmp_path):
+    def fake_download(url, dest, sha256, progress=None, **kw):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"x")
+
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "lite", None))
+    monkeypatch.setattr(ui.checker, "find_update", lambda *a, **k: INFO)
+    monkeypatch.setattr(ui, "_ask", lambda *a, **k: ui.UPDATE)
+    monkeypatch.setattr(ui.net_download, "download_file", fake_download)
+    monkeypatch.setattr(ui.installer, "launch_installer", lambda *a, **k: None)
+    quit_calls = []
+    monkeypatch.setattr(QApplication, "quit", lambda: quit_calls.append(True))
+    thread = ui.check_for_updates(None, home=tmp_path)
+    thread.wait(5000)
+    _app.processEvents()
+    assert quit_calls == [True]
+
+
+# ------------------------------------------------------------- M2 / M10: the
+# prompt text must be plain (untrusted release body) and must call out the
+# full variant's download size.
+
+def test_ask_uses_plain_text_format(monkeypatch):
+    captured = {}
+
+    def fake_exec(self):
+        captured["format"] = self.textFormat()
+        return None
+
+    monkeypatch.setattr(QMessageBox, "exec_", fake_exec)
+    monkeypatch.setattr(QMessageBox, "clickedButton", lambda self: None)
+    ui._ask(None, INFO)
+    assert captured["format"] == Qt.PlainText
+
+
+def test_ask_warns_about_full_variant_download_size(monkeypatch):
+    full_info = checker.UpdateInfo(
+        version="1.0.1", variant="full",
+        asset_name="LabelingTool-full-Setup-v1.0.1.exe",
+        asset_url="https://x/s.exe", size=1500 * 1024 * 1024,
+        sha256="a" * 64, notes="")
+    captured = {}
+
+    def fake_exec(self):
+        captured["text"] = self.text()
+        return None
+
+    monkeypatch.setattr(QMessageBox, "exec_", fake_exec)
+    monkeypatch.setattr(QMessageBox, "clickedButton", lambda self: None)
+    ui._ask(None, full_info)
+    assert "1.5 GB" in captured["text"]

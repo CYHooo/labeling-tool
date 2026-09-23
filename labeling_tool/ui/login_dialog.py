@@ -104,13 +104,26 @@ class LoginDialog(QDialog):
                                   + (f" ({info.variant})" if info.variant else ""))
         self.lbl_version.setStyleSheet("color: #9ea3aa;")
         self.btn_check_update = QPushButton("업데이트 확인")
-        self.btn_check_update.clicked.connect(
-            lambda: setattr(self, "_update_thread",
-                            check_for_updates(self, force=True)))
+        self.btn_check_update.clicked.connect(self._on_check_update_clicked)
         bottom = QHBoxLayout()
         bottom.addWidget(self.lbl_version, 1)
         bottom.addWidget(self.btn_check_update)
         root.addLayout(bottom)
+
+    def _on_check_update_clicked(self):
+        """Disable the button for the duration of the check.
+
+        A forced check that starts while another is already running (from
+        the startup check or a double click) returns None immediately, so
+        the button must be re-enabled right away in that case too.
+        """
+        self.btn_check_update.setEnabled(False)
+        thread = check_for_updates(self, force=True)
+        self._update_thread = thread
+        if thread is None:
+            self.btn_check_update.setEnabled(True)
+        else:
+            thread.finished.connect(lambda: self.btn_check_update.setEnabled(True))
 
     # ---------------------------------------------------------------- tabs
     def _build_online_page(self, cfg: dict) -> QWidget:

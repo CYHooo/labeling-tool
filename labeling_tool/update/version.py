@@ -37,7 +37,10 @@ def read_build_info(home: Path | None = None) -> BuildInfo:
     """Read build-info.json; anything missing or malformed reads as a dev build."""
     base = Path(home) if home is not None else app_home()
     try:
-        data = json.loads((base / BUILD_INFO_NAME).read_text(encoding="utf-8"))
+        # utf-8-sig: a BOM in a hand-edited or Windows-tool-written
+        # build-info.json must not silently make this look malformed and
+        # disable updates.
+        data = json.loads((base / BUILD_INFO_NAME).read_text(encoding="utf-8-sig"))
         version = str(data["version"])
         variant = data.get("variant")
     except (OSError, ValueError, KeyError, TypeError):

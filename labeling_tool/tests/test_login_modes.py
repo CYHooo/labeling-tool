@@ -279,3 +279,34 @@ def test_login_shows_version_and_check_button(monkeypatch):
     monkeypatch.setattr(ld, "check_for_updates", lambda parent, force=False: clicked.append(force))
     dlg.btn_check_update.click()
     assert clicked == [True]
+
+
+def test_check_update_button_reenables_immediately_when_no_thread_started(monkeypatch):
+    # e.g. a concurrent check is already running, or it's a dev build: both
+    # make check_for_updates return None without starting anything.
+    monkeypatch.setattr(ld, "check_for_updates", lambda parent, force=False: None)
+    dlg = ld.LoginDialog()
+    dlg.btn_check_update.click()
+    assert dlg.btn_check_update.isEnabled()
+
+
+def test_check_update_button_disables_while_running_and_reenables(monkeypatch):
+    from PyQt5.QtCore import QThread
+
+    class NoopThread(QThread):
+        def run(self):
+            pass  # finishes immediately once started
+
+    thread = NoopThread()
+
+    def fake_check(parent, force=False):
+        thread.start()
+        return thread
+
+    monkeypatch.setattr(ld, "check_for_updates", fake_check)
+    dlg = ld.LoginDialog()
+    dlg.btn_check_update.click()
+    assert not dlg.btn_check_update.isEnabled()
+    thread.wait(5000)
+    QApplication.instance().processEvents()  # run the queued `finished` callback
+    assert dlg.btn_check_update.isEnabled()
