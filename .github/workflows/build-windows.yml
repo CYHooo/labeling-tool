@@ -43,7 +43,14 @@ jobs:
 
       - name: Version
         run: |
-          $ver = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { "dev-" + $env:GITHUB_SHA.Substring(0, 7) }
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            if ($env:GITHUB_REF_NAME -notmatch '^v\d+(\.\d+)*$') {
+              throw "tag '$($env:GITHUB_REF_NAME)' does not match ^v\d+(\.\d+)*$ (e.g. a '-rc1' suffix breaks VersionInfoVersion and is misclassified as a dev build)"
+            }
+            $ver = $env:GITHUB_REF_NAME
+          } else {
+            $ver = "dev-" + $env:GITHUB_SHA.Substring(0, 7)
+          }
           "LT_VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Install production dependencies
@@ -99,10 +106,21 @@ jobs:
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found even after installing Inno Setup" }
+          # ArchitecturesAllowed=x64compatible needs Inno Setup >= 6.3; the
+          # choco fallback above only triggers when ISCC is missing entirely,
+          # so a runner image with an older preinstalled Inno Setup would
+          # otherwise silently build a broken installer. Fail loudly instead.
+          $isccVersion = [version](Get-Item $iscc).VersionInfo.ProductVersion
+          if ($isccVersion -lt [version]"6.3") { throw "Inno Setup $isccVersion found; ArchitecturesAllowed=x64compatible needs >= 6.3" }
           $ver = $env:LT_VERSION -replace '^v', ''
           New-Item -ItemType Directory -Force out | Out-Null
-          & $iscc /DMyVariant=$env:LT_VARIANT /DMyVersion=$ver /DMySource=dist\LabelingTool /DMyOutDir=out packaging\installer.iss
+          # MySource/MyOutDir must be absolute: Inno resolves relative
+          # [Files] Source / OutputDir against the .iss file's own directory
+          # (packaging\), not this job's working directory.
+          & $iscc /DMyVariant=$env:LT_VARIANT /DMyVersion=$ver "/DMySource=$PWD\dist\LabelingTool" "/DMyOutDir=$PWD\out" packaging\installer.iss
           $setup = Get-ChildItem out\*.exe | Select-Object -First 1
+          if (-not $setup) { throw "ISCC produced no installer" }
           "LT_SETUP=$($setup.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           # GitHub release assets must stay below 2 GiB
           if ($setup.Length -ge 1.9GB) { throw "installer too large for a release asset: $($setup.Length) bytes" }
