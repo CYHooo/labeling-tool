@@ -120,11 +120,19 @@ jobs:
           & $iscc /? 2>&1 | Select-Object -First 3 | Out-String | Write-Host
           $ErrorActionPreference = "Stop"
           $ver = $env:LT_VERSION -replace '^v', ''
+          # Windows version resources must be numeric (x.y[.z[.w]]). For dev
+          # builds ($ver like "dev-a72cd7b"), use 0.0.0; release builds use
+          # their numeric version for both AppVersion and VersionInfoVersion.
+          if ($ver -match '^\d+(\.\d+)*$') {
+            $infoVer = $ver
+          } else {
+            $infoVer = '0.0.0'
+          }
           New-Item -ItemType Directory -Force out | Out-Null
           # MySource/MyOutDir must be absolute: Inno resolves relative
           # [Files] Source / OutputDir against the .iss file's own directory
           # (packaging\), not this job's working directory.
-          & $iscc /DMyVariant=$env:LT_VARIANT /DMyVersion=$ver "/DMySource=$PWD\dist\LabelingTool" "/DMyOutDir=$PWD\out" packaging\installer.iss
+          & $iscc /DMyVariant=$env:LT_VARIANT /DMyVersion=$ver "/DMyVersionInfo=$infoVer" "/DMySource=$PWD\dist\LabelingTool" "/DMyOutDir=$PWD\out" packaging\installer.iss
           $setup = Get-ChildItem out\*.exe | Select-Object -First 1
           if (-not $setup) { throw "ISCC produced no installer" }
           "LT_SETUP=$($setup.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
