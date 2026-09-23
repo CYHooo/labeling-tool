@@ -104,7 +104,7 @@ packaging/installer.iss
 | full 安装程序接近 Release 单文件 2 GiB 上限（当前 7z 1.5 GB） | CI 中断言安装程序 < 1.9 GiB，超出则失败并提示改用分卷或精简依赖 |
 | 更新中断导致程序损坏 | 先完整下载并校验，再启动安装程序；安装程序为原子替换，失败保留旧版本 |
 | GitHub API 限流（未鉴权 60 次/小时/IP） | 24 小时节流；403/429 静默失败 |
-| 公司网络 / 离线环境 | 所有网络错误静默；手动菜单项给出明确错误信息 |
+| 公司网络 / 离线环境 | 所有网络错误静默；手动检查按钮（登录对话框）给出明确错误信息 |
 | 用户把程序装到 `Program Files`（需管理员） | `PrivilegesRequired=lowest` 默认装到用户目录；若用户手动选了系统目录，更新时安装程序会自行请求提权 |
 | 静默安装时程序仍在运行 | 更新器先退出应用再启动安装程序；`.iss` 设 `CloseApplications=force` 兜底 |
 
@@ -121,5 +121,5 @@ packaging/installer.iss
 - `labeling_tool/update/`（5 个模块 + 测试）
 - `packaging/installer.iss`
 - `.github/workflows/build-windows.yml` 改动
-- 主窗口 Help 菜单的「업데이트 확인」
+- 登录对话框底部的版本行 + 「업데이트 확인」 按钮（手动检查）
 - README：安装程序下载 / 安装 / 更新 / SmartScreen 说明；`docs/README.md` 索引追加本设计

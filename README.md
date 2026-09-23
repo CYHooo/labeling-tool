@@ -49,7 +49,7 @@ GitHub 의 **Releases**(태그 버전)에서 다운로드합니다. Python 없�
 2. 처음 실행 시 "Windows 의 PC 보호" 창이 뜨면 **「추가 정보」→「실행」** 을 누릅니다 (코드 서명 없음).
 3. 설치 마법사가 뜨면 기본값으로 진행하면 `%LOCALAPPDATA%\Programs\LabelingTool` 에 설치됩니다 (**관리자 권한 불필요**).
 4. 설치가 끝나면 **시작 메뉴**에서 "LabelingTool" 을 찾아 실행하거나, 바탕화면의 바로가기를 더블클릭합니다.
-5. 로그인 정보(`config.json`), 받은 작업(`data\`), 권중(`checkpoint\`), 클래스 정의(`classes.json`) 는 설치 폴더 안에 저장됩니다.
+5. 로그인 정보(`config.json`), 받은 작업(`data\`), 가중치(`checkpoint\`), 클래스 정의(`classes.json`) 는 설치 폴더 안에 저장됩니다.
 
 ### 업데이트
 
