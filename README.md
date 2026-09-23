@@ -14,7 +14,7 @@ EC2에 다시 업로드합니다.
 - OS: Windows / macOS / Linux (PyQt5 GUI)
 - 패키지: `PyQt5`, `opencv-python`, `numpy`, `scikit-image`, `requests`, `onnxruntime`
   (SAM 추론은 `onnxruntime`(CPU)로 동작하며 **torch 는 필요 없습니다**. ONNX 모델은
-  저장소에 포함되어 clone 시 바로 사용 가능 — 모델 생성은 `requirements-export.txt` 참고)
+  저장소에 포함되어 clone 시 바로 사용 가능 — 모델 생성은 `tools/requirements-export.txt` 참고)
 
 ---
 
@@ -197,7 +197,7 @@ python -m pytest labeling_tool/tests -q
     ├── api/                Viewer API 클라이언트 / 다운로드 / 업로드
     ├── session/            작업 폴더 · manifest · 파일명 규칙
     ├── ui/                 로그인 · 데이터 가져오기 다이얼로그 · 메인 윈도우 · 업로드 워커
-    ├── scripts/            헤드리스 업로드 CLI
+    ├── (유지보수 스크립트는 저장소 루트 tools/ 로 이동)
     └── tests/              단위 테스트
 ```
 

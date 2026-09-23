@@ -1,9 +1,9 @@
 """Export MobileSAM (vit_t) to ONNX: image encoder + point decoder.
 
-Run ONCE on a machine with torch (see requirements-export.txt):
+Run ONCE on a machine with torch (see tools/requirements-export.txt):
 
-    pip install -r requirements-export.txt
-    python labeling_tool/scripts/export_mobilesam_onnx.py
+    pip install -r tools/requirements-export.txt
+    python -m tools.export_mobilesam_onnx
 
 Outputs labeling_tool/models/sam/mobile_sam_encoder.onnx and
 mobile_sam_decoder.onnx, then commit them. The running app needs only
