@@ -61,7 +61,7 @@ CI 在 `dist/LabelingTool/` 写入 `build-info.json`（取代现在的 `VERSION.
 ### 2.4 下载与校验
 
 - Release 中附带 `SHA256SUMS.txt`（CI 生成，内容为每个安装程序的 `<sha256>  <filename>`）。
-- `labeling_tool/update/downloader.py` 复用 `annotation_tool/segmenter/weights.py` 的模式：下载到 `%TEMP%\LabelingTool-update\<name>.part` → 校验 SHA256 → 重命名。进度回调、可取消。
+- 下载与校验复用既有的 `labeling_tool/core/net_download.py`（原计划新增 `labeling_tool/update/downloader.py`，实现时与 `annotation_tool/segmenter/weights.py` 共用的下载模式合并到了这个已有模块）：下载到 `tempfile.mkdtemp()` 生成的一次性临时目录下的 `<name>.part` → 校验 SHA256 → 重命名。进度回调、可取消。
 - 校验失败 / 下载失败：删除临时文件，弹窗说明，不安装。
 
 ### 2.5 安装与重启
@@ -90,9 +90,9 @@ labeling_tool/update/
 ├── __init__.py
 ├── version.py      build-info.json 读取
 ├── checker.py      GitHub Releases 查询 + 版本比较（纯逻辑）
-├── downloader.py   下载 + SHA256 校验（纯逻辑）
 ├── installer.py    静默安装命令构造与启动（纯逻辑 + subprocess）
 └── ui.py           Qt：检查线程、提示对话框、进度对话框
+labeling_tool/core/net_download.py   下载 + SHA256 校验（纯逻辑，与 SAM 权重下载共用）
 packaging/installer.iss
 ```
 
@@ -107,6 +107,7 @@ packaging/installer.iss
 | 公司网络 / 离线环境 | 所有网络错误静默；手动检查按钮（登录对话框）给出明确错误信息 |
 | 用户把程序装到 `Program Files`（需管理员） | `PrivilegesRequired=lowest` 默认装到用户目录；若用户手动选了系统目录，更新时安装程序会自行请求提权 |
 | 静默安装时程序仍在运行 | 更新器先退出应用再启动安装程序；`.iss` 设 `CloseApplications=force` 兜底 |
+| `SHA256SUMS.txt` 与安装包发布在同一个 Release 里，只提供**完整性**（下载没有损坏/被中间人篡改），不提供**真实性**（谁能发布 Release，谁就能同时替换安装包和它的校验和，从而在所有已安装的机器上换取无人值守的代码执行） | 补偿控制：仓库 tag 保护 + 发布者账号 2FA，限制谁能推送 `v*` 标签、创建 Release；代码签名仍是非目标（见「非目标」一节），后续若上线代码签名可再提供真正的真实性保证 |
 
 ## 6. 测试
 
