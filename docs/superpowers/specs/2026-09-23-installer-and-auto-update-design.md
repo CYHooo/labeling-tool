@@ -56,7 +56,7 @@ CI 在 `dist/LabelingTool/` 写入 `build-info.json`（取代现在的 `VERSION.
 
 - 启动时（`app.py` 创建 `LoginDialog` 之前）在 `QThread` 中检查，不阻塞界面。
 - 节流：`update-state.json`（在 `app_home()`）记录 `last_check`（24 小时内不重复检查）与 `skipped_version`（用户点"跳过此版本"后不再提示该版本）。
-- 菜单项「업데이트 확인」（主窗口 Help 菜单）可手动强制检查，忽略节流与跳过记录。
+- 手动检查：登录对话框底部显示当前版本 + 「업데이트 확인」按钮，可手动强制检查，忽略节流与跳过记录。
 
 ### 2.4 下载与校验
 

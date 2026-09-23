@@ -16,6 +16,7 @@
 | 2026-06-29-auto-bbox-from-15cm | 15cm 기준 자동 bbox | 유효 |
 | 2026-07-01-sam-crop-around-click | 대형 이미지 SAM 크롭 | 유효 |
 | 2026-09-21-windows-exe-packaging | Windows exe (lite / full) 패키징 | 유효 (§0 개정: exe 는 SAM2.1 전용) |
+| 2026-09-23-installer-and-auto-update | Windows 설치 프로그램 + 인앱 자동 업데이트 | 유효 |
 
 ## archive/
 

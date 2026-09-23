@@ -36,22 +36,44 @@ pip install -r requirements.txt
 
 ## Windows 실행 파일 (exe) — Python 설치 불필요
 
-GitHub 의 **Releases**(태그 버전) 또는 **Actions → build-windows** 실행 결과(artifact)에서 받습니다.
+GitHub 의 **Releases**(태그 버전)에서 다운로드합니다. Python 없이 Windows PC 에서 바로 실행됩니다.
 
-| 파일 | 내용 | 대상 PC |
-|---|---|---|
-| `LabelingTool-lite-<버전>.zip` | 온라인 라벨링 + 로컬 작업 | 일반 PC (GPU 불필요) |
-| `LabelingTool-full-<버전>.7z.001, .002 …` | lite + Few-shot 라벨링 (torch, SAM2.1) | NVIDIA GPU PC |
+### 설치
 
-1. **쓰기 가능한 폴더**(예: 바탕화면, 문서)에 압축을 풀고 `LabelingTool\LabelingTool.exe` 를 더블클릭합니다.
-   `config.json` / `data` / `checkpoint` 가 exe 옆에 저장되므로 `C:\Program Files` 등에는 풀지 마세요.
-   full 판은 **7-Zip 으로 `.7z.001` 을 열어** 풉니다 (분할 압축).
+| 파일 | 내용 | 크기 | 대상 PC |
+|---|---|---|---|
+| `LabelingTool-lite-Setup-v<버전>.exe` | 온라인 라벨링 + 로컬 작업 | 약 170 MB | 일반 PC (GPU 불필요) |
+| `LabelingTool-full-Setup-v<버전>.exe` | lite + Few-shot 라벨링 (SAM2.1) | 약 1.5 GB | NVIDIA GPU PC |
+
+1. 다운로드한 `LabelingTool-lite-Setup-v<버전>.exe` (또는 full) 를 더블클릭합니다.
 2. 처음 실행 시 "Windows 의 PC 보호" 창이 뜨면 **「추가 정보」→「실행」** 을 누릅니다 (코드 서명 없음).
-3. 로그인 정보(`config.json`)와 받은 작업(`data\`)은 **exe 와 같은 폴더**에 저장됩니다.
-4. full 판: Few-shot 라벨링을 처음 열 때 SAM2.1 모델(약 308 MB)을 자동으로 내려받아 `LabelingTool\checkpoint\` 에 저장합니다 (인터넷 필요, 한 번만).
-   오프라인 PC 에서는 https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt 를 받아 같은 폴더에 두세요.
+3. 설치 마법사가 뜨면 기본값으로 진행하면 `%LOCALAPPDATA%\Programs\LabelingTool` 에 설치됩니다 (**관리자 권한 불필요**).
+4. 설치가 끝나면 **시작 메뉴**에서 "LabelingTool" 을 찾아 실행하거나, 바탕화면의 바로가기를 더블클릭합니다.
+5. 로그인 정보(`config.json`), 받은 작업(`data\`), 권중(`checkpoint\`), 클래스 정의(`classes.json`) 는 설치 폴더 안에 저장됩니다.
 
-**업그레이드**: 새 버전을 다른 폴더에 풀고, 이전 폴더의 `config.json`, `data\`, `checkpoint\` 를 복사합니다.
+### 업데이트
+
+로그인 화면 아래쪽에 현재 버전이 표시되고, 「업데이트 확인」 버튼으로 수동 확인할 수 있습니다. 또한 **앱 시작 시 자동으로 새 버전을 확인**하고, 새 버전이 있으면 다운로드·설치·재시작을 자동으로 진행합니다 (24 시간에 한 번만 확인). 
+
+업데이트 대화창에서는:
+- **지금 업데이트**: 즉시 다운로드 및 설치
+- **나중에**: 다음 시작 시 다시 물어봄
+- **이 버전 건너뛰기**: 해당 버전을 더 이상 제시하지 않음
+
+### 전체 판 (full) 업데이트 주의사항
+
+full 판의 업데이트 파일은 약 1.5 GB 입니다 (SAM2.1 모델 포함). 충분한 네트워크 연결과 디스크 공간(3 GB 이상)이 필요합니다.
+
+### Few-shot 라벨링 모델 다운로드
+
+full 판: Few-shot 라벨링을 처음 열 때 SAM2.1 모델(약 308 MB)을 자동으로 내려받아 저장합니다 (인터넷 필요, 한 번만).
+오프라인 PC 에서는 https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt 를 받아 설치 폴더의 `checkpoint\` 에 두세요.
+
+### 제거 (Uninstall)
+
+Windows 의 **제어판 → 프로그램 제거** 또는 설치 폴더의 **uninstall.exe** 로 제거하면 됩니다.
+
+**주의**: 제거 시 `config.json`, `data\`, `checkpoint\`, `classes.json` 등 사용자 데이터는 **남아 있습니다**. 새로 설치하면 이전 데이터를 그대로 사용할 수 있습니다. lite 와 full 을 같은 PC 에 설치하면 별개로 동작합니다 (데이터 공유 안 됨).
 
 ---
 

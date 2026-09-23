@@ -25,7 +25,12 @@ class BuildInfo:
 
     @property
     def is_release_build(self) -> bool:
-        return self.version != DEV_VERSION and self.variant in VARIANTS
+        # Must be a valid numeric version (e.g., 1.0.0, 1.2.3) and have a known variant.
+        # Rejects both the literal DEV_VERSION and dev builds like "dev-abc1234".
+        if self.variant not in VARIANTS:
+            return False
+        parts = str(self.version).lstrip("vV").split(".")
+        return all(p.isdigit() for p in parts)
 
 
 def read_build_info(home: Path | None = None) -> BuildInfo:
