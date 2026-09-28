@@ -96,7 +96,7 @@ STRINGS = {
     "sam_unavailable": "SAM 사용 불가 (onnxruntime 또는 models/sam/*.onnx 없음).",
 
     # --- fetch/progress (shared, used across future screens too) ---
-    "fetch_progress": "가져오기 {done}/{total}",
+    "fetch_progress": "다운로드 {done}/{total}",
 
     # --- login ---
     "login_title":                    "로그인",
@@ -149,6 +149,8 @@ STRINGS = {
     "fetch_to_label":                  "toNum (0=끝까지)",
     "fetch_back":                      "← 로그인",
     "fetch_btn":                       "가져오기 (다운로드)",
+    "fetch_session_item":              "작업 {sid}",
+    "fetch_session_item_named":        "작업 {sid} · {name}",
     "fetch_photo_count":               "({count}장)",
     "fetch_sessions_failed_title":     "작업 목록 실패",
     "fetch_sessions_failed_msg":       "작업 목록을 불러오지 못했습니다. 수동 입력하세요.\n{error}",

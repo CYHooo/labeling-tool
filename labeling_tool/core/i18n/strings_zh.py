@@ -91,7 +91,7 @@ STRINGS = {
     "sam_unavailable": "SAM 不可用(缺 onnxruntime 或 models/sam/*.onnx)。",
 
     # --- fetch/progress (shared, used across future screens too) ---
-    "fetch_progress": "已获取 {done}/{total}",
+    "fetch_progress": "已下载 {done}/{total}",
 
     # --- login ---
     "login_title":                    "登录",
@@ -144,6 +144,8 @@ STRINGS = {
     "fetch_to_label":                  "toNum (0=到末尾)",
     "fetch_back":                      "← 登录",
     "fetch_btn":                       "获取（下载）",
+    "fetch_session_item":              "任务 {sid}",
+    "fetch_session_item_named":        "任务 {sid} · {name}",
     "fetch_photo_count":               "({count} 张)",
     "fetch_sessions_failed_title":     "作业列表失败",
     "fetch_sessions_failed_msg":       "无法获取作业列表，请手动输入。\n{error}",

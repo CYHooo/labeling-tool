@@ -112,7 +112,8 @@ class FetchDialog(QDialog):
             name = s.get("inspectionName")
             if name:
                 self._session_names[int(sid)] = name
-            label = f"session {sid}" if not name else f"session {sid} · {name}"
+            label = (tr("fetch_session_item", sid=sid) if not name
+                     else tr("fetch_session_item_named", sid=sid, name=name))
             if s.get("photoCount") is not None:
                 label += "  " + tr("fetch_photo_count", count=s["photoCount"])
             self.cb_session.addItem(label, sid)

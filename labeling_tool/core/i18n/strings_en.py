@@ -91,7 +91,7 @@ STRINGS = {
     "sam_unavailable": "SAM unavailable (onnxruntime or models/sam/*.onnx missing).",
 
     # --- fetch/progress (shared, used across future screens too) ---
-    "fetch_progress": "Fetched {done}/{total}",
+    "fetch_progress": "Downloaded {done}/{total}",
 
     # --- login ---
     "login_title":                    "Log in",
@@ -144,6 +144,8 @@ STRINGS = {
     "fetch_to_label":                  "toNum (0 = to the end)",
     "fetch_back":                      "← Log in",
     "fetch_btn":                       "Fetch (download)",
+    "fetch_session_item":              "Job {sid}",
+    "fetch_session_item_named":        "Job {sid} · {name}",
     "fetch_photo_count":               "({count} photos)",
     "fetch_sessions_failed_title":     "Job list failed",
     "fetch_sessions_failed_msg":       "Could not load the job list. Enter it manually.\n{error}",
