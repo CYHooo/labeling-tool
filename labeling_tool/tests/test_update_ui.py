@@ -40,7 +40,7 @@ def _drain_qt_events():
 INFO = checker.UpdateInfo(version="1.0.1", variant="lite",
                           asset_name="LabelingTool-lite-Setup-v1.0.1.exe",
                           asset_url="https://x/s.exe", size=170 * 1024 * 1024,
-                          sha256="a" * 64, notes="fixes", kind="full")
+                          sha256="a" * 64, notes="fixes", kind="app")
 
 
 def test_prompt_later_does_nothing(monkeypatch, tmp_path):
@@ -338,10 +338,12 @@ def test_ask_uses_plain_text_format(monkeypatch):
     assert captured["format"] == Qt.PlainText
 
 
-def test_ask_warns_about_full_variant_download_size(monkeypatch):
+def test_ask_warns_when_a_full_reinstall_is_needed(monkeypatch):
+    """kind == "full" means the runtime layer changed, so the whole 1.5 GB
+    installer has to come down. The prompt says why."""
     full_info = checker.UpdateInfo(
         version="1.0.1", variant="full",
-        asset_name="LabelingTool-full-Setup-v1.0.1.exe",
+        asset_name="LM_LabelingTool-Setup-v1.0.1.exe",
         asset_url="https://x/s.exe", size=1500 * 1024 * 1024,
         sha256="a" * 64, notes="", kind="full")
     captured = {}
@@ -353,7 +355,8 @@ def test_ask_warns_about_full_variant_download_size(monkeypatch):
     monkeypatch.setattr(QMessageBox, "exec_", fake_exec)
     monkeypatch.setattr(QMessageBox, "clickedButton", lambda self: None)
     ui._ask(None, full_info)
-    assert "1.5 GB" in captured["text"]
+    from labeling_tool.core import i18n
+    assert i18n.tr("update_full_warning") in captured["text"]
 
 
 # ------------------------------------------------------- i18n: the prompt

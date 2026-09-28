@@ -177,8 +177,8 @@ STRINGS = {
     "update_title":                    "Update",
     "update_available":                "A new version is available: v{version}\nDownload size: about {size} MB",
     "update_full_warning":
-        "\n\n⚠ The full variant update downloads about 1.5 GB. "
-        "Make sure you have enough network and disk space.",
+        "\n\n⚠ The torch / CUDA layer changed, so the full installer will be "
+        "downloaded. Check your network and free disk space.",
     "update_informative":              "The app restarts automatically after installing.\n\n{notes}",
     "update_btn_update":               "Update now",
     "update_btn_later":                "Later",

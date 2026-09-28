@@ -80,9 +80,22 @@ def _session_in_progress() -> bool:
               for w in app.topLevelWidgets())
 
 
+def prompt_text(info) -> str:
+    """The body of the update prompt.
+
+    Extracted from _ask so it can be tested without building a QMessageBox
+    (a modal box under offscreen Qt hangs the suite). The warning hangs off
+    `kind`, not the variant: a full reinstall is needed when the runtime
+    layer changed, which is what kind == "full" means."""
+    size_mb = info.size // (1024 * 1024)
+    text = tr("update_available", version=info.version, size=size_mb)
+    if info.kind == "full":
+        text += tr("update_full_warning")
+    return text
+
+
 def _ask(parent, info) -> str:
     """The three-button prompt; returns UPDATE / LATER / SKIP."""
-    size_mb = info.size // (1024 * 1024)
     notes = "\n".join(info.notes.splitlines()[:8])
     box = QMessageBox(parent)
     box.setWindowTitle(tr("update_title"))
@@ -90,10 +103,7 @@ def _ask(parent, info) -> str:
     # A release body is untrusted remote text: PlainText keeps AutoText from
     # rendering it as rich text (which could otherwise fetch remote images).
     box.setTextFormat(Qt.PlainText)
-    text = tr("update_available", version=info.version, size=size_mb)
-    if info.variant == "full":
-        text += tr("update_full_warning")
-    box.setText(text)
+    box.setText(prompt_text(info))
     box.setInformativeText(tr("update_informative", notes=notes))
     btn_update = box.addButton(tr("update_btn_update"), QMessageBox.AcceptRole)
     box.addButton(tr("update_btn_later"), QMessageBox.RejectRole)

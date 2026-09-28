@@ -115,3 +115,44 @@ def test_asset_name_templates_match_what_ci_builds():
     OutputBaseFilename. CI asserts the same thing from the other side."""
     assert checker.app_asset_name("1.3.1", "r3f8a1c92") == APP
     assert checker.full_asset_name("1.3.1") == FULL
+
+
+# ------------------------------------------------------------ the prompt
+# An app update and a full reinstall cost the user very different things,
+# so they must not read the same.
+
+from labeling_tool.core import i18n  # noqa: E402
+from labeling_tool.update import ui as update_ui  # noqa: E402
+
+
+def _info(kind, size):
+    return checker.UpdateInfo(version="1.3.1", variant="full",
+                              asset_name="x.exe", asset_url="https://x/x.exe",
+                              size=size, sha256=H, notes="", kind=kind)
+
+
+def test_app_update_text_states_the_version_and_size():
+    text = update_ui.prompt_text(_info("app", 31 * 1024 * 1024))
+    assert "1.3.1" in text
+    assert "31" in text
+
+
+def test_app_update_text_carries_no_reinstall_warning():
+    """A 31 MB update must not scare the user with the reinstall notice."""
+    text = update_ui.prompt_text(_info("app", 31 * 1024 * 1024))
+    assert i18n.tr("update_full_warning") not in text
+
+
+def test_full_update_text_warns_about_the_reinstall():
+    text = update_ui.prompt_text(_info("full", 1536 * 1024 * 1024))
+    assert "1.3.1" in text
+    assert "1536" in text
+    assert i18n.tr("update_full_warning") in text
+
+
+def test_the_warning_names_the_runtime_layer_not_the_variant():
+    """The lite/full variant is gone in v1.3.0; the reason a reinstall is
+    needed is now that torch/CUDA changed."""
+    warning = i18n.tr("update_full_warning")
+    assert "torch" in warning or "CUDA" in warning
+    assert "lite" not in warning

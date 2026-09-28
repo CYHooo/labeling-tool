@@ -181,7 +181,7 @@ STRINGS = {
     "update_title":                    "업데이트",
     "update_available":                "새 버전이 있습니다: v{version}\n다운로드 크기: 약 {size} MB",
     "update_full_warning":
-        "\n\n⚠ full 버전 업데이트는 약 1.5 GB 를 다운로드합니다. "
+        "\n\n⚠ torch / CUDA 구성이 바뀌어 전체 설치 파일을 내려받습니다. "
         "충분한 네트워크/디스크 공간을 확인하세요.",
     "update_informative":              "설치 후 자동으로 다시 시작됩니다.\n\n{notes}",
     "update_btn_update":               "지금 업데이트",
