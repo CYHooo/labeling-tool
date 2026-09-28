@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import (
     QLabel, QProgressBar, QMessageBox, QSpinBox, QComboBox, QApplication,
 )
 
+from labeling_tool.core.i18n import tr
 from labeling_tool.api.client import ViewerApiClient
 from labeling_tool.api.errors import ViewerApiError
 from labeling_tool.api.downloader import download_photos
@@ -45,7 +46,7 @@ def filter_photos_by_range(photos: list[dict], from_num: int,
 class FetchDialog(QDialog):
     def __init__(self, base: str, key: str, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("데이터 가져오기")
+        self.setWindowTitle(tr("fetch_title"))
         self.resize(520, 300)
         self.base = base
         self.key = key
@@ -62,8 +63,8 @@ class FetchDialog(QDialog):
         self.sp_to = QSpinBox(); self.sp_to.setRange(0, 10_000_000)
         form = QFormLayout()
         form.addRow("sessionId", self.cb_session)
-        form.addRow("fromNum (0=처음부터)", self.sp_from)
-        form.addRow("toNum (0=끝까지)", self.sp_to)
+        form.addRow(tr("fetch_from_label"), self.sp_from)
+        form.addRow(tr("fetch_to_label"), self.sp_to)
 
         self.progress = QProgressBar(); self.progress.setVisible(False)
         self.lbl_status = QLabel("")
@@ -71,9 +72,9 @@ class FetchDialog(QDialog):
         # Set True when the user chooses to go back to the login screen; the
         # app.py orchestration loop reopens LoginDialog instead of exiting.
         self.go_back = False
-        self.btn_back = QPushButton("← 로그인")
+        self.btn_back = QPushButton(tr("fetch_back"))
         self.btn_back.clicked.connect(self._on_back)
-        self.btn_fetch = QPushButton("가져오기 (다운로드)")
+        self.btn_fetch = QPushButton(tr("fetch_btn"))
         self.btn_fetch.setDefault(True)
         self.btn_fetch.clicked.connect(self._on_fetch)
         btns = QHBoxLayout()
@@ -99,8 +100,8 @@ class FetchDialog(QDialog):
             sessions = self.client.list_sessions()
         except Exception as e:  # endpoint pending / network error -> manual
             QMessageBox.warning(
-                self, "세션 목록 실패",
-                f"세션 목록을 불러오지 못했습니다. 수동 입력하세요.\n{e}")
+                self, tr("fetch_sessions_failed_title"),
+                tr("fetch_sessions_failed_msg", error=e))
             self.cb_session.setEditable(True)
             return
         if not sessions:
@@ -113,7 +114,7 @@ class FetchDialog(QDialog):
                 self._session_names[int(sid)] = name
             label = f"session {sid}" if not name else f"session {sid} · {name}"
             if s.get("photoCount") is not None:
-                label += f"  ({s['photoCount']}장)"
+                label += "  " + tr("fetch_photo_count", count=s["photoCount"])
             self.cb_session.addItem(label, sid)
 
     def _selected_sid(self) -> int | None:
@@ -132,7 +133,8 @@ class FetchDialog(QDialog):
     def _on_fetch(self):
         sid = self._selected_sid()
         if sid is None:
-            QMessageBox.warning(self, "입력 필요", "sessionId를 선택/입력하세요.")
+            QMessageBox.warning(self, tr("fetch_input_required_title"),
+                                tr("fetch_input_required_msg"))
             return
         from_num = self.sp_from.value()
         to_num = self.sp_to.value()
@@ -148,14 +150,13 @@ class FetchDialog(QDialog):
         try:
             all_photos = self._fetch_all_photos(self.client, sid)
         except ViewerApiError as e:
-            QMessageBox.critical(self, "가져오기 실패", str(e))
+            QMessageBox.critical(self, tr("fetch_failed_title"), str(e))
             return
         photos = filter_photos_by_range(all_photos, from_num, to_num)
         vlog().info("fetch: %d photos in session, %d selected (fromNum=%s toNum=%s)",
                     len(all_photos), len(photos), from_num, to_num)
         if not photos:
-            QMessageBox.warning(self, "비어있음",
-                                "선택된 사진이 없습니다 (범위를 확인하세요).")
+            QMessageBox.warning(self, tr("fetch_empty_title"), tr("fetch_empty_msg"))
             return
 
         for p in photos:
@@ -174,7 +175,7 @@ class FetchDialog(QDialog):
 
         def _prog(done, total):
             self.progress.setValue(done)
-            self.lbl_status.setText(f"다운로드 {done}/{total}")
+            self.lbl_status.setText(tr("fetch_progress", done=done, total=total))
             QApplication.processEvents()
 
         failures = download_photos(
@@ -185,8 +186,8 @@ class FetchDialog(QDialog):
 
         if failures:
             QMessageBox.warning(
-                self, "일부 실패",
-                f"{len(failures)}건 다운로드 실패. 나머지는 사용 가능합니다.")
+                self, tr("fetch_partial_failed_title"),
+                tr("fetch_partial_failed_msg", count=len(failures)))
         self.workspace = ws
         self.manifest = manifest
         self.accept()

@@ -142,4 +142,65 @@ STRINGS = {
         "로컬 매니페스트를 읽을 수 없습니다: {path}\n{exc}",
     "login_version":                  "버전 {version}",
     "login_check_update":             "업데이트 확인",
+
+    # --- fetch dialog ---
+    "fetch_title":                     "데이터 가져오기",
+    "fetch_from_label":                "fromNum (0=처음부터)",
+    "fetch_to_label":                  "toNum (0=끝까지)",
+    "fetch_back":                      "← 로그인",
+    "fetch_btn":                       "가져오기 (다운로드)",
+    "fetch_photo_count":               "({count}장)",
+    "fetch_sessions_failed_title":     "작업 목록 실패",
+    "fetch_sessions_failed_msg":       "작업 목록을 불러오지 못했습니다. 수동 입력하세요.\n{error}",
+    "fetch_input_required_title":      "입력 필요",
+    "fetch_input_required_msg":        "sessionId를 선택/입력하세요.",
+    "fetch_failed_title":              "가져오기 실패",
+    "fetch_empty_title":               "비어있음",
+    "fetch_empty_msg":                 "선택된 사진이 없습니다 (범위를 확인하세요).",
+    "fetch_partial_failed_title":      "일부 실패",
+    "fetch_partial_failed_msg":        "{count}건 다운로드 실패. 나머지는 사용 가능합니다.",
+
+    # --- SAM2.1 weights dialog ---
+    "weights_title":                   "SAM2.1 모델 다운로드",
+    "weights_confirm":
+        "Few-shot 라벨링에는 SAM2.1 모델(약 {size} MB)이 필요합니다.\n"
+        "처음 한 번만 내려받으며, 다음부터는 바로 사용됩니다.\n\n"
+        "저장 위치: {path}\n\n지금 다운로드할까요?",
+    "weights_progress_label":          "SAM2.1 모델 다운로드 중…",
+    "weights_progress_template":       "SAM2.1 모델 다운로드 중… {done} / {total} MB",
+    "weights_cancel":                  "취소",
+    "weights_failed_title":            "다운로드 실패",
+    "weights_failed_msg":
+        "SAM2.1 모델을 내려받지 못했습니다.\n{type}: {exc}\n\n"
+        "인터넷 연결을 확인하거나, 파일을 직접 받아 {path} 에 두세요:\n{url}",
+
+    # --- update dialog ---
+    "update_title":                    "업데이트",
+    "update_available":                "새 버전이 있습니다: v{version}\n다운로드 크기: 약 {size} MB",
+    "update_full_warning":
+        "\n\n⚠ full 버전 업데이트는 약 1.5 GB 를 다운로드합니다. "
+        "충분한 네트워크/디스크 공간을 확인하세요.",
+    "update_informative":              "설치 후 자동으로 다시 시작됩니다.\n\n{notes}",
+    "update_btn_update":               "지금 업데이트",
+    "update_btn_later":                "나중에",
+    "update_btn_skip":                 "이 버전 건너뛰기",
+    "update_progress_label":           "업데이트 다운로드 중…",
+    "update_progress_template":        "업데이트 다운로드 중… {done} / {total} MB",
+    "update_cancel":                   "취소",
+    "update_failed_title":             "업데이트 실패",
+    "update_failed_msg":
+        "{type}: {exc}\n\n나중에 다시 시도하거나 직접 내려받으세요:\n{url}",
+    "update_dev_build_msg":            "개발 빌드에서는 업데이트를 확인할 수 없습니다.",
+    "update_checking_msg":             "업데이트 확인 중입니다.",
+    "update_uptodate_msg":             "최신 버전을 사용 중입니다.",
+    "update_check_failed_title":       "업데이트 확인 실패",
+    "update_check_failed_msg":
+        "업데이트 확인 중 오류가 발생했습니다: {type}: {exc}\n\n{url}",
+
+    # --- app / startup ---
+    "app_fewshot_loading":             "Few-shot 모델 로딩 중… 잠시 기다려 주세요.",
+    "app_fewshot_error_title":         "Few-shot 도구를 열 수 없습니다",
+    "app_fewshot_error_msg":
+        "{type}: {exc}\n\nSAM 가중치(./checkpoint)와 torch 설치를 확인하세요 "
+        "(annotation_tool/USAGE.md 참고).",
 }

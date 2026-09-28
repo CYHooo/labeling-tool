@@ -137,4 +137,66 @@ STRINGS = {
         "Could not read the local manifest: {path}\n{exc}",
     "login_version":                  "Version {version}",
     "login_check_update":             "Check for updates",
+
+    # --- fetch dialog ---
+    "fetch_title":                     "Fetch data",
+    "fetch_from_label":                "fromNum (0 = from the start)",
+    "fetch_to_label":                  "toNum (0 = to the end)",
+    "fetch_back":                      "← Log in",
+    "fetch_btn":                       "Fetch (download)",
+    "fetch_photo_count":               "({count} photos)",
+    "fetch_sessions_failed_title":     "Job list failed",
+    "fetch_sessions_failed_msg":       "Could not load the job list. Enter it manually.\n{error}",
+    "fetch_input_required_title":      "Input required",
+    "fetch_input_required_msg":        "Select or enter a sessionId.",
+    "fetch_failed_title":              "Fetch failed",
+    "fetch_empty_title":               "Empty",
+    "fetch_empty_msg":                 "No photos selected (check the range).",
+    "fetch_partial_failed_title":      "Partial failure",
+    "fetch_partial_failed_msg":        "{count} downloads failed. The rest are usable.",
+
+    # --- SAM2.1 weights dialog ---
+    "weights_title":                   "Download SAM2.1 model",
+    "weights_confirm":
+        "Few-shot labeling needs the SAM2.1 model (about {size} MB).\n"
+        "It downloads only once; after that it's ready to use.\n\n"
+        "Save location: {path}\n\nDownload it now?",
+    "weights_progress_label":          "Downloading SAM2.1 model…",
+    "weights_progress_template":       "Downloading SAM2.1 model… {done} / {total} MB",
+    "weights_cancel":                  "Cancel",
+    "weights_failed_title":            "Download failed",
+    "weights_failed_msg":
+        "Could not download the SAM2.1 model.\n{type}: {exc}\n\n"
+        "Check your internet connection, or download the file manually "
+        "and place it at {path}:\n{url}",
+
+    # --- update dialog ---
+    "update_title":                    "Update",
+    "update_available":                "A new version is available: v{version}\nDownload size: about {size} MB",
+    "update_full_warning":
+        "\n\n⚠ The full variant update downloads about 1.5 GB. "
+        "Make sure you have enough network and disk space.",
+    "update_informative":              "The app restarts automatically after installing.\n\n{notes}",
+    "update_btn_update":               "Update now",
+    "update_btn_later":                "Later",
+    "update_btn_skip":                 "Skip this version",
+    "update_progress_label":           "Downloading update…",
+    "update_progress_template":        "Downloading update… {done} / {total} MB",
+    "update_cancel":                   "Cancel",
+    "update_failed_title":             "Update failed",
+    "update_failed_msg":
+        "{type}: {exc}\n\nTry again later, or download it manually:\n{url}",
+    "update_dev_build_msg":            "Update checks are unavailable on a development build.",
+    "update_checking_msg":             "Checking for updates.",
+    "update_uptodate_msg":             "You're using the latest version.",
+    "update_check_failed_title":       "Update check failed",
+    "update_check_failed_msg":
+        "An error occurred while checking for updates: {type}: {exc}\n\n{url}",
+
+    # --- app / startup ---
+    "app_fewshot_loading":             "Loading the few-shot model… please wait.",
+    "app_fewshot_error_title":         "Could not open the few-shot tool",
+    "app_fewshot_error_msg":
+        "{type}: {exc}\n\nCheck the SAM weights (./checkpoint) and the torch "
+        "installation (see annotation_tool/USAGE.md).",
 }

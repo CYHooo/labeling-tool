@@ -3,7 +3,7 @@
 The login screen's tabs pick the tool:
   * online:  login + data-fetch dialogs (fetch + download) -> main labeling
              window wired to the per-session workspace -> manual batch upload
-  * session: an already-downloaded job picked on the 로컬 작업 tab -> main
+  * session: an already-downloaded job picked on the Local jobs tab -> main
              window (uploads when URL + key were given)
   * fewshot: annotation_tool (SAM3/SAM2, needs torch; imported only on demand)
 Run on a LOCAL PC (not the AI server).
@@ -21,6 +21,7 @@ os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = ""
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QLabel, QMessageBox
 
+from labeling_tool.core.i18n import tr
 from labeling_tool.logging_setup import vlog
 from labeling_tool.ui.login_dialog import LoginDialog, MODE_FEWSHOT
 from labeling_tool.ui.fetch_dialog import FetchDialog
@@ -40,7 +41,7 @@ def _open_fewshot_window():
         if not ensure_sam2_weights():
             return None  # declined / failed -> back to the login screen
 
-    notice = QLabel("Few-shot 모델 로딩 중… 잠시 기다려 주세요.")
+    notice = QLabel(tr("app_fewshot_loading"))
     notice.setWindowFlags(Qt.SplashScreen | Qt.WindowStaysOnTopHint)
     notice.setMargin(24)
     notice.show()
@@ -53,10 +54,8 @@ def _open_fewshot_window():
     except Exception as exc:  # noqa: BLE001 - show any load failure to the user
         vlog().exception("few-shot tool failed to open")
         QMessageBox.critical(
-            None, "Few-shot 도구를 열 수 없습니다",
-            f"{type(exc).__name__}: {exc}\n\n"
-            "SAM 가중치(./checkpoint)와 torch 설치를 확인하세요 "
-            "(annotation_tool/USAGE.md 참고).")
+            None, tr("app_fewshot_error_title"),
+            tr("app_fewshot_error_msg", type=type(exc).__name__, exc=exc))
         return None
     finally:
         QApplication.restoreOverrideCursor()

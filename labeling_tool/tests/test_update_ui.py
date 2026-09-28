@@ -354,3 +354,18 @@ def test_ask_warns_about_full_variant_download_size(monkeypatch):
     monkeypatch.setattr(QMessageBox, "clickedButton", lambda self: None)
     ui._ask(None, full_info)
     assert "1.5 GB" in captured["text"]
+
+
+# ------------------------------------------------------- i18n: the prompt
+# text must come from tr(), so it follows the active language.
+
+def test_prompt_text_follows_language(monkeypatch, tmp_path):
+    from labeling_tool.core import i18n
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path)
+    captured = {}
+    monkeypatch.setattr(ui.QMessageBox, "exec_", lambda self: captured.setdefault("text", self.text()))
+    monkeypatch.setattr(ui.QMessageBox, "clickedButton", lambda self: None)
+    i18n.set_language("en")
+    ui._ask(None, INFO)
+    assert captured["text"] == i18n.tr("update_available", version=INFO.version,
+                                       size=INFO.size // (1024 * 1024))

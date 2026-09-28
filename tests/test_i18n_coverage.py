@@ -19,6 +19,10 @@ PLACEHOLDER = re.compile(r"\{(\w+)[^}]*\}")
 UI_MODULES = [
     "labeling_tool/core/window/ui_builder.py",
     "labeling_tool/ui/login_dialog.py",
+    "labeling_tool/ui/fetch_dialog.py",
+    "labeling_tool/ui/sam2_weights_dialog.py",
+    "labeling_tool/update/ui.py",
+    "labeling_tool/app.py",
 ]
 
 

@@ -137,4 +137,64 @@ STRINGS = {
         "无法读取本地清单: {path}\n{exc}",
     "login_version":                  "版本 {version}",
     "login_check_update":             "检查更新",
+
+    # --- fetch dialog ---
+    "fetch_title":                     "获取数据",
+    "fetch_from_label":                "fromNum (0=从头开始)",
+    "fetch_to_label":                  "toNum (0=到末尾)",
+    "fetch_back":                      "← 登录",
+    "fetch_btn":                       "获取（下载）",
+    "fetch_photo_count":               "({count} 张)",
+    "fetch_sessions_failed_title":     "作业列表失败",
+    "fetch_sessions_failed_msg":       "无法获取作业列表，请手动输入。\n{error}",
+    "fetch_input_required_title":      "需要输入",
+    "fetch_input_required_msg":        "请选择或输入 sessionId。",
+    "fetch_failed_title":              "获取失败",
+    "fetch_empty_title":               "为空",
+    "fetch_empty_msg":                 "未选中任何照片（请检查范围）。",
+    "fetch_partial_failed_title":      "部分失败",
+    "fetch_partial_failed_msg":        "{count} 个下载失败，其余可正常使用。",
+
+    # --- SAM2.1 weights dialog ---
+    "weights_title":                   "下载 SAM2.1 模型",
+    "weights_confirm":
+        "Few-shot 标注需要 SAM2.1 模型（约 {size} MB）。\n"
+        "只需下载一次，之后即可直接使用。\n\n"
+        "保存位置：{path}\n\n是否现在下载？",
+    "weights_progress_label":          "正在下载 SAM2.1 模型…",
+    "weights_progress_template":       "正在下载 SAM2.1 模型… {done} / {total} MB",
+    "weights_cancel":                  "取消",
+    "weights_failed_title":            "下载失败",
+    "weights_failed_msg":
+        "未能下载 SAM2.1 模型。\n{type}: {exc}\n\n"
+        "请检查网络连接，或手动下载文件并放到 {path}：\n{url}",
+
+    # --- update dialog ---
+    "update_title":                    "更新",
+    "update_available":                "有新版本可用：v{version}\n下载大小：约 {size} MB",
+    "update_full_warning":
+        "\n\n⚠ full 版本更新约需下载 1.5 GB，请确认网络和磁盘空间充足。",
+    "update_informative":              "安装后将自动重启。\n\n{notes}",
+    "update_btn_update":               "立即更新",
+    "update_btn_later":                "稍后",
+    "update_btn_skip":                 "跳过此版本",
+    "update_progress_label":           "正在下载更新…",
+    "update_progress_template":        "正在下载更新… {done} / {total} MB",
+    "update_cancel":                   "取消",
+    "update_failed_title":             "更新失败",
+    "update_failed_msg":
+        "{type}: {exc}\n\n请稍后重试，或手动下载：\n{url}",
+    "update_dev_build_msg":            "开发版本无法检查更新。",
+    "update_checking_msg":             "正在检查更新。",
+    "update_uptodate_msg":             "当前已是最新版本。",
+    "update_check_failed_title":       "检查更新失败",
+    "update_check_failed_msg":
+        "检查更新时发生错误：{type}: {exc}\n\n{url}",
+
+    # --- app / startup ---
+    "app_fewshot_loading":             "正在加载 Few-shot 模型…请稍候。",
+    "app_fewshot_error_title":         "无法打开 Few-shot 工具",
+    "app_fewshot_error_msg":
+        "{type}: {exc}\n\n请检查 SAM 权重（./checkpoint）和 torch 安装"
+        "（参见 annotation_tool/USAGE.md）。",
 }

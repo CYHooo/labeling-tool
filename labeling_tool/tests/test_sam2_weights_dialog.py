@@ -76,3 +76,20 @@ def test_app_skips_fewshot_when_weights_unavailable(monkeypatch):
     monkeypatch.setattr(dlg, "ensure_sam2_weights", lambda parent=None: False)
     monkeypatch.setattr(fs_mw, "MainWindow", lambda: pytest.fail("window built"))
     assert app.open_tool_window("fewshot") is None
+
+
+# ------------------------------------------------------- i18n: the confirm
+# prompt text must come from tr(), so it follows the active language.
+
+def test_prompt_follows_language(monkeypatch, ckpt, tmp_path):
+    from labeling_tool.core import i18n
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path)
+    i18n.set_language("zh")
+    asked = {}
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda parent, title, text, *a, **k: asked.setdefault("t", text)
+                        or QMessageBox.No)
+    dlg.ensure_sam2_weights()
+    assert asked["t"] == i18n.tr("weights_confirm",
+                                 size=weights.SAM2_WEIGHTS_SIZE // (1024 * 1024),
+                                 path=ckpt)
