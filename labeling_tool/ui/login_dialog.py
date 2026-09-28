@@ -172,6 +172,10 @@ class LoginDialog(QDialog):
         self.lbl_field_base.setText(i18n.tr("login_field_base"))
         self.lbl_field_key.setText(i18n.tr("login_field_key"))
         self.btn_next.setText(i18n.tr("login_next"))
+        # lbl_status is only ever set to "" today (no code path writes a
+        # message into it), but clear it explicitly so a future status
+        # message can never survive a language change untranslated.
+        self.lbl_status.setText("")
 
         self.lbl_field_local_base.setText(i18n.tr("login_field_base"))
         self.lbl_field_local_key.setText(i18n.tr("login_field_key"))

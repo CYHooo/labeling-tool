@@ -9,6 +9,8 @@ over a preference.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from labeling_tool.core.app_paths import app_home
@@ -30,9 +32,29 @@ def load_settings(home: Path | None = None) -> dict:
 
 
 def save_settings(data: dict, home: Path | None = None) -> None:
+    """Write ui-settings.json atomically.
+
+    Writes to a sibling temp file first, then os.replace()s it into place,
+    so a crash mid-write (or a second instance writing concurrently) can
+    never leave a truncated/partial ui-settings.json behind -- a plain
+    write_text() truncates the existing file before writing the new
+    content, so a crash between those two steps loses the file entirely.
+    """
+    path = _path(home)
     try:
-        _path(home).write_text(json.dumps(data, indent=2, ensure_ascii=False),
-                               encoding="utf-8")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(
+            dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(json.dumps(data, indent=2, ensure_ascii=False))
+            os.replace(tmp_name, path)
+        except OSError:
+            try:
+                os.remove(tmp_name)
+            except OSError:
+                pass
+            raise
     except OSError:
         pass
 

@@ -4,6 +4,10 @@
 # ============================================================
 labeling_tool/data/
 labeling_tool/config.json
+# UI language setting + pending-update marker, written at the repo root by
+# a source run (labeling_tool/core/settings.py, labeling_tool/update/ui.py)
+ui-settings.json
+update-state.json
 # annotation_tool: default dataset dir, SAM weights, user class definitions
 dataset/
 checkpoint/

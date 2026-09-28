@@ -24,6 +24,27 @@ def _no_real_config(monkeypatch, tmp_path):
     monkeypatch.setattr(ld, "DEFAULT_DATA_ROOT", tmp_path)
 
 
+@pytest.fixture(autouse=True)
+def _close_dialogs(monkeypatch):
+    """Every test here builds ld.LoginDialog() instances that connect to the
+    process-wide LanguageManager singleton and disconnect only on close()
+    (see LoginDialog.closeEvent). Track every instance this test creates and
+    close() it afterwards, so a test that doesn't call close() itself (most
+    of them don't -- they only assert on the dialog) doesn't leave that
+    singleton with live listeners for the rest of the suite."""
+    created = []
+    orig_init = ld.LoginDialog.__init__
+
+    def _tracked_init(self, *args, **kwargs):
+        orig_init(self, *args, **kwargs)
+        created.append(self)
+
+    monkeypatch.setattr(ld.LoginDialog, "__init__", _tracked_init)
+    yield
+    for dlg in created:
+        dlg.close()
+
+
 def _job(root, sid, base="https://srv.example.com", name=None, mtime=1000):
     import os
     d = root / f"session_{sid}"

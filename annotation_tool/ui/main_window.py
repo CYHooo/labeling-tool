@@ -40,6 +40,9 @@ class MainWindow(QMainWindow):
         self._candidate = None
         self._mask_load_error = None  # set when an existing mask can't be loaded
         self.items = []
+        # set once a dataset is loaded, so retranslate() can rebuild the
+        # window title (it embeds translated-free values: folder name + count).
+        self._loaded_dataset_dir: Path | None = None
 
         # --- central canvas ---
         self.canvas = ImageCanvas()
@@ -103,6 +106,10 @@ class MainWindow(QMainWindow):
     def retranslate(self):
         """Refresh every static text on the panel; class row names are left
         untouched since they come from classes.json, not from tr()."""
+        if self._loaded_dataset_dir is not None:
+            self.setWindowTitle(i18n.tr(
+                "fs_window_title", name=self._loaded_dataset_dir.name,
+                count=len(self.items)))
         self._dock_l.setWindowTitle(i18n.tr("fs_dock_images"))
         self._dock_r.setWindowTitle(i18n.tr("fs_dock_classes"))
         self._file_menu.setTitle(i18n.tr("fs_menu_file"))
@@ -377,6 +384,7 @@ class MainWindow(QMainWindow):
             return
 
         # commit the switch and reset per-image editing state
+        self._loaded_dataset_dir = dataset_dir
         self.dataset_dir = dataset_dir
         self.mask_dir = dataset_io.resolve_mask_dir(dataset_dir)
         self.items = items

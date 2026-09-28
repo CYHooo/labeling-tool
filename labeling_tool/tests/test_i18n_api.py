@@ -47,10 +47,13 @@ def test_unknown_key_returns_the_key():
 
 def test_set_language_persists_and_emits():
     seen = []
-    i18n.language_manager().languageChanged.connect(seen.append)
-    i18n.set_language("en")
-    assert seen == ["en"]
-    assert i18n.current_language() == "en"
+    conn = i18n.language_manager().languageChanged.connect(seen.append)
+    try:
+        i18n.set_language("en")
+        assert seen == ["en"]
+        assert i18n.current_language() == "en"
+    finally:
+        i18n.language_manager().languageChanged.disconnect(conn)
 
 
 def test_set_language_ignores_unknown_code():
