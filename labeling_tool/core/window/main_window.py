@@ -15,7 +15,7 @@ from labeling_tool.core.constants import (
     CATEGORIES, DEFAULT_CATEGORY, OUTPUT_DIR_NAME,
     IMAGE_EXTENSIONS, MASK_NAME_SUFFIXES,
 )
-from labeling_tool.core.i18n import TRANSLATIONS, LANG_DISPLAY_NAMES, DEFAULT_LANG
+from labeling_tool.core.i18n import TRANSLATIONS, LANG_DISPLAY_NAMES, current_language
 from labeling_tool.core.mask_io import load_origin_and_masks
 from labeling_tool.core.mask_codec import encode_label_mask
 from labeling_tool.core.canvas import ImageCanvas
@@ -41,7 +41,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.lang: str = DEFAULT_LANG
+        self.lang: str = current_language()
 
         self.origin_dir: Path | None = None
         self.detected_dir: Path | None = None
