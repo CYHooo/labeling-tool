@@ -65,9 +65,23 @@ class ViewerMainWindow(CoreMainWindow):
             btn.setEnabled(False)
             btn.setToolTip(self.tr_("sam_unavailable"))
 
+    # ------------------------------------------------------------ i18n
+    def retranslate(self) -> None:
+        """Re-apply this subclass's own translated text (the core window's
+        _retranslate_ui handles everything it owns; this covers the upload
+        button added on top of it)."""
+        self.btn_upload.setText(self.tr_("vmw_btn_upload"))
+
+    def _retranslate_ui(self):
+        # CoreMainWindow already owns the languageChanged connection and
+        # disconnects it on close (see closeEvent in core/window/main_window.py);
+        # extend its single retranslate hook instead of adding a second listener.
+        super()._retranslate_ui()
+        self.retranslate()
+
     # ------------------------------------------------------------------
     def _add_upload_button(self):
-        self.btn_upload = QPushButton("EC2에 업로드")
+        self.btn_upload = QPushButton(self.tr_("vmw_btn_upload"))
         self.btn_upload.setObjectName("primaryAction")
         self.btn_upload.clicked.connect(self._on_upload)
         # Inline progress bar, shown right under the button during upload so the
@@ -109,14 +123,15 @@ class ViewerMainWindow(CoreMainWindow):
 
     def _on_upload(self):
         if self._client is None:
-            QMessageBox.warning(self, "오프라인",
-                                "API 클라이언트가 없어 업로드할 수 없습니다.")
+            QMessageBox.warning(self, self.tr_("vmw_offline_title"),
+                                self.tr_("vmw_offline_msg"))
             return
         self._save_all_artifacts(silent=True, only_if_edited=True)
         filenames = self._edited_filenames()
         if not filenames:
-            self.status.showMessage("업로드할 편집본이 없습니다 (저장된 마스크 없음)")
-            QMessageBox.information(self, "없음", "업로드할 편집본이 없습니다.")
+            self.status.showMessage(self.tr_("vmw_status_no_edits"))
+            QMessageBox.information(self, self.tr_("vmw_none_title"),
+                                     self.tr_("vmw_msg_no_edits"))
             return
 
         # Build only lightweight specs on the UI thread (instant). The heavy
@@ -135,19 +150,19 @@ class ViewerMainWindow(CoreMainWindow):
                           "scale_source": upload_scale_source(info["source"])})
 
         if not specs:
-            self.status.showMessage(
-                "pxPerCm가 있는 편집본이 없습니다 — ArUco 자동검출 또는 수동 측정 필요")
-            QMessageBox.warning(self, "스케일 없음",
-                                "pxPerCm가 있는 편집본이 없습니다 (ArUco 필요).")
+            self.status.showMessage(self.tr_("vmw_status_no_scale"))
+            QMessageBox.warning(self, self.tr_("vmw_no_scale_title"),
+                                self.tr_("vmw_msg_no_scale"))
             return
 
         total = len(specs)
         self._upload_bar.setRange(0, total)
         self._upload_bar.setValue(0)
-        self._upload_bar.setFormat("준비 %v/%m")
+        self._upload_bar.setFormat(
+            self.tr_("vmw_progress_format", phase=self.tr_("vmw_phase_prepare")))
         self._upload_bar.setVisible(True)
         self.btn_upload.setEnabled(False)
-        self.status.showMessage(f"EC2 업로드 준비… (0/{total})")
+        self.status.showMessage(self.tr_("vmw_status_upload_starting", total=total))
 
         worker = UploadWorker(
             self._client, session_id=self._ws.session_id, specs=specs,
@@ -160,11 +175,13 @@ class ViewerMainWindow(CoreMainWindow):
         worker.start()
 
     def _on_upload_progress(self, done, total, phase):
-        label = "준비" if phase == "prepare" else "업로드"
+        label = (self.tr_("vmw_phase_prepare") if phase == "prepare"
+                 else self.tr_("vmw_phase_upload"))
         self._upload_bar.setMaximum(total)
         self._upload_bar.setValue(done)
-        self._upload_bar.setFormat(f"{label} %v/%m")
-        self.status.showMessage(f"EC2 {label} 중… ({done}/{total})")
+        self._upload_bar.setFormat(self.tr_("vmw_progress_format", phase=label))
+        self.status.showMessage(
+            self.tr_("vmw_status_progress", phase=label, done=done, total=total))
 
     def _on_upload_done(self, result):
         self._upload_bar.setVisible(False)
@@ -176,8 +193,8 @@ class ViewerMainWindow(CoreMainWindow):
         self._upload_bar.setVisible(False)
         self.btn_upload.setEnabled(True)
         self._upload_worker = None
-        self.status.showMessage("업로드 실패")
-        QMessageBox.critical(self, "업로드 실패", msg)
+        self.status.showMessage(self.tr_("vmw_upload_failed"))
+        QMessageBox.critical(self, self.tr_("vmw_upload_failed"), msg)
 
     def _finish_upload(self, result):
         # timestamps now carries only SERVER-CONFIRMED photos (uploader excludes
@@ -194,38 +211,43 @@ class ViewerMainWindow(CoreMainWindow):
         verify_failures = result.get("verify_failures") or []
         report = result.get("verify_report")
         log_path = self._ws.session_dir / "vapi.log"
-        report_line = f"\n검증 보고서(CSV): {report}" if report else ""
+        report_line = (self.tr_("vmw_report_line", report=report)
+                        if report else "")
         if result["failed"] or anomalies or verify_failures:
             parts = []
             if result["failed"]:
                 first_err = (str(result["failed"][0].get("error", ""))
-                             or "(원인 미기록)")
-                parts.append(f"{len(result['failed'])}개 배치 업로드 실패 — 원인: {first_err}")
+                             or self.tr_("vmw_err_unrecorded"))
+                parts.append(self.tr_(
+                    "vmw_part_failed_batches",
+                    count=len(result["failed"]), err=first_err))
             if verify_failures:
                 # read-back is authoritative: name the photos missing on the server
                 nums = ", ".join(str(v.get("reportPhotoNum") or v["timestamp"])
                                  for v in verify_failures[:12])
                 more = " …" if len(verify_failures) > 12 else ""
-                parts.append(
-                    f"서버 확인 결과 {len(verify_failures)}장 미반영 "
-                    f"(번호/타임스탬프: {nums}{more})")
+                parts.append(self.tr_(
+                    "vmw_part_verify_failures",
+                    count=len(verify_failures), nums=nums, more=more))
             elif anomalies:
                 missing = sum(a["sent"] - a["updated"] for a in anomalies)
-                parts.append(
-                    f"서버가 일부만 저장 (요청보다 {missing}장 미반영)")
+                parts.append(self.tr_("vmw_part_anomalies", missing=missing))
             self.status.showMessage(
-                f"서버 확인 {len(synced_ts)}장 정상, 일부 미반영 — 다시 시도하세요")
+                self.tr_("vmw_status_partial", count=len(synced_ts)))
             QMessageBox.warning(
-                self, "일부 실패 / 미반영",
-                f"서버에 확인된 사진: {len(synced_ts)}장\n\n"
+                self, self.tr_("vmw_partial_title"),
+                self.tr_("vmw_partial_msg_header", count=len(synced_ts))
                 + "\n".join(parts)
-                + f"{report_line}\n자세한 로그: {log_path}\n\n다시 업로드하세요.")
+                + report_line
+                + self.tr_("vmw_partial_msg_footer", log_path=log_path))
         elif not synced_ts:
-            self.status.showMessage("업로드할 항목이 없습니다")
-            QMessageBox.information(self, "없음", "업로드할 편집본이 없습니다.")
+            self.status.showMessage(self.tr_("vmw_status_no_items"))
+            QMessageBox.information(self, self.tr_("vmw_none_title"),
+                                     self.tr_("vmw_msg_no_edits"))
         else:
             self.status.showMessage(
-                f"업로드 완료: {result['uploaded']}건 (서버 확인 OK)")
+                self.tr_("vmw_status_done", count=result["uploaded"]))
             QMessageBox.information(
-                self, "완료",
-                f"{result['uploaded']}건 업로드 + 서버 확인 완료.{report_line}")
+                self, self.tr_("vmw_done_title"),
+                self.tr_("vmw_done_msg", count=result["uploaded"],
+                         report_line=report_line))

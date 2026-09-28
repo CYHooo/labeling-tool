@@ -17,6 +17,7 @@
 | 2026-07-01-sam-crop-around-click | 대형 이미지 SAM 크롭 | 유효 |
 | 2026-09-21-windows-exe-packaging | Windows exe (lite / full) 패키징 | 유효 (§0 개정: exe 는 SAM2.1 전용) |
 | 2026-09-23-installer-and-auto-update | Windows 설치 프로그램 + 인앱 자동 업데이트 | 유효 |
+| 2026-09-24-ui-language-settings | 앱 전체 UI 다국어(ko/zh/en) 지원 및 언어 설정 | 유효 (`docs/i18n-glossary.md` 용어표 병행) |
 
 ## archive/
 

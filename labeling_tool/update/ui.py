@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
 )
 
 from labeling_tool.core import net_download
+from labeling_tool.core.i18n import tr
 from labeling_tool.logging_setup import vlog
 from labeling_tool.update import checker, installer, state
 from labeling_tool.update.version import read_build_info
@@ -81,21 +82,19 @@ def _ask(parent, info) -> str:
     size_mb = info.size // (1024 * 1024)
     notes = "\n".join(info.notes.splitlines()[:8])
     box = QMessageBox(parent)
-    box.setWindowTitle("업데이트")
+    box.setWindowTitle(tr("update_title"))
     box.setIcon(QMessageBox.Information)
     # A release body is untrusted remote text: PlainText keeps AutoText from
     # rendering it as rich text (which could otherwise fetch remote images).
     box.setTextFormat(Qt.PlainText)
-    text = (f"새 버전이 있습니다: v{info.version}\n"
-           f"다운로드 크기: 약 {size_mb} MB")
+    text = tr("update_available", version=info.version, size=size_mb)
     if info.variant == "full":
-        text += "\n\n⚠ full 버전 업데이트는 약 1.5 GB 를 다운로드합니다. " \
-               "충분한 네트워크/디스크 공간을 확인하세요."
+        text += tr("update_full_warning")
     box.setText(text)
-    box.setInformativeText(f"설치 후 자동으로 다시 시작됩니다.\n\n{notes}")
-    btn_update = box.addButton("지금 업데이트", QMessageBox.AcceptRole)
-    box.addButton("나중에", QMessageBox.RejectRole)
-    btn_skip = box.addButton("이 버전 건너뛰기", QMessageBox.DestructiveRole)
+    box.setInformativeText(tr("update_informative", notes=notes))
+    btn_update = box.addButton(tr("update_btn_update"), QMessageBox.AcceptRole)
+    box.addButton(tr("update_btn_later"), QMessageBox.RejectRole)
+    btn_skip = box.addButton(tr("update_btn_skip"), QMessageBox.DestructiveRole)
     box.exec_()
     if box.clickedButton() is btn_update:
         return UPDATE
@@ -116,8 +115,8 @@ def prompt_and_install(parent, info, home: Path | None = None) -> bool:
     # accumulating forever under a single well-known name.
     target_dir = Path(tempfile.mkdtemp(prefix="LabelingTool-update-"))
     dest = target_dir / info.asset_name
-    bar = QProgressDialog("업데이트 다운로드 중…", "취소", 0, 100, parent)
-    bar.setWindowTitle("업데이트")
+    bar = QProgressDialog(tr("update_progress_label"), tr("update_cancel"), 0, 100, parent)
+    bar.setWindowTitle(tr("update_title"))
     bar.setWindowModality(Qt.ApplicationModal)
     bar.setMinimumDuration(0)
     bar.setValue(0)
@@ -125,8 +124,8 @@ def prompt_and_install(parent, info, home: Path | None = None) -> bool:
     def on_progress(done: int, total: int) -> bool:
         total = total or info.size
         bar.setValue(min(100, done * 100 // max(1, total)))
-        bar.setLabelText(f"업데이트 다운로드 중… {done // (1024 * 1024)} / "
-                         f"{total // (1024 * 1024)} MB")
+        bar.setLabelText(tr("update_progress_template",
+                           done=done // (1024 * 1024), total=total // (1024 * 1024)))
         QApplication.processEvents()
         return not bar.wasCanceled()
 
@@ -138,10 +137,9 @@ def prompt_and_install(parent, info, home: Path | None = None) -> bool:
         return False
     except Exception as exc:  # noqa: BLE001 - network / disk / checksum / launch
         vlog().exception("update failed")
-        QMessageBox.critical(parent, "업데이트 실패",
-                             f"{type(exc).__name__}: {exc}\n\n"
-                             f"나중에 다시 시도하거나 직접 내려받으세요:\n"
-                             f"https://github.com/{checker.GITHUB_REPO}/releases/latest")
+        QMessageBox.critical(parent, tr("update_failed_title"),
+                             tr("update_failed_msg", type=type(exc).__name__, exc=exc,
+                                url=f"https://github.com/{checker.GITHUB_REPO}/releases/latest"))
         return False
     finally:
         bar.close()
@@ -152,15 +150,14 @@ def check_for_updates(parent, *, force: bool = False, home: Path | None = None):
     info = read_build_info()
     if not info.is_release_build:
         if force:
-            QMessageBox.information(parent, "업데이트",
-                                    "개발 빌드에서는 업데이트를 확인할 수 없습니다.")
+            QMessageBox.information(parent, tr("update_title"), tr("update_dev_build_msg"))
         return None
     if _RUNNING_CHECKS:
         # Never run two checks at once: two writers into the same download
         # dir, a second prompt nested over the modal progress dialog, and
         # twice the unauthenticated GitHub API calls against a 60/hr/IP quota.
         if force:
-            QMessageBox.information(parent, "업데이트", "업데이트 확인 중입니다.")
+            QMessageBox.information(parent, tr("update_title"), tr("update_checking_msg"))
         return None
     st = state.load(home)
     if not force and not state.should_check(st):
@@ -188,15 +185,14 @@ def check_for_updates(parent, *, force: bool = False, home: Path | None = None):
             # a forced check must not lie by reporting "up to date" instead.
             if force:
                 QMessageBox.warning(
-                    box_parent, "업데이트 확인 실패",
-                    f"업데이트 확인 중 오류가 발생했습니다: "
-                    f"{type(found).__name__}: {found}\n\n"
-                    f"https://github.com/{checker.GITHUB_REPO}/releases/latest")
+                    box_parent, tr("update_check_failed_title"),
+                    tr("update_check_failed_msg", type=type(found).__name__, exc=found,
+                       url=f"https://github.com/{checker.GITHUB_REPO}/releases/latest"))
             return
         if found is None:
             if force:
-                QMessageBox.information(box_parent, "업데이트",
-                                        "최신 버전을 사용 중입니다.")
+                QMessageBox.information(box_parent, tr("update_title"),
+                                        tr("update_uptodate_msg"))
             return
         if not force and state.load(home).skipped_version == found.version:
             return

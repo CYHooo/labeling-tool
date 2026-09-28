@@ -24,6 +24,27 @@ def _no_real_config(monkeypatch, tmp_path):
     monkeypatch.setattr(ld, "DEFAULT_DATA_ROOT", tmp_path)
 
 
+@pytest.fixture(autouse=True)
+def _close_dialogs(monkeypatch):
+    """Every test here builds ld.LoginDialog() instances that connect to the
+    process-wide LanguageManager singleton and disconnect only on close()
+    (see LoginDialog.closeEvent). Track every instance this test creates and
+    close() it afterwards, so a test that doesn't call close() itself (most
+    of them don't -- they only assert on the dialog) doesn't leave that
+    singleton with live listeners for the rest of the suite."""
+    created = []
+    orig_init = ld.LoginDialog.__init__
+
+    def _tracked_init(self, *args, **kwargs):
+        orig_init(self, *args, **kwargs)
+        created.append(self)
+
+    monkeypatch.setattr(ld.LoginDialog, "__init__", _tracked_init)
+    yield
+    for dlg in created:
+        dlg.close()
+
+
 def _job(root, sid, base="https://srv.example.com", name=None, mtime=1000):
     import os
     d = root / f"session_{sid}"
@@ -310,3 +331,57 @@ def test_check_update_button_disables_while_running_and_reenables(monkeypatch):
     thread.wait(5000)
     QApplication.instance().processEvents()  # run the queued `finished` callback
     assert dlg.btn_check_update.isEnabled()
+
+
+def test_language_combo_switches_live(monkeypatch, tmp_path):
+    from labeling_tool.core import i18n
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path)
+    i18n.set_language("ko")
+    dlg = ld.LoginDialog()
+    assert [dlg.cmb_language.itemData(i) for i in range(dlg.cmb_language.count())] \
+        == list(i18n.LANGUAGES)
+    ko_title = dlg.tabs.tabText(ld.TAB_ONLINE)
+    dlg.cmb_language.setCurrentIndex(list(i18n.LANGUAGES).index("en"))
+    assert i18n.current_language() == "en"
+    assert dlg.tabs.tabText(ld.TAB_ONLINE) != ko_title
+    assert dlg.btn_next.text() == i18n.tr("login_next")
+
+
+def test_dialog_follows_language_changed_signal(monkeypatch, tmp_path):
+    from labeling_tool.core import i18n
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path)
+    i18n.set_language("ko")
+    dlg = ld.LoginDialog()
+    i18n.set_language("zh")          # changed elsewhere (e.g. the main window)
+    assert dlg.btn_next.text() == i18n.tr("login_next")
+
+
+def test_job_table_headers_are_translated(monkeypatch, tmp_path):
+    from labeling_tool.core import i18n
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path)
+    i18n.set_language("en")
+    dlg = ld.LoginDialog()
+    assert dlg.tbl_jobs.horizontalHeaderItem(0).text() == i18n.tr("login_col_job")
+
+
+def test_closed_dialog_stops_listening_for_language_changes(monkeypatch, tmp_path):
+    # app.py's login loop recreates LoginDialog() on every retry, all of them
+    # listening on the process-wide LanguageManager singleton; a closed
+    # dialog must disconnect so it isn't retranslated (or kept alive) forever.
+    from labeling_tool.core import i18n
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path)
+    i18n.set_language("ko")
+
+    dead = ld.LoginDialog()
+    dead_calls = []
+    monkeypatch.setattr(dead, "retranslate", lambda: dead_calls.append(1))
+    dead.close()
+
+    live = ld.LoginDialog()
+    live_calls = []
+    monkeypatch.setattr(live, "retranslate", lambda: live_calls.append(1))
+
+    i18n.set_language("en")
+
+    assert dead_calls == []
+    assert live_calls == [1]

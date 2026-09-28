@@ -272,3 +272,14 @@ def test_main_window_size_mismatch_mask_is_not_overwritten(monkeypatch, tmp_path
     assert warned
     assert dataset_io.load_mask(tmp_path / "masks" / "a_mask.png").shape == (5, 5)
     w.close()
+
+
+def test_panel_text_follows_language(monkeypatch, tmp_path):
+    from labeling_tool.core import i18n
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path)
+    i18n.set_language("en")
+    w = _make_window(monkeypatch, tmp_path)
+    assert w.btn_save.text() == i18n.tr("fs_save")
+    i18n.set_language("ko")
+    assert w.btn_save.text() == i18n.tr("fs_save")
+    w.close()
