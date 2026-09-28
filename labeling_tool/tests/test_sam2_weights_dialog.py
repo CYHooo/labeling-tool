@@ -75,7 +75,13 @@ def test_app_skips_fewshot_when_weights_unavailable(monkeypatch):
     monkeypatch.setattr(configs, "BACKEND", "sam2")
     monkeypatch.setattr(dlg, "ensure_sam2_weights", lambda parent=None: False)
     monkeypatch.setattr(fs_mw, "MainWindow", lambda: pytest.fail("window built"))
-    assert app.open_tool_window("fewshot") is None
+
+    class _Dlg:
+        def enter_loading_state(self, *a, **k):
+            pytest.fail("loading notice shown after the download was declined")
+
+    # A declined download is not an error: no window, and nothing shown.
+    assert app.open_fewshot_from_login(_Dlg()) is None
 
 
 # ------------------------------------------------------- i18n: the confirm

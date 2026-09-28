@@ -209,8 +209,12 @@ def test_fewshot_tab_enabled_when_torch_installed(monkeypatch):
     monkeypatch.setattr(ld, "fewshot_available", lambda: True)
     dlg = ld.LoginDialog()
     assert dlg.btn_fewshot.isEnabled()
+    seen = []
+    dlg.fewshotRequested.connect(lambda: seen.append(True))
     dlg.btn_fewshot.click()
-    assert dlg.mode == ld.MODE_FEWSHOT
+    # app.py drives the load and only then accepts; the click itself just
+    # asks for it.
+    assert seen == [True]
 
 
 def test_fewshot_tab_disabled_without_torch(monkeypatch):
@@ -263,7 +267,7 @@ def test_fewshot_available_does_not_import_torch(monkeypatch):
     assert "torch" in seen and "torch" not in sys.modules
 
 
-def test_open_tool_window_fewshot(monkeypatch):
+def test_load_fewshot_window_builds_it(monkeypatch):
     from labeling_tool import app
     import annotation_tool.ui.main_window as fs_mw
 
@@ -272,22 +276,24 @@ def test_open_tool_window_fewshot(monkeypatch):
             self.opened = True
 
     monkeypatch.setattr(fs_mw, "MainWindow", _FakeFewShot)
-    win = app.open_tool_window(ld.MODE_FEWSHOT)
+    win, err = app.load_fewshot_window()
     assert isinstance(win, _FakeFewShot)
+    assert err is None
 
 
-def test_open_tool_window_fewshot_failure_returns_to_login(monkeypatch):
+def test_load_fewshot_window_failure_reports_inline(monkeypatch):
+    """The failure comes back as text for the login dialog to show; a modal
+    QMessageBox here would hang the suite under offscreen Qt."""
     from labeling_tool import app
     import annotation_tool.ui.main_window as fs_mw
 
     def _boom():
         raise FileNotFoundError("./checkpoint/sam3.pt")
 
-    shown = []
     monkeypatch.setattr(fs_mw, "MainWindow", _boom)
-    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: shown.append(a))
-    assert app.open_tool_window(ld.MODE_FEWSHOT) is None
-    assert shown and "sam3.pt" in shown[0][2]
+    win, err = app.load_fewshot_window()
+    assert win is None
+    assert "sam3.pt" in err
     assert QApplication.overrideCursor() is None  # busy cursor restored
 
 

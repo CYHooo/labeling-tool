@@ -49,6 +49,7 @@
 | language | **언어** | 语言 | Language | |
 | weights（模型权重） | **가중치** | 权重 | Weights | |
 | lite / full（安装包变体） | **lite / full** | lite / full | lite / full | 不翻译，与下载文件名一致 |
+| loading（模型加载） | **로딩** | 加载 | Loading | 指把权重载入内存的过程；进行中用 `로딩 중…`，句尾省略号统一用 `…` |
 
 ## 5. 文体规则
 

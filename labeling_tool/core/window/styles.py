@@ -18,6 +18,15 @@ STYLESHEET = """
             font-size: 10px;
             padding: 1px 0;
         }
+        QFrame#loadingBox {
+            background-color: #181b20;
+            border: 1px solid #2c313a;
+            border-radius: 6px;
+        }
+        QLabel#loadingDetail {
+            color: #9ea3aa;
+            font-size: 11px;
+        }
         QLabel#hintText {
             color: #9ea3aa;
             font-size: 10px;

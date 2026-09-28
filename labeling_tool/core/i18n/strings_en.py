@@ -136,6 +136,9 @@ STRINGS = {
     "login_version":                  "Version {version}",
     "login_check_update":             "Check for updates",
 
+    "login_loading_detail":            "Loading the SAM2.1 weights into memory. This can take up to a\n"
+        "minute, and the window may not respond while it does.",
+    "login_loading_failed":            "Could not open the few-shot tool: {type}: {exc}",
     # --- fetch dialog ---
     "fetch_title":                     "Fetch data",
     "fetch_from_label":                "fromNum (0 = from the start)",
