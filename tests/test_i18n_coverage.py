@@ -25,6 +25,7 @@ UI_MODULES = [
     "labeling_tool/update/ui.py",
     "labeling_tool/app.py",
     "annotation_tool/ui/main_window.py",
+    "annotation_tool/ui/canvas.py",
 ]
 
 

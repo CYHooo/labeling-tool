@@ -304,7 +304,9 @@ class MainWindow(QMainWindow):
         cat = CATEGORIES[index] if 0 <= index < len(CATEGORIES) else DEFAULT_CATEGORY
         self.canvas.current_category = cat
         self.canvas.update()
-        self.status.showMessage(f"Category -> {cat}")
+        cat_key = "cat_crack" if cat == "crack" else "cat_spalling"
+        self.status.showMessage(
+            self.tr_("status_category_changed", cat=self.tr_(cat_key)))
 
     def _select_category_btn(self, idx: int):
         """Select a category from a keyboard shortcut (1=crack, 2=spalling)."""
@@ -700,7 +702,7 @@ class MainWindow(QMainWindow):
             origin, crack_mask, spalling_mask = load_origin_and_masks(
                 origin_path, mask_path)
         except FileNotFoundError as e:
-            self.status.showMessage(f"[ERROR] {e}")
+            self.status.showMessage(self.tr_("status_error", error=str(e)))
             return
 
         self.current_idx = idx
@@ -823,7 +825,8 @@ class MainWindow(QMainWindow):
         if self.current_idx < 0:
             return
         filename = self.image_files[self.current_idx]
-        edited = "yes" if self._edited.get(filename) else "no"
+        edited = (self.tr_("status_edited_yes") if self._edited.get(filename)
+                  else self.tr_("status_edited_no"))
         self.status.showMessage(self.tr_(
             "status_template",
             i=self.current_idx + 1, n=len(self.image_files),

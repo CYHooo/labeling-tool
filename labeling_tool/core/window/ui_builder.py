@@ -237,9 +237,6 @@ def build_nav_group(window: "MainWindow") -> QGroupBox:
     window.btn_save.setObjectName("primaryAction")
     window.btn_save.clicked.connect(window._on_brush_save)
     gn.addWidget(window.btn_save)
-    # Alias with the underscore-prefixed convention used by other widgets;
-    # kept as a second name (not a rename) so existing call sites are safe.
-    window._btn_save = window.btn_save
     return window._grp_nav
 
 
