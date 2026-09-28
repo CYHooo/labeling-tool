@@ -111,6 +111,22 @@ v1.0.0 은 압축판(`.zip`)으로 배포되었습니다. 압축을 푼 그 폴�
 
 ---
 
+## 언어 설정
+
+화면 표시 언어(한국어 / 中文 / English)는 **로그인 화면 또는 메인 창 우측 상단의 언어 선택**에서
+바꿀 수 있습니다.
+
+- 로그인 화면과 메인 창은 **같은 언어 설정을 공유**합니다. 한쪽에서 바꾸면 열려 있는 다른 창도
+  즉시 새 언어로 바뀝니다.
+- 선택한 언어는 저장되어 **다음 실행 때도 그대로 유지**됩니다.
+- **Few-shot 라벨링 도구**(`annotation_tool/`)도 같은 언어 설정을 따릅니다. 다만 클래스 이름
+  (`joint`, `concrete`, `scalebar`, `shoe`, `distractor` 등, 사용자가 추가한 클래스 포함)은
+  **번역되지 않습니다** — `classes.json` 에 저장된 식별자이며 학습 데이터의 픽셀 값과 대응하기
+  때문입니다.
+- 화면 문구의 용어 기준은 [`docs/i18n-glossary.md`](docs/i18n-glossary.md) 를 따릅니다.
+
+---
+
 ## 사용 방법
 
 ### 1) 로그인 / 데이터 가져오기 (시작 시 팝업)
@@ -249,5 +265,7 @@ ConcJoint few-shot 학습용 다중 클래스 마스크를 만드는 **별도 �
 - SAM3 / SAM2.1 사용 → **torch(GPU) 필요**: `pip install -r annotation_tool/requirements-gpu.txt`
   (생산용 `requirements.txt` 에는 torch 가 포함되지 않습니다)
 - 클래스 추가 / 이름 변경 / 색상 / 우선순위를 GUI 에서 편집 가능
+- 화면 언어는 앱 전체 설정을 따릅니다 (「[언어 설정](#언어-설정)」 참고). 클래스 이름은 항상
+  원문 그대로 표시됩니다
 - 설치·가중치 다운로드·사용법: [`annotation_tool/USAGE.md`](annotation_tool/USAGE.md),
   모듈 구조: [`annotation_tool/README.md`](annotation_tool/README.md) (중국어)

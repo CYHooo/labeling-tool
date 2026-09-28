@@ -205,4 +205,65 @@ STRINGS = {
     "app_fewshot_error_msg":
         "{type}: {exc}\n\nSAM 가중치(./checkpoint)와 torch 설치를 확인하세요 "
         "(annotation_tool/USAGE.md 참고).",
+
+    # --- few-shot tool (annotation_tool/ui/main_window.py) ---
+    # 클래스 이름(joint, concrete, scalebar, shoe, distractor 및 사용자가
+    # 추가한 클래스)은 번역하지 않습니다: classes.json에 저장된 식별자이며
+    # 학습 데이터의 픽셀 값에 대응합니다.
+    "fs_status_choose_folder":
+        "File ▸ Open Folder (Ctrl+O)로 이미지 폴더를 선택하세요",
+    "fs_classes_corrupt":
+        "클래스 파일이 손상되어 기본 클래스를 사용합니다. 수정 내용은 저장되지 "
+        "않습니다: {exc}",
+    "fs_save_classes_failed_title":     "클래스 저장 실패",
+    "fs_add_class_title":               "클래스 추가",
+    "fs_add_class_label":               "클래스 이름:",
+    "fs_choose_color_title":            "클래스 색상 선택",
+    "fs_add_class_failed_title":        "클래스 추가 실패",
+    "fs_status_class_added":            "클래스 {cid}: {name}를 추가했습니다",
+    "fs_rename_class_title":            "클래스 이름 변경",
+    "fs_rename_class_label":            "클래스 {cid}의 새 이름:",
+    "fs_rename_failed_title":           "이름 변경 실패",
+    "fs_class_color_title":             "클래스 {cid}: {name}의 색상",
+    "fs_btn_add":                       "추가",
+    "fs_tip_add":                       "새 클래스 추가",
+    "fs_btn_rename":                    "이름 변경",
+    "fs_tip_rename":                    "현재 클래스 이름 변경",
+    "fs_btn_priority_up":               "우선순위 ↑",
+    "fs_tip_priority_up":
+        "현재 클래스의 내보내기 우선순위를 높입니다 (다른 클래스를 덮어씀)",
+    "fs_btn_priority_down":             "↓",
+    "fs_tip_priority_down":             "현재 클래스의 내보내기 우선순위를 낮춥니다",
+    "fs_section_tool":                  "도구",
+    "fs_tool_sam":                      "SAM 점/박스 [V]",
+    "fs_tool_brush":                    "브러시 [B]",
+    "fs_tool_eraser":                   "지우개 [E]",
+    "fs_label_brush":                   "브러시",
+    "fs_confirm":                       "확인 (Enter)",
+    "fs_save":                          "저장 (Ctrl+S)",
+    "fs_tip_swatch":                    "클릭하여 색상 변경",
+    "fs_export_order":                  "내보내기 우선순위 (낮음→높음): {order}",
+    "fs_menu_file":                     "파일",
+    "fs_action_open_folder":            "폴더 열기…",
+    "fs_dialog_select_folder":
+        "이미지 폴더 선택 (해당 폴더의 이미지를 직접 읽습니다)",
+    "fs_invalid_folder_title":          "유효하지 않은 폴더",
+    "fs_folder_not_found":              "폴더를 찾을 수 없습니다:\n{dir}",
+    "fs_window_title":                  "ConcJoint Annotator — {name} ({count}장)",
+    "fs_status_dataset_loaded":
+        "이미지 {count}장, 라벨링 완료 {n_masks}장; 마스크 폴더: {mask_dir}",
+    "fs_no_images_title":               "이미지 없음",
+    "fs_no_images_msg":                 "{dir}에서 이미지 파일을 찾을 수 없습니다",
+    "fs_mask_read_error":               "마스크 {name}를 읽을 수 없습니다: {exc}",
+    "fs_mask_size_mismatch":
+        "마스크 {name} 크기 {mw}x{mh}가 이미지 {w}x{h}와 일치하지 않아 불러오지 "
+        "않았습니다. 원본 보호를 위해 이 이미지는 저장이 금지됩니다",
+    "fs_mask_unknown_pixels":
+        "경고: 마스크에 정의되지 않은 픽셀 값 {values}이 있어 저장 시 삭제됩니다. "
+        "먼저 해당 클래스를 추가하세요",
+    "fs_save_blocked_title":            "저장 금지",
+    "fs_status_saved":                  "{name} 저장 완료",
+    "fs_inference_error_title":         "추론 오류",
+    "fs_dock_images":                   "이미지",
+    "fs_dock_classes":                  "클래스",
 }

@@ -201,4 +201,64 @@ STRINGS = {
     "app_fewshot_error_msg":
         "{type}: {exc}\n\nCheck the SAM weights (./checkpoint) and the torch "
         "installation (see annotation_tool/USAGE.md).",
+
+    # --- few-shot tool (annotation_tool/ui/main_window.py) ---
+    # Class names themselves (joint, concrete, scalebar, shoe, distractor,
+    # and any user-added class) are never translated: they are the identities
+    # stored in classes.json and map to pixel values in the training data.
+    "fs_status_choose_folder":
+        "Use File > Open Folder (Ctrl+O) to choose an image folder",
+    "fs_classes_corrupt":
+        "Class file corrupted, using default classes; edits will not be saved: {exc}",
+    "fs_save_classes_failed_title":     "Save classes failed",
+    "fs_add_class_title":               "Add class",
+    "fs_add_class_label":               "Class name:",
+    "fs_choose_color_title":            "Choose class color",
+    "fs_add_class_failed_title":        "Add class failed",
+    "fs_status_class_added":            "Added class {cid}: {name}",
+    "fs_rename_class_title":            "Rename class",
+    "fs_rename_class_label":            "New name for class {cid}:",
+    "fs_rename_failed_title":           "Rename failed",
+    "fs_class_color_title":             "Color for class {cid}: {name}",
+    "fs_btn_add":                       "Add",
+    "fs_tip_add":                       "Add a new class",
+    "fs_btn_rename":                    "Rename",
+    "fs_tip_rename":                    "Rename the active class",
+    "fs_btn_priority_up":               "Priority ↑",
+    "fs_tip_priority_up":
+        "Raise the active class's export priority (overrides other classes)",
+    "fs_btn_priority_down":             "↓",
+    "fs_tip_priority_down":             "Lower the active class's export priority",
+    "fs_section_tool":                  "Tool",
+    "fs_tool_sam":                      "SAM point/box [V]",
+    "fs_tool_brush":                    "Brush [B]",
+    "fs_tool_eraser":                   "Eraser [E]",
+    "fs_label_brush":                   "Brush",
+    "fs_confirm":                       "Confirm (Enter)",
+    "fs_save":                          "Save (Ctrl+S)",
+    "fs_tip_swatch":                    "Click to change color",
+    "fs_export_order":                  "Export priority (low to high): {order}",
+    "fs_menu_file":                     "&File",
+    "fs_action_open_folder":            "Open folder…",
+    "fs_dialog_select_folder":
+        "Select an image folder (images are read directly from it)",
+    "fs_invalid_folder_title":          "Invalid folder",
+    "fs_folder_not_found":              "Folder not found:\n{dir}",
+    "fs_window_title":                  "ConcJoint Annotator — {name} ({count} images)",
+    "fs_status_dataset_loaded":
+        "{count} images, {n_masks} already labeled; mask folder: {mask_dir}",
+    "fs_no_images_title":               "No images",
+    "fs_no_images_msg":                 "No image files found directly in {dir}",
+    "fs_mask_read_error":               "Could not read mask {name}: {exc}",
+    "fs_mask_size_mismatch":
+        "Mask {name} size {mw}x{mh} does not match image {w}x{h}; not loaded. "
+        "Saving is disabled for this image to protect the original file",
+    "fs_mask_unknown_pixels":
+        "Warning: mask contains undefined pixel values {values}; they will be "
+        "cleared on save. Add matching classes first",
+    "fs_save_blocked_title":            "Save blocked",
+    "fs_status_saved":                  "Saved {name}",
+    "fs_inference_error_title":         "Inference error",
+    "fs_dock_images":                   "Images",
+    "fs_dock_classes":                  "Classes",
 }

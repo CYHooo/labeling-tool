@@ -199,4 +199,60 @@ STRINGS = {
     "app_fewshot_error_msg":
         "{type}: {exc}\n\n请检查 SAM 权重（./checkpoint）和 torch 安装"
         "（参见 annotation_tool/USAGE.md）。",
+
+    # --- few-shot tool (annotation_tool/ui/main_window.py) ---
+    # 类别名（joint、concrete、scalebar、shoe、distractor 及用户新增的类别）
+    # 不翻译：它们是 classes.json 中的身份标识，对应训练数据里的像素值。
+    "fs_status_choose_folder":
+        "请用 File ▸ Open Folder (Ctrl+O) 选择存放图片的文件夹",
+    "fs_classes_corrupt":
+        "类别文件损坏，已使用默认类别，修改不会被保存：{exc}",
+    "fs_save_classes_failed_title":     "保存类别失败",
+    "fs_add_class_title":               "添加类别",
+    "fs_add_class_label":               "类别名称：",
+    "fs_choose_color_title":            "选择类别颜色",
+    "fs_add_class_failed_title":        "添加类别失败",
+    "fs_status_class_added":            "已添加类别 {cid}：{name}",
+    "fs_rename_class_title":            "重命名类别",
+    "fs_rename_class_label":            "类别 {cid} 的新名称：",
+    "fs_rename_failed_title":           "重命名失败",
+    "fs_class_color_title":             "类别 {cid}：{name} 的颜色",
+    "fs_btn_add":                       "添加",
+    "fs_tip_add":                       "添加新类别",
+    "fs_btn_rename":                    "重命名",
+    "fs_tip_rename":                    "重命名当前类别",
+    "fs_btn_priority_up":               "提升优先级 ↑",
+    "fs_tip_priority_up":               "提高当前类别的导出优先级（覆盖其他类）",
+    "fs_btn_priority_down":             "↓",
+    "fs_tip_priority_down":             "降低当前类别的导出优先级",
+    "fs_section_tool":                  "工具",
+    "fs_tool_sam":                      "SAM 点/框 [V]",
+    "fs_tool_brush":                    "画笔 [B]",
+    "fs_tool_eraser":                   "橡皮擦 [E]",
+    "fs_label_brush":                   "笔刷",
+    "fs_confirm":                       "确认 (Enter)",
+    "fs_save":                          "保存 (Ctrl+S)",
+    "fs_tip_swatch":                    "点击修改颜色",
+    "fs_export_order":                  "导出优先级（低→高）：{order}",
+    "fs_menu_file":                     "文件",
+    "fs_action_open_folder":            "打开文件夹…",
+    "fs_dialog_select_folder":          "选择图片文件夹（直接读取该文件夹中的图片）",
+    "fs_invalid_folder_title":          "文件夹无效",
+    "fs_folder_not_found":              "未找到文件夹：\n{dir}",
+    "fs_window_title":                  "ConcJoint Annotator — {name}（{count} 张图片）",
+    "fs_status_dataset_loaded":
+        "{count} 张图片，{n_masks} 张已有标注；mask 目录：{mask_dir}",
+    "fs_no_images_title":               "没有图片",
+    "fs_no_images_msg":                 "在 {dir} 中未直接找到图片文件",
+    "fs_mask_read_error":               "无法读取 mask {name}：{exc}",
+    "fs_mask_size_mismatch":
+        "mask {name} 尺寸 {mw}x{mh} 与图片 {w}x{h} 不一致，未加载；"
+        "为保护原文件，本图禁止保存",
+    "fs_mask_unknown_pixels":
+        "警告：mask 中含未定义的像素值 {values}，保存时会被清除；请先添加对应类别",
+    "fs_save_blocked_title":            "禁止保存",
+    "fs_status_saved":                  "已保存 {name}",
+    "fs_inference_error_title":         "推理错误",
+    "fs_dock_images":                   "图片",
+    "fs_dock_classes":                  "类别",
 }

@@ -13,6 +13,8 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtGui import QKeySequence, QColor
 
+from labeling_tool.core import i18n
+
 from annotation_tool import configs
 from annotation_tool.core import dataset_io
 from annotation_tool.core.class_registry import ClassRegistry
@@ -48,9 +50,9 @@ class MainWindow(QMainWindow):
         # --- left: file list (populated by load_dataset) ---
         self.list_widget = QListWidget()
         self.list_widget.currentRowChanged.connect(self.load_index)
-        dock_l = QDockWidget("Images", self)
-        dock_l.setWidget(self.list_widget)
-        self.addDockWidget(Qt.LeftDockWidgetArea, dock_l)
+        self._dock_l = QDockWidget(self)
+        self._dock_l.setWidget(self.list_widget)
+        self.addDockWidget(Qt.LeftDockWidgetArea, self._dock_l)
 
         # --- right: class panel ---
         self._build_class_panel()
@@ -74,10 +76,59 @@ class MainWindow(QMainWindow):
         if dataset_dir:
             self.load_dataset(self.dataset_dir, warn_if_empty=False)
         else:
-            self.statusBar().showMessage(
-                "请用 File ▸ Open Folder (Ctrl+O) 选择存放图片的文件夹")
+            self.statusBar().showMessage(i18n.tr("fs_status_choose_folder"))
         if self._classes_error:
             self.statusBar().showMessage(self._classes_error)
+
+        self.retranslate()
+
+        # keep the connection object so it can be disconnected on close; the
+        # class panel is rebuilt so retranslate() can refresh its static
+        # texts without touching the (never-translated) class row names.
+        self._lang_conn = i18n.language_manager().languageChanged.connect(
+            self._on_language_changed)
+
+    def _on_language_changed(self, _code: str) -> None:
+        self.retranslate()
+
+    def _disconnect_language_manager(self):
+        conn = getattr(self, "_lang_conn", None)
+        if conn is not None:
+            try:
+                i18n.language_manager().languageChanged.disconnect(conn)
+            except TypeError:
+                pass  # already disconnected
+            self._lang_conn = None
+
+    def retranslate(self):
+        """Refresh every static text on the panel; class row names are left
+        untouched since they come from classes.json, not from tr()."""
+        self._dock_l.setWindowTitle(i18n.tr("fs_dock_images"))
+        self._dock_r.setWindowTitle(i18n.tr("fs_dock_classes"))
+        self._file_menu.setTitle(i18n.tr("fs_menu_file"))
+        self._act_open_folder.setText(i18n.tr("fs_action_open_folder"))
+        self._manage_buttons["add"].setText("+ " + i18n.tr("fs_btn_add"))
+        self._manage_buttons["add"].setToolTip(i18n.tr("fs_tip_add"))
+        self._manage_buttons["rename"].setText(i18n.tr("fs_btn_rename"))
+        self._manage_buttons["rename"].setToolTip(i18n.tr("fs_tip_rename"))
+        self._manage_buttons["priority_up"].setText(i18n.tr("fs_btn_priority_up"))
+        self._manage_buttons["priority_up"].setToolTip(i18n.tr("fs_tip_priority_up"))
+        self._manage_buttons["priority_down"].setText(i18n.tr("fs_btn_priority_down"))
+        self._manage_buttons["priority_down"].setToolTip(i18n.tr("fs_tip_priority_down"))
+        self._lbl_tool_section.setText(i18n.tr("fs_section_tool"))
+        self._tool_buttons["sam"].setText(i18n.tr("fs_tool_sam"))
+        self._tool_buttons["brush"].setText(i18n.tr("fs_tool_brush"))
+        self._tool_buttons["eraser"].setText(i18n.tr("fs_tool_eraser"))
+        self._lbl_brush_static.setText(i18n.tr("fs_label_brush"))
+        self.btn_commit.setText(i18n.tr("fs_confirm"))
+        self.btn_save.setText(i18n.tr("fs_save"))
+        for swatch in self._swatch_buttons.values():
+            swatch.setToolTip(i18n.tr("fs_tip_swatch"))
+        self._update_order_label()
+
+    def _update_order_label(self):
+        order = " < ".join(self.registry.name(c) for c in self.registry.export_order)
+        self._lbl_order.setText(i18n.tr("fs_export_order", order=order))
 
     # --- class registry (global, user-editable classes) ---
     def _load_registry(self):
@@ -90,7 +141,7 @@ class MainWindow(QMainWindow):
             self.registry = ClassRegistry.load(configs.CLASSES_FILE, ClassRegistry.from_configs())
         except ValueError as exc:
             self.registry = ClassRegistry.from_configs()
-            self._classes_error = (f"类别文件损坏，已使用默认类别，修改不会被保存: {exc}")
+            self._classes_error = i18n.tr("fs_classes_corrupt", exc=exc)
 
     def _persist_classes(self):
         if self._classes_error:
@@ -99,7 +150,7 @@ class MainWindow(QMainWindow):
         try:
             self.registry.save(configs.CLASSES_FILE)
         except OSError as exc:
-            QMessageBox.warning(self, "Save classes failed", str(exc))
+            QMessageBox.warning(self, i18n.tr("fs_save_classes_failed_title"), str(exc))
 
     def _on_classes_changed(self):
         """Common follow-up after any registry edit: persist, rebuild UI, redraw."""
@@ -135,33 +186,38 @@ class MainWindow(QMainWindow):
         return QColor.fromHsvF(hue, 0.85, 0.95)
 
     def _on_add_class_clicked(self):
-        name, ok = QInputDialog.getText(self, "添加类别", "类别名称:")
+        name, ok = QInputDialog.getText(
+            self, i18n.tr("fs_add_class_title"), i18n.tr("fs_add_class_label"))
         if not ok:
             return
-        color = QColorDialog.getColor(self._suggest_color(), self, "选择类别颜色")
+        color = QColorDialog.getColor(
+            self._suggest_color(), self, i18n.tr("fs_choose_color_title"))
         if not color.isValid():
             return
         try:
             cid = self.add_class(name, color.getRgb()[:3])
         except ValueError as exc:
-            QMessageBox.warning(self, "添加类别失败", str(exc))
+            QMessageBox.warning(self, i18n.tr("fs_add_class_failed_title"), str(exc))
             return
-        self.statusBar().showMessage(f"已添加类别 {cid}: {self.registry.name(cid)}", 3000)
+        self.statusBar().showMessage(
+            i18n.tr("fs_status_class_added", cid=cid, name=self.registry.name(cid)), 3000)
 
     def _on_rename_clicked(self):
         cid = self.active_class
         name, ok = QInputDialog.getText(
-            self, "重命名类别", f"类别 {cid} 的新名称:", text=self.registry.name(cid))
+            self, i18n.tr("fs_rename_class_title"),
+            i18n.tr("fs_rename_class_label", cid=cid), text=self.registry.name(cid))
         if not ok:
             return
         try:
             self.rename_class(cid, name)
         except ValueError as exc:
-            QMessageBox.warning(self, "重命名失败", str(exc))
+            QMessageBox.warning(self, i18n.tr("fs_rename_failed_title"), str(exc))
 
     def _on_swatch_clicked(self, cid):
-        color = QColorDialog.getColor(QColor(*self.registry.color(cid)), self,
-                                      f"类别 {cid}: {self.registry.name(cid)} 的颜色")
+        color = QColorDialog.getColor(
+            QColor(*self.registry.color(cid)), self,
+            i18n.tr("fs_class_color_title", cid=cid, name=self.registry.name(cid)))
         if color.isValid():
             self.set_class_color(cid, color.getRgb()[:3])
 
@@ -179,15 +235,15 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._class_list_widget)
 
         manage_row = QHBoxLayout()
-        for text, tip, slot in (
-                ("+ 添加", "添加新类别", self._on_add_class_clicked),
-                ("重命名", "重命名当前类别", self._on_rename_clicked),
-                ("优先级 ↑", "提高当前类别的导出优先级（覆盖其他类）",
-                 lambda: self.move_active_priority(+1)),
-                ("↓", "降低当前类别的导出优先级", lambda: self.move_active_priority(-1))):
-            b = QPushButton(text)
-            b.setToolTip(tip)
+        self._manage_buttons = {}
+        for key, slot in (
+                ("add", self._on_add_class_clicked),
+                ("rename", self._on_rename_clicked),
+                ("priority_up", lambda: self.move_active_priority(+1)),
+                ("priority_down", lambda: self.move_active_priority(-1))):
+            b = QPushButton()
             b.clicked.connect(slot)
+            self._manage_buttons[key] = b
             manage_row.addWidget(b)
         lay.addLayout(manage_row)
         self._lbl_order = QLabel()
@@ -196,15 +252,14 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._lbl_order)
         self._rebuild_class_list()
         # --- tool selection: SAM point/box vs manual brush / eraser ---
-        lay.addWidget(self._hline_label("工具 Tool"))
+        self._lbl_tool_section = self._hline_label("")
+        lay.addWidget(self._lbl_tool_section)
         tool_row = QHBoxLayout()
         self._tool_group = QButtonGroup(self)
         self._tool_group.setExclusive(True)
         self._tool_buttons = {}
-        for key, text in (("sam", "SAM 点/框 [V]"),
-                          ("brush", "画笔 [B]"),
-                          ("eraser", "橡皮擦 [E]")):
-            b = QPushButton(text)
+        for key in ("sam", "brush", "eraser"):
+            b = QPushButton()
             b.setCheckable(True)
             b.clicked.connect(lambda _=False, k=key: self.set_tool(k))
             self._tool_group.addButton(b)
@@ -214,7 +269,8 @@ class MainWindow(QMainWindow):
         lay.addLayout(tool_row)
 
         size_row = QHBoxLayout()
-        size_row.addWidget(QLabel("笔刷"))
+        self._lbl_brush_static = QLabel()
+        size_row.addWidget(self._lbl_brush_static)
         self._sld_brush = QSlider(Qt.Horizontal)
         self._sld_brush.setRange(2, 200)
         self._sld_brush.setValue(40)
@@ -225,20 +281,20 @@ class MainWindow(QMainWindow):
         size_row.addWidget(self._lbl_brush)
         lay.addLayout(size_row)
 
-        self.btn_commit = QPushButton("Confirm (Enter)")
+        self.btn_commit = QPushButton()
         self.btn_commit.setObjectName("primaryAction")
         self.btn_commit.setMinimumHeight(34)
         self.btn_commit.clicked.connect(self.commit_candidate)
-        self.btn_save = QPushButton("Save (Ctrl+S)")
+        self.btn_save = QPushButton()
         self.btn_save.setObjectName("primaryAction")
         self.btn_save.setMinimumHeight(34)
         self.btn_save.clicked.connect(self.save_current)
         lay.addWidget(self.btn_commit)
         lay.addWidget(self.btn_save)
         lay.addStretch(1)
-        dock_r = QDockWidget("Classes", self)
-        dock_r.setWidget(panel)
-        self.addDockWidget(Qt.RightDockWidgetArea, dock_r)
+        self._dock_r = QDockWidget(self)
+        self._dock_r.setWidget(panel)
+        self.addDockWidget(Qt.RightDockWidgetArea, self._dock_r)
 
     def _rebuild_class_list(self):
         """(Re)create one row per class: radio + coverage % + color swatch."""
@@ -249,10 +305,14 @@ class MainWindow(QMainWindow):
             if w is not None:
                 w.deleteLater()
         self._stat_labels = {}
+        self._swatch_buttons = {}
         for c in self.registry.class_ids:
             row = QWidget()
             row_lay = QHBoxLayout(row)
             row_lay.setContentsMargins(0, 0, 0, 0)
+            # class name (self.registry.name(c)) is never run through tr():
+            # it is the identity stored in classes.json and maps to a pixel
+            # value in the training data, so it must display verbatim.
             rb = QRadioButton(f"{c}: {self.registry.name(c)}")
             rb.setChecked(c == self.active_class)
             rb.clicked.connect(lambda _=False, cid=c: self.set_active_class(cid))
@@ -263,16 +323,16 @@ class MainWindow(QMainWindow):
             row_lay.addWidget(sl)
             swatch = QPushButton()
             swatch.setFixedSize(22, 22)
-            swatch.setToolTip("点击修改颜色")
+            swatch.setToolTip(i18n.tr("fs_tip_swatch"))
             r, g, b = self.registry.color(c)
             swatch.setStyleSheet(
                 f"background-color: rgb({r},{g},{b}); border: 1px solid #5a6270;"
                 "border-radius: 3px; padding: 0; min-width: 0;")
             swatch.clicked.connect(lambda _=False, cid=c: self._on_swatch_clicked(cid))
             row_lay.addWidget(swatch)
+            self._swatch_buttons[c] = swatch
             self._class_list_layout.addWidget(row)
-        order = " < ".join(self.registry.name(c) for c in self.registry.export_order)
-        self._lbl_order.setText(f"导出优先级（低→高）: {order}")
+        self._update_order_label()
         self._install_class_shortcuts()
 
     def _install_class_shortcuts(self):
@@ -291,16 +351,16 @@ class MainWindow(QMainWindow):
         return lbl
 
     def _build_menu(self):
-        file_menu = self.menuBar().addMenu("&File")
-        act_open = file_menu.addAction("Open Folder…")
-        act_open.setShortcut(QKeySequence("Ctrl+O"))
-        act_open.triggered.connect(self.open_folder)
+        self._file_menu = self.menuBar().addMenu("")
+        self._act_open_folder = self._file_menu.addAction("")
+        self._act_open_folder.setShortcut(QKeySequence("Ctrl+O"))
+        self._act_open_folder.triggered.connect(self.open_folder)
 
     # --- dataset selection ---
     def open_folder(self):
         start = str(self.dataset_dir) if self.dataset_dir.exists() else str(Path.home())
         chosen = QFileDialog.getExistingDirectory(
-            self, "Select an image folder (images are read directly from it)", start)
+            self, i18n.tr("fs_dialog_select_folder"), start)
         if chosen:
             self.load_dataset(Path(chosen), warn_if_empty=True)
 
@@ -312,7 +372,8 @@ class MainWindow(QMainWindow):
         except FileNotFoundError:
             if warn_if_empty:
                 QMessageBox.warning(
-                    self, "Invalid folder", f"Folder not found:\n{dataset_dir}")
+                    self, i18n.tr("fs_invalid_folder_title"),
+                    i18n.tr("fs_folder_not_found", dir=dataset_dir))
             return
 
         # commit the switch and reset per-image editing state
@@ -333,16 +394,18 @@ class MainWindow(QMainWindow):
             self.list_widget.addItem(li)
         self.list_widget.blockSignals(False)
 
-        self.setWindowTitle(
-            f"ConcJoint Annotator — {dataset_dir.name} ({len(self.items)} images)")
+        self.setWindowTitle(i18n.tr(
+            "fs_window_title", name=dataset_dir.name, count=len(self.items)))
         n_masks = sum(it.has_mask for it in self.items)
-        self.statusBar().showMessage(
-            f"{len(self.items)} 张图片，{n_masks} 张已有标注；mask 目录: {self.mask_dir}")
+        self.statusBar().showMessage(i18n.tr(
+            "fs_status_dataset_loaded", count=len(self.items),
+            n_masks=n_masks, mask_dir=self.mask_dir))
         if self.items:
             self.list_widget.setCurrentRow(0)  # triggers load_index(0)
         elif warn_if_empty:
             QMessageBox.information(
-                self, "No images", f"No image files found directly in {dataset_dir}")
+                self, i18n.tr("fs_no_images_title"),
+                i18n.tr("fs_no_images_msg", dir=dataset_dir))
 
     def _install_shortcuts(self):
         QShortcut(QKeySequence(Qt.Key_Return), self, self.commit_candidate)
@@ -390,19 +453,20 @@ class MainWindow(QMainWindow):
         try:
             mask = dataset_io.load_mask(mask_path)
         except OSError as exc:
-            self._mask_load_error = f"无法读取 mask {mask_path.name}: {exc}"
+            self._mask_load_error = i18n.tr(
+                "fs_mask_read_error", name=mask_path.name, exc=exc)
         else:
             if mask.shape != (h, w):
-                self._mask_load_error = (
-                    f"mask {mask_path.name} 尺寸 {mask.shape[1]}x{mask.shape[0]} 与图片 "
-                    f"{w}x{h} 不一致，未加载；为保护原文件，本图禁止保存")
+                self._mask_load_error = i18n.tr(
+                    "fs_mask_size_mismatch", name=mask_path.name,
+                    mw=mask.shape[1], mh=mask.shape[0], w=w, h=h)
             else:
                 self.state.load_from(mask)
                 unknown = sorted(set(np.unique(mask).tolist()) - {0} - set(self.registry.class_ids))
                 if unknown:
                     # these pixels have no class definition and would be dropped on save
                     self.statusBar().showMessage(
-                        f"警告: mask 中含未定义的像素值 {unknown}，保存时会被清除；请先添加对应类别")
+                        i18n.tr("fs_mask_unknown_pixels", values=unknown))
         if self._mask_load_error:
             self.statusBar().showMessage(self._mask_load_error)
 
@@ -459,7 +523,7 @@ class MainWindow(QMainWindow):
             self._candidate = None
 
     def _on_error(self, msg):
-        QMessageBox.warning(self, "Inference error", msg)
+        QMessageBox.warning(self, i18n.tr("fs_inference_error_title"), msg)
 
     def commit_candidate(self):
         cand = getattr(self, "_candidate", None)
@@ -512,7 +576,7 @@ class MainWindow(QMainWindow):
         if self.state is None or self.current_item is None:
             return
         if self._mask_load_error:
-            QMessageBox.warning(self, "禁止保存", self._mask_load_error)
+            QMessageBox.warning(self, i18n.tr("fs_save_blocked_title"), self._mask_load_error)
             return
         flat = self.state.flatten(self.registry.export_order)
         # overwrite the mask where it was found; new masks go to the resolved dir
@@ -528,9 +592,10 @@ class MainWindow(QMainWindow):
         item = self.list_widget.item(row)
         if item is not None:
             item.setText("✓ " + self.current_item.name)
-        self.statusBar().showMessage(f"saved {mask_path.name}", 3000)
+        self.statusBar().showMessage(i18n.tr("fs_status_saved", name=mask_path.name), 3000)
 
     def closeEvent(self, event):
+        self._disconnect_language_manager()
         if hasattr(self, "worker"):
             self.worker.stop()
         super().closeEvent(event)
