@@ -16,6 +16,8 @@ from labeling_tool.update.version import DEV_VERSION
 GITHUB_REPO = "CYHooo/labeling-tool"
 LATEST_URL = "https://api.github.com/repos/{repo}/releases/latest"
 SUMS_ASSET = "SHA256SUMS.txt"
+APP_PREFIX = "LM_LabelingTool-App"
+FULL_PREFIX = "LM_LabelingTool-Setup"
 _SUM_LINE = re.compile(r"^([0-9a-fA-F]{64})\s+(\S+)$")
 
 
@@ -28,10 +30,17 @@ class UpdateInfo:
     size: int
     sha256: str
     notes: str
+    kind: str          # "app" (runtime unchanged) or "full" (reinstall)
 
 
-def asset_name_for(variant: str, version: str) -> str:
-    return f"LabelingTool-{variant}-Setup-v{version}.exe"
+def app_asset_name(version: str, runtime: str) -> str:
+    """The small package: only our own code, built against `runtime`."""
+    return f"{APP_PREFIX}-v{version}-{runtime}.exe"
+
+
+def full_asset_name(version: str) -> str:
+    """The whole thing, runtime layer included."""
+    return f"{FULL_PREFIX}-v{version}.exe"
 
 
 def parse_version(text: str) -> tuple[int, ...] | None:
@@ -73,12 +82,17 @@ def _read(opener, url: str, timeout: float) -> str:
 
 
 def find_update(current_version: str, variant: str, repo: str = GITHUB_REPO,
-                timeout: float = 10, opener=None) -> UpdateInfo | None:
-    """Newest release for ``variant`` if it is newer than ``current_version``.
+                timeout: float = 10, opener=None,
+                runtime: str | None = None) -> UpdateInfo | None:
+    """Newest release for this install, or None when up to date.
 
-    Returns None when up to date, when the release has no asset for this
-    variant, or when the asset has no published checksum (never install an
-    unverifiable download). Network and parse errors are raised.
+    Prefers the small app-layer package built against THIS machine's runtime
+    id; falls back to the full installer when the runtime changed, when the
+    release carries no app package, or when this install predates layering
+    and has no runtime id at all. An asset without a published checksum is
+    never offered -- an unverifiable download is not installed.
+
+    Network and parse errors are raised to the caller.
     """
     opener = opener or urllib.request.urlopen
     release = json.loads(_read(opener, LATEST_URL.format(repo=repo), timeout))
@@ -87,15 +101,20 @@ def find_update(current_version: str, variant: str, repo: str = GITHUB_REPO,
     if not is_newer(version, current_version):
         return None
     assets = {a["name"]: a for a in release.get("assets", [])}
-    wanted = asset_name_for(variant, version)
-    if wanted not in assets or SUMS_ASSET not in assets:
+    if SUMS_ASSET not in assets:
         return None
     sums = parse_sha256sums(
         _read(opener, assets[SUMS_ASSET]["browser_download_url"], timeout))
-    if wanted not in sums:
-        return None
-    asset = assets[wanted]
-    return UpdateInfo(version=version, variant=variant, asset_name=wanted,
-                      asset_url=asset["browser_download_url"],
-                      size=int(asset.get("size", 0)), sha256=sums[wanted],
-                      notes=str(release.get("body") or ""))
+
+    candidates = []
+    if runtime:
+        candidates.append(("app", app_asset_name(version, runtime)))
+    candidates.append(("full", full_asset_name(version)))
+    for kind, name in candidates:
+        if name in assets and name in sums:
+            asset = assets[name]
+            return UpdateInfo(version=version, variant=variant, asset_name=name,
+                              asset_url=asset["browser_download_url"],
+                              size=int(asset.get("size", 0)), sha256=sums[name],
+                              notes=str(release.get("body") or ""), kind=kind)
+    return None

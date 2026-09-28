@@ -38,14 +38,17 @@ class UpdateCheckThread(QThread):
     # wait_for_checks() at shutdown has a predictable ceiling.
     CHECK_TIMEOUT = 5
 
-    def __init__(self, current_version: str, variant: str, parent=None):
+    def __init__(self, current_version: str, variant: str,
+                 runtime: str | None = None, parent=None):
         super().__init__(parent)
         self._version, self._variant = current_version, variant
+        self._runtime = runtime
 
     def run(self):
         try:
             self.found.emit(checker.find_update(
-                self._version, self._variant, timeout=self.CHECK_TIMEOUT))
+                self._version, self._variant, timeout=self.CHECK_TIMEOUT,
+                runtime=self._runtime))
         except Exception as exc:  # noqa: BLE001 - reporting is the caller's call
             vlog().info("update check failed: %s: %s", type(exc).__name__, exc)
             self.found.emit(exc)
@@ -168,7 +171,7 @@ def check_for_updates(parent, *, force: bool = False, home: Path | None = None):
     # login dialog is recreated every loop iteration in app.py), which is
     # exactly the "destroyed while still running" crash this module must
     # avoid. Lifetime is owned by _RUNNING_CHECKS/_on_finished instead.
-    thread = UpdateCheckThread(info.version, info.variant)
+    thread = UpdateCheckThread(info.version, info.variant, info.runtime)
 
     def _on_found(found):
         # The found signal is a queued cross-thread connection, so this can

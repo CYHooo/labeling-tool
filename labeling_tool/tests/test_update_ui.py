@@ -40,7 +40,7 @@ def _drain_qt_events():
 INFO = checker.UpdateInfo(version="1.0.1", variant="lite",
                           asset_name="LabelingTool-lite-Setup-v1.0.1.exe",
                           asset_url="https://x/s.exe", size=170 * 1024 * 1024,
-                          sha256="a" * 64, notes="fixes")
+                          sha256="a" * 64, notes="fixes", kind="full")
 
 
 def test_prompt_later_does_nothing(monkeypatch, tmp_path):
@@ -343,7 +343,7 @@ def test_ask_warns_about_full_variant_download_size(monkeypatch):
         version="1.0.1", variant="full",
         asset_name="LabelingTool-full-Setup-v1.0.1.exe",
         asset_url="https://x/s.exe", size=1500 * 1024 * 1024,
-        sha256="a" * 64, notes="")
+        sha256="a" * 64, notes="", kind="full")
     captured = {}
 
     def fake_exec(self):
