@@ -92,4 +92,49 @@ STRINGS = {
 
     # --- fetch/progress (shared, used across future screens too) ---
     "fetch_progress": "Fetched {done}/{total}",
+
+    # --- login ---
+    "login_title":                    "Log in",
+    "login_tab_online":               "Online labeling",
+    "login_tab_local":                "Local jobs",
+    "login_tab_fewshot":              "Few-shot labeling",
+    "login_field_base":               "BASE URL",
+    "login_field_key":                "X-Viewer-Api-Key",
+    "login_next":                     "Next",
+    "login_col_job":                  "Job",
+    "login_col_inspection":           "Inspection name",
+    "login_col_photos":               "Photos / uploaded",
+    "login_col_server":               "Server",
+    "login_col_modified":             "Last modified",
+    "login_jobs_empty":               "No jobs yet. Fetch data in “{tab}” first.",
+    "login_open":                     "Open",
+    "login_fewshot_hint_lite":
+        "⚠ This build is the lite variant, so the few-shot tool is unavailable.\n"
+        "Install the full build if you need the few-shot tool.",
+    "login_fewshot_hint_no_torch":
+        "⚠ torch is not installed, so this tool is unavailable.\n"
+        "Install: pip install -r annotation_tool/requirements-gpu.txt",
+    "login_fewshot_desc_lite":
+        "SAM2.1-based multi-class semi-automatic labeling tool (for few-shot training data).\n"
+        "Needs a GPU (torch) and SAM weights; the first launch takes time to load the model.",
+    "login_fewshot_desc_full":
+        "SAM3 / SAM2.1-based multi-class semi-automatic labeling tool (for few-shot training data).\n"
+        "Needs a GPU (torch) and SAM weights; the first launch takes time to load the model.",
+    "login_warn_input_required_title": "Input required",
+    "login_warn_input_required_msg":   "Enter BASE/Key.",
+    "login_upload_possible":           "Upload: possible (URL/Key entered)",
+    "login_upload_impossible":
+        "Upload: not possible — local save only (enter URL/Key to enable upload)",
+    "login_warn_no_manifest_title":    "Not found",
+    "login_warn_no_manifest_msg":      "Local manifest not found: {path}",
+    "login_warn_server_mismatch_title": "Server mismatch",
+    "login_warn_server_mismatch_msg":
+        "This job was fetched from {base}.\n"
+        "It cannot be uploaded to a different server.\n"
+        "Change the URL back to the original server, or clear URL/Key to open it offline.",
+    "login_warn_manifest_error_title": "Manifest error",
+    "login_warn_manifest_error_msg":
+        "Could not read the local manifest: {path}\n{exc}",
+    "login_version":                  "Version {version}",
+    "login_check_update":             "Check for updates",
 }

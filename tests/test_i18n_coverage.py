@@ -18,6 +18,7 @@ PLACEHOLDER = re.compile(r"\{(\w+)[^}]*\}")
 # regression guard that keeps them migrated.
 UI_MODULES = [
     "labeling_tool/core/window/ui_builder.py",
+    "labeling_tool/ui/login_dialog.py",
 ]
 
 

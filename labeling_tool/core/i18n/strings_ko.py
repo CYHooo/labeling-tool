@@ -97,4 +97,49 @@ STRINGS = {
 
     # --- fetch/progress (shared, used across future screens too) ---
     "fetch_progress": "가져오기 {done}/{total}",
+
+    # --- login ---
+    "login_title":                    "로그인",
+    "login_tab_online":               "온라인 라벨링",
+    "login_tab_local":                "로컬 작업",
+    "login_tab_fewshot":              "Few-shot 라벨링",
+    "login_field_base":               "BASE URL",
+    "login_field_key":                "X-Viewer-Api-Key",
+    "login_next":                     "다음",
+    "login_col_job":                  "작업",
+    "login_col_inspection":           "점검명",
+    "login_col_photos":               "사진 / 업로드",
+    "login_col_server":               "서버",
+    "login_col_modified":             "최근 수정",
+    "login_jobs_empty":               "받은 작업이 없습니다. 「{tab}」에서 먼저 데이터를 가져오세요.",
+    "login_open":                     "열기",
+    "login_fewshot_hint_lite":
+        "⚠ 이 빌드는 lite 버전이라 few-shot 도구를 사용할 수 없습니다.\n"
+        "few-shot 도구가 필요하면 full 빌드를 설치하세요.",
+    "login_fewshot_hint_no_torch":
+        "⚠ torch 가 설치되어 있지 않아 사용할 수 없습니다.\n"
+        "설치: pip install -r annotation_tool/requirements-gpu.txt",
+    "login_fewshot_desc_lite":
+        "SAM2.1 기반 다중 클래스 반자동 라벨링 도구 (few-shot 학습 데이터용).\n"
+        "GPU(torch)와 SAM 가중치가 필요하며, 처음 열 때 모델 로딩에 시간이 걸립니다.",
+    "login_fewshot_desc_full":
+        "SAM3 / SAM2.1 기반 다중 클래스 반자동 라벨링 도구 (few-shot 학습 데이터용).\n"
+        "GPU(torch)와 SAM 가중치가 필요하며, 처음 열 때 모델 로딩에 시간이 걸립니다.",
+    "login_warn_input_required_title": "입력 필요",
+    "login_warn_input_required_msg":   "BASE/Key를 입력하세요.",
+    "login_upload_possible":           "업로드: 가능 (URL/Key 입력됨)",
+    "login_upload_impossible":
+        "업로드: 불가 — 로컬 저장만 (URL/Key 를 입력하면 업로드 가능)",
+    "login_warn_no_manifest_title":    "없음",
+    "login_warn_no_manifest_msg":      "로컬 매니페스트 없음: {path}",
+    "login_warn_server_mismatch_title": "서버 불일치",
+    "login_warn_server_mismatch_msg":
+        "이 작업은 {base} 에서 받아왔습니다.\n"
+        "다른 서버로 업로드할 수 없습니다.\n"
+        "URL을 원래 서버로 되돌리거나, URL/Key를 비우고 오프라인으로 여세요.",
+    "login_warn_manifest_error_title": "매니페스트 오류",
+    "login_warn_manifest_error_msg":
+        "로컬 매니페스트를 읽을 수 없습니다: {path}\n{exc}",
+    "login_version":                  "버전 {version}",
+    "login_check_update":             "업데이트 확인",
 }

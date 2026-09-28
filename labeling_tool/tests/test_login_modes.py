@@ -310,3 +310,34 @@ def test_check_update_button_disables_while_running_and_reenables(monkeypatch):
     thread.wait(5000)
     QApplication.instance().processEvents()  # run the queued `finished` callback
     assert dlg.btn_check_update.isEnabled()
+
+
+def test_language_combo_switches_live(monkeypatch, tmp_path):
+    from labeling_tool.core import i18n
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path)
+    i18n.set_language("ko")
+    dlg = ld.LoginDialog()
+    assert [dlg.cmb_language.itemData(i) for i in range(dlg.cmb_language.count())] \
+        == list(i18n.LANGUAGES)
+    ko_title = dlg.tabs.tabText(ld.TAB_ONLINE)
+    dlg.cmb_language.setCurrentIndex(list(i18n.LANGUAGES).index("en"))
+    assert i18n.current_language() == "en"
+    assert dlg.tabs.tabText(ld.TAB_ONLINE) != ko_title
+    assert dlg.btn_next.text() == i18n.tr("login_next")
+
+
+def test_dialog_follows_language_changed_signal(monkeypatch, tmp_path):
+    from labeling_tool.core import i18n
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path)
+    i18n.set_language("ko")
+    dlg = ld.LoginDialog()
+    i18n.set_language("zh")          # changed elsewhere (e.g. the main window)
+    assert dlg.btn_next.text() == i18n.tr("login_next")
+
+
+def test_job_table_headers_are_translated(monkeypatch, tmp_path):
+    from labeling_tool.core import i18n
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path)
+    i18n.set_language("en")
+    dlg = ld.LoginDialog()
+    assert dlg.tbl_jobs.horizontalHeaderItem(0).text() == i18n.tr("login_col_job")
