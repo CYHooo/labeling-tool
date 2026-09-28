@@ -95,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
         if arg.startswith("--selftest"):
             # build smoke test (CI): no window, exit code = result
             from labeling_tool import selftest
-            return selftest.run_selftest(arg.partition("=")[2] or "lite")
+            return selftest.run_selftest(arg.partition("=")[2] or "full")
 
     app = QApplication([sys.argv[0], *argv])
     # Apply the dark theme app-wide so the login/fetch dialogs and every

@@ -14,7 +14,8 @@ from labeling_tool.core.app_paths import app_home
 
 BUILD_INFO_NAME = "build-info.json"
 DEV_VERSION = "0.0.0-dev"
-VARIANTS = ("lite", "full")
+# The lite variant was dropped in v1.3.0; see the rebrand design doc 2.1.
+VARIANTS = ("full",)
 
 
 @dataclass(frozen=True)

@@ -109,7 +109,7 @@ def test_check_skips_dev_builds(monkeypatch, tmp_path):
 
 def test_check_is_throttled(monkeypatch, tmp_path):
     from labeling_tool.update.version import BuildInfo
-    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "lite", None))
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "full", None))
     state.mark_checked(tmp_path)
     monkeypatch.setattr(ui.checker, "find_update",
                         lambda *a, **k: pytest.fail("checked despite throttle"))
@@ -119,7 +119,7 @@ def test_check_is_throttled(monkeypatch, tmp_path):
 def test_forced_check_ignores_throttle_and_skip(monkeypatch, tmp_path):
     from labeling_tool.update.version import BuildInfo
     calls = []
-    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "lite", None))
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "full", None))
     monkeypatch.setattr(ui.checker, "find_update",
                         lambda *a, **k: calls.append(a) or None)
     state.mark_checked(tmp_path)
@@ -131,7 +131,7 @@ def test_forced_check_ignores_throttle_and_skip(monkeypatch, tmp_path):
 
 def test_running_check_is_retained_then_released(monkeypatch, tmp_path):
     from labeling_tool.update.version import BuildInfo
-    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "lite", None))
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "full", None))
     monkeypatch.setattr(ui.checker, "find_update", lambda *a, **k: None)
     # force=False: an empty tmp_path has no last_check, so should_check() is
     # already True - this avoids the "up to date" QMessageBox that force=True
@@ -149,7 +149,7 @@ def test_on_found_with_deleted_parent_does_not_raise(monkeypatch, tmp_path):
     assert sip.isdeleted(parent)
 
     from labeling_tool.update.version import BuildInfo
-    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "lite", None))
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "full", None))
     monkeypatch.setattr(ui.checker, "find_update", lambda *a, **k: INFO)
     monkeypatch.setattr(ui, "_ask", lambda *a, **k: ui.LATER)
     thread = ui.check_for_updates(parent, home=tmp_path)
@@ -162,7 +162,7 @@ def test_on_found_with_deleted_parent_does_not_raise(monkeypatch, tmp_path):
 # when the user explicitly asked (force=True).
 
 def test_forced_failed_check_warns_instead_of_lying(monkeypatch, tmp_path):
-    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "lite", None))
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "full", None))
     monkeypatch.setattr(ui.checker, "find_update",
                         lambda *a, **k: (_ for _ in ()).throw(TimeoutError("no network")))
     warned, informed = [], []
@@ -176,7 +176,7 @@ def test_forced_failed_check_warns_instead_of_lying(monkeypatch, tmp_path):
 
 
 def test_unforced_failed_check_stays_silent(monkeypatch, tmp_path):
-    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "lite", None))
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "full", None))
     monkeypatch.setattr(ui.checker, "find_update",
                         lambda *a, **k: (_ for _ in ()).throw(TimeoutError("no network")))
     monkeypatch.setattr(QMessageBox, "warning",
@@ -192,7 +192,7 @@ def test_unforced_failed_check_stays_silent(monkeypatch, tmp_path):
 # for an in-flight check instead of destroying a running QThread.
 
 def test_wait_for_checks_blocks_until_thread_finishes(monkeypatch, tmp_path):
-    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "lite", None))
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "full", None))
     release = threading.Event()
 
     def slow_find(*a, **k):
@@ -213,7 +213,7 @@ def test_wait_for_checks_blocks_until_thread_finishes(monkeypatch, tmp_path):
 # update prompt.
 
 def test_found_update_stays_silent_once_a_session_window_is_open(monkeypatch, tmp_path):
-    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "lite", None))
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "full", None))
     monkeypatch.setattr(ui.checker, "find_update", lambda *a, **k: INFO)
     monkeypatch.setattr(ui, "_ask",
                         lambda *a, **k: pytest.fail("prompted while a session was open"))
@@ -231,7 +231,7 @@ def test_found_update_stays_silent_once_a_session_window_is_open(monkeypatch, tm
 # at once.
 
 def test_second_check_while_one_runs_does_not_start_another_thread(monkeypatch, tmp_path):
-    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "lite", None))
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "full", None))
     release = threading.Event()
 
     def blocking_find(*a, **k):
@@ -249,7 +249,7 @@ def test_second_check_while_one_runs_does_not_start_another_thread(monkeypatch, 
 
 
 def test_second_forced_check_while_one_runs_tells_user_and_does_not_start(monkeypatch, tmp_path):
-    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "lite", None))
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "full", None))
     release = threading.Event()
 
     def blocking_find(*a, **k):
@@ -308,7 +308,7 @@ def test_prompt_and_install_true_quits_the_app(monkeypatch, tmp_path):
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"x")
 
-    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "lite", None))
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "full", None))
     monkeypatch.setattr(ui.checker, "find_update", lambda *a, **k: INFO)
     monkeypatch.setattr(ui, "_ask", lambda *a, **k: ui.UPDATE)
     monkeypatch.setattr(ui.net_download, "download_file", fake_download)

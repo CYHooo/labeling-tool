@@ -1,33 +1,5 @@
 """Build smoke test entry point used by CI on the packaged exe."""
-import importlib.util
-
 from labeling_tool import selftest
-
-
-def test_lite_passes_and_writes_log(monkeypatch, tmp_path):
-    monkeypatch.setattr(selftest, "app_home", lambda: tmp_path)
-    real_find_spec = importlib.util.find_spec
-    not_bundled = ("torch", "sam2", "annotation_tool")
-    monkeypatch.setattr(importlib.util, "find_spec",
-                        lambda name, *a: None if name in not_bundled else real_find_spec(name, *a))
-    assert selftest.run_selftest("lite") == 0
-    log = (tmp_path / "selftest.log").read_text(encoding="utf-8")
-    assert "OK   import labeling_tool.ui.login_dialog" in log
-    assert "OK   MobileSAM ONNX models" in log
-    assert "OK   few-shot stack not bundled" in log
-    assert "RESULT: PASS" in log
-
-
-def test_lite_fails_when_torch_is_bundled(monkeypatch, tmp_path):
-    monkeypatch.setattr(selftest, "app_home", lambda: tmp_path)
-    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: object())
-    monkeypatch.setattr(selftest, "COMMON_MODULES", ())
-    monkeypatch.setattr(selftest, "_check_onnx", lambda: None)
-    monkeypatch.setattr(selftest, "_check_login_dialog", lambda: None)
-    assert selftest.run_selftest("lite") == 1
-    log = (tmp_path / "selftest.log").read_text(encoding="utf-8")
-    assert "FAIL few-shot stack not bundled" in log
-    assert "torch" in log and "annotation_tool" in log and "sam2" in log
 
 
 def test_full_reports_missing_module(monkeypatch, tmp_path):
@@ -67,7 +39,10 @@ def test_full_checks_have_no_sam3():
 
 
 def test_unknown_variant(monkeypatch, tmp_path):
+    """lite is gone as of v1.3.0, so it is now an unknown variant too."""
     monkeypatch.setattr(selftest, "app_home", lambda: tmp_path)
+    # each run rewrites selftest.log, so check the log of the last one
+    assert selftest.run_selftest("lite") == 2
     assert selftest.run_selftest("medium") == 2
     log = (tmp_path / "selftest.log").read_text(encoding="utf-8")
     assert "unknown selftest variant: 'medium'" in log
@@ -77,4 +52,4 @@ def test_app_main_dispatches_selftest(monkeypatch):
     from labeling_tool import app
     monkeypatch.setattr(selftest, "run_selftest", lambda variant: {"full": 7}.get(variant, 3))
     assert app.main(["--selftest=full"]) == 7
-    assert app.main(["--selftest"]) == 3          # bare flag -> lite
+    assert app.main(["--selftest"]) == 7          # bare flag -> full, the only variant

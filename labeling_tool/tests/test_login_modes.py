@@ -299,7 +299,7 @@ def test_load_fewshot_window_failure_reports_inline(monkeypatch):
 
 def test_login_shows_version_and_check_button(monkeypatch):
     from labeling_tool.update.version import BuildInfo
-    monkeypatch.setattr(ld, "read_build_info", lambda: BuildInfo("1.2.3", "lite", None))
+    monkeypatch.setattr(ld, "read_build_info", lambda: BuildInfo("1.2.3", "full", None))
     dlg = ld.LoginDialog()
     assert "1.2.3" in dlg.lbl_version.text()
     clicked = []

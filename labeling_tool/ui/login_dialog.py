@@ -10,7 +10,7 @@ Outputs for app.py (`self.mode`):
   * MODE_ONLINE:  self.base / self.key set, self.workspace is None -> FetchDialog
   * MODE_SESSION: self.workspace / self.manifest set -> go straight to main window
                   (self.base / self.key set only when uploading is possible)
-  * MODE_FEWSHOT: no session; app.open_tool_window(mode)
+  * MODE_FEWSHOT: no session; app.open_fewshot_from_login(dialog)
 """
 
 from __future__ import annotations
