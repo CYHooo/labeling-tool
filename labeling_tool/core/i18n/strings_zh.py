@@ -259,4 +259,38 @@ STRINGS = {
     "fs_inference_error_title":         "推理错误",
     "fs_dock_images":                   "图片",
     "fs_dock_classes":                  "类别",
+
+    # --- viewer main window (labeling_tool/ui/main_window.py) ---
+    "vmw_btn_upload":                  "上传到 EC2",
+    "vmw_offline_title":               "离线",
+    "vmw_offline_msg":                 "无法上传：没有 API 客户端。",
+    "vmw_status_no_edits":             "没有可上传的编辑内容（未保存任何 mask）",
+    "vmw_none_title":                  "无",
+    "vmw_msg_no_edits":                "没有可上传的编辑内容。",
+    "vmw_no_scale_title":              "无比例尺",
+    "vmw_status_no_scale":
+        "没有带 pxPerCm 的编辑内容 — 需要 ArUco 自动检测或手动测量",
+    "vmw_msg_no_scale":                "没有带 pxPerCm 的编辑内容（需要 ArUco）。",
+    "vmw_phase_prepare":               "准备",
+    "vmw_phase_upload":                "上传",
+    "vmw_progress_format":             "{phase} %v/%m",
+    "vmw_status_upload_starting":      "正在准备 EC2 上传…（0/{total}）",
+    "vmw_status_progress":             "EC2 {phase}中…（{done}/{total}）",
+    "vmw_upload_failed":               "上传失败",
+    "vmw_status_no_items":             "没有可上传的项目",
+    "vmw_status_done":                 "上传完成：{count} 张（服务器确认 OK）",
+    "vmw_done_title":                  "完成",
+    "vmw_done_msg":                    "已上传 {count} 张并完成服务器确认。{report_line}",
+    "vmw_report_line":                 "\n验证报告（CSV）：{report}",
+    "vmw_err_unrecorded":              "（原因未记录）",
+    "vmw_part_failed_batches":         "{count} 个批次上传失败 — 原因：{err}",
+    "vmw_part_verify_failures":
+        "服务器确认结果：{count} 张未反映（编号/时间戳：{nums}{more}）",
+    "vmw_part_anomalies":
+        "服务器只保存了部分数据（比请求少 {missing} 张未反映）",
+    "vmw_status_partial":
+        "服务器确认 {count} 张正常，部分未反映 — 请重试",
+    "vmw_partial_title":               "部分失败 / 未反映",
+    "vmw_partial_msg_header":          "服务器已确认的照片：{count} 张\n\n",
+    "vmw_partial_msg_footer":          "\n详细日志：{log_path}\n\n请重新上传。",
 }

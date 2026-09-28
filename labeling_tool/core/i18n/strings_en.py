@@ -265,4 +265,45 @@ STRINGS = {
     "fs_inference_error_title":         "Inference error",
     "fs_dock_images":                   "Images",
     "fs_dock_classes":                  "Classes",
+
+    # --- viewer main window (labeling_tool/ui/main_window.py) ---
+    "vmw_btn_upload":                  "Upload to EC2",
+    "vmw_offline_title":               "Offline",
+    "vmw_offline_msg":                 "Cannot upload: no API client.",
+    "vmw_status_no_edits":
+        "No edited masks to upload (nothing saved)",
+    "vmw_none_title":                  "None",
+    "vmw_msg_no_edits":                "No edited masks to upload.",
+    "vmw_no_scale_title":              "No scale",
+    "vmw_status_no_scale":
+        "No edits have pxPerCm -- run ArUco auto-detect or measure manually",
+    "vmw_msg_no_scale":                "No edits have pxPerCm (ArUco required).",
+    "vmw_phase_prepare":               "Preparing",
+    "vmw_phase_upload":                "Uploading",
+    "vmw_progress_format":             "{phase} %v/%m",
+    "vmw_status_upload_starting":      "Preparing EC2 upload... (0/{total})",
+    "vmw_status_progress":             "EC2 {phase}... ({done}/{total})",
+    "vmw_upload_failed":               "Upload failed",
+    "vmw_status_no_items":             "Nothing to upload",
+    "vmw_status_done":
+        "Upload complete: {count} photo(s) (server-verified)",
+    "vmw_done_title":                  "Done",
+    "vmw_done_msg":
+        "{count} photo(s) uploaded and server-verified.{report_line}",
+    "vmw_report_line":                 "\nVerification report (CSV): {report}",
+    "vmw_err_unrecorded":              "(cause not recorded)",
+    "vmw_part_failed_batches":
+        "{count} batch(es) failed to upload -- cause: {err}",
+    "vmw_part_verify_failures":
+        "Server verification found {count} photo(s) not reflected "
+        "(number/timestamp: {nums}{more})",
+    "vmw_part_anomalies":
+        "Server saved only part of the batch "
+        "({missing} photo(s) not reflected vs. requested)",
+    "vmw_status_partial":
+        "Server-verified {count} photo(s); some not reflected -- try again",
+    "vmw_partial_title":               "Partial failure / not reflected",
+    "vmw_partial_msg_header":          "Server-verified photos: {count}\n\n",
+    "vmw_partial_msg_footer":
+        "\nDetailed log: {log_path}\n\nPlease upload again.",
 }

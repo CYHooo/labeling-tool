@@ -270,4 +270,39 @@ STRINGS = {
     "fs_inference_error_title":         "추론 오류",
     "fs_dock_images":                   "이미지",
     "fs_dock_classes":                  "클래스",
+
+    # --- viewer main window (labeling_tool/ui/main_window.py) ---
+    "vmw_btn_upload":                  "EC2 업로드",
+    "vmw_offline_title":               "오프라인",
+    "vmw_offline_msg":                 "API 클라이언트가 없어 업로드할 수 없습니다.",
+    "vmw_status_no_edits":
+        "업로드할 편집본이 없습니다 (저장된 마스크 없음)",
+    "vmw_none_title":                  "없음",
+    "vmw_msg_no_edits":                "업로드할 편집본이 없습니다.",
+    "vmw_no_scale_title":              "축척 없음",
+    "vmw_status_no_scale":
+        "pxPerCm가 있는 편집본이 없습니다 — ArUco 자동검출 또는 수동 측정 필요",
+    "vmw_msg_no_scale":                "pxPerCm가 있는 편집본이 없습니다 (ArUco 필요).",
+    "vmw_phase_prepare":               "준비",
+    "vmw_phase_upload":                "업로드",
+    "vmw_progress_format":             "{phase} %v/%m",
+    "vmw_status_upload_starting":      "EC2 업로드 준비… (0/{total})",
+    "vmw_status_progress":             "EC2 {phase} 중… ({done}/{total})",
+    "vmw_upload_failed":               "업로드 실패",
+    "vmw_status_no_items":             "업로드할 항목이 없습니다",
+    "vmw_status_done":                 "업로드 완료: {count}건 (서버 확인 완료)",
+    "vmw_done_title":                  "완료",
+    "vmw_done_msg":                    "{count}건 업로드 + 서버 확인 완료.{report_line}",
+    "vmw_report_line":                 "\n검증 보고서(CSV): {report}",
+    "vmw_err_unrecorded":              "(원인 미기록)",
+    "vmw_part_failed_batches":         "{count}개 배치 업로드 실패 — 원인: {err}",
+    "vmw_part_verify_failures":
+        "서버 확인 결과 {count}장 미반영 (번호/타임스탬프: {nums}{more})",
+    "vmw_part_anomalies":
+        "서버가 일부만 저장 (요청보다 {missing}장 미반영)",
+    "vmw_status_partial":
+        "서버 확인 {count}장 정상, 일부 미반영 — 다시 시도하세요",
+    "vmw_partial_title":               "일부 실패 / 미반영",
+    "vmw_partial_msg_header":          "서버에 확인된 사진: {count}장\n\n",
+    "vmw_partial_msg_footer":          "\n자세한 로그: {log_path}\n\n다시 업로드하세요.",
 }
