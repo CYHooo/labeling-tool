@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import (
 )
 
 from labeling_tool.core.constants import BRUSH_DEFAULT_SIZE, BRUSH_MAX_SIZE
-from labeling_tool.core.i18n import LANG_DISPLAY_NAMES
+from labeling_tool.core.i18n import LANGUAGES, LANG_DISPLAY_NAMES, current_language
 
 if TYPE_CHECKING:
     from labeling_tool.core.window.main_window import MainWindow
@@ -42,10 +42,9 @@ def build_settings_group(window: "MainWindow") -> QGroupBox:
     lang_row = QHBoxLayout()
     window._lbl_lang = QLabel(window.tr_("language"))
     window._cmb_lang = QComboBox()
-    for code, display in LANG_DISPLAY_NAMES.items():
-        window._cmb_lang.addItem(display, code)
-    window._cmb_lang.setCurrentIndex(
-        list(LANG_DISPLAY_NAMES.keys()).index(window.lang))
+    for code in LANGUAGES:
+        window._cmb_lang.addItem(LANG_DISPLAY_NAMES[code], code)
+    window._cmb_lang.setCurrentIndex(LANGUAGES.index(current_language()))
     window._cmb_lang.currentIndexChanged.connect(window._change_language)
     lang_row.addWidget(window._lbl_lang)
     lang_row.addWidget(window._cmb_lang, stretch=1)
@@ -238,6 +237,9 @@ def build_nav_group(window: "MainWindow") -> QGroupBox:
     window.btn_save.setObjectName("primaryAction")
     window.btn_save.clicked.connect(window._on_brush_save)
     gn.addWidget(window.btn_save)
+    # Alias with the underscore-prefixed convention used by other widgets;
+    # kept as a second name (not a rename) so existing call sites are safe.
+    window._btn_save = window.btn_save
     return window._grp_nav
 
 

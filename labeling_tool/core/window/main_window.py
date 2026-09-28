@@ -15,7 +15,7 @@ from labeling_tool.core.constants import (
     CATEGORIES, DEFAULT_CATEGORY, OUTPUT_DIR_NAME,
     IMAGE_EXTENSIONS, MASK_NAME_SUFFIXES,
 )
-from labeling_tool.core.i18n import TRANSLATIONS, LANG_DISPLAY_NAMES, current_language
+from labeling_tool.core.i18n import LANGUAGES, tr, language_manager, set_language
 from labeling_tool.core.mask_io import load_origin_and_masks
 from labeling_tool.core.mask_codec import encode_label_mask
 from labeling_tool.core.canvas import ImageCanvas
@@ -40,8 +40,6 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-
-        self.lang: str = current_language()
 
         self.origin_dir: Path | None = None
         self.detected_dir: Path | None = None
@@ -70,6 +68,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(self.tr_("window_title"))
         self.setMinimumSize(820, 560)
         self._apply_initial_geometry()
+
+        # Follow language changes made anywhere else (e.g. reopening the
+        # login screen). Disconnect on close so a reopened window doesn't
+        # stack listeners on the process-wide LanguageManager singleton.
+        self._lang_conn = language_manager().languageChanged.connect(
+            self._on_language_changed_elsewhere)
 
         from labeling_tool.ui.derived_mask_worker import DerivedMaskSignals
         self._derived_signals = DerivedMaskSignals()
@@ -102,16 +106,23 @@ class MainWindow(QMainWindow):
     # Translation
     # ------------------------------------------------------------------
     def tr_(self, key: str, **kwargs) -> str:
-        s = TRANSLATIONS.get(self.lang, {}).get(key)
-        if s is None:
-            s = TRANSLATIONS["en"].get(key, key)
-        return s.format(**kwargs) if kwargs else s
+        return tr(key, **kwargs)
 
     def _change_language(self, idx: int):
-        codes = list(LANG_DISPLAY_NAMES.keys())
-        if 0 <= idx < len(codes):
-            self.lang = codes[idx]
-            self._retranslate_ui()
+        if 0 <= idx < len(LANGUAGES):
+            set_language(LANGUAGES[idx])
+
+    def _on_language_changed_elsewhere(self, _code: str) -> None:
+        self._retranslate_ui()
+
+    def _disconnect_language_manager(self) -> None:
+        conn = getattr(self, "_lang_conn", None)
+        if conn is not None:
+            try:
+                language_manager().languageChanged.disconnect(conn)
+            except TypeError:
+                pass  # already disconnected
+            self._lang_conn = None
 
     def _retranslate_ui(self):
         self.setWindowTitle(self.tr_("window_title"))
@@ -560,7 +571,7 @@ class MainWindow(QMainWindow):
         self.canvas.cancel_sam()
 
     def _on_sam_undo(self):
-        """되돌리기 button: drop the last SAM point (no-op outside SAM mode)."""
+        """Undo button (btn_sam_undo): drop the last SAM point (no-op outside SAM mode)."""
         if self.canvas.sam_mode and self.canvas.undo_sam_point():
             self.status.showMessage(self.tr_("sam_undone"))
 
@@ -859,4 +870,5 @@ class MainWindow(QMainWindow):
         # if the user actually edited it this session.
         self._save_all_artifacts(silent=True, only_if_edited=True,
                                  async_derived=False)
+        self._disconnect_language_manager()
         super().closeEvent(event)
