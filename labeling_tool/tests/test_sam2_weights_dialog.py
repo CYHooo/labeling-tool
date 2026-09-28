@@ -75,7 +75,8 @@ def test_app_skips_fewshot_when_weights_unavailable(monkeypatch):
     monkeypatch.setattr(configs, "BACKEND", "sam2")
     monkeypatch.setattr(dlg, "ensure_sam2_weights", lambda parent=None: False)
     monkeypatch.setattr(fs_mw, "MainWindow", lambda: pytest.fail("window built"))
-    assert app.open_tool_window("fewshot") is None
+    # A declined download is not an error: no window, and nothing to report.
+    assert app.load_fewshot_window() == (None, None)
 
 
 # ------------------------------------------------------- i18n: the confirm

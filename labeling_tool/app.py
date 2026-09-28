@@ -19,7 +19,7 @@ import sys
 os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = ""
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QLabel, QMessageBox
+from PyQt5.QtWidgets import QApplication
 
 from labeling_tool.core.i18n import tr
 from labeling_tool.logging_setup import vlog
@@ -29,46 +29,46 @@ from labeling_tool.ui.main_window import ViewerMainWindow
 from labeling_tool.api.client import ViewerApiClient
 
 
-def _open_fewshot_window():
-    """Import and build the few-shot tool; None (after telling the user) on failure.
+def _ensure_weights() -> bool:
+    """True when the SAM2.1 weights are present (or not needed).
 
-    Building it loads the SAM model synchronously, so show a busy notice. Any
-    failure (no weights, HF auth, CUDA, ...) must return to the login screen
-    instead of killing the app."""
+    Split out so tests can stub it without reaching into the weights
+    dialog."""
     from annotation_tool import configs as fewshot_configs
-    if fewshot_configs.BACKEND == "sam2":
-        from labeling_tool.ui.sam2_weights_dialog import ensure_sam2_weights
-        if not ensure_sam2_weights():
-            return None  # declined / failed -> back to the login screen
+    if fewshot_configs.BACKEND != "sam2":
+        return True
+    from labeling_tool.ui.sam2_weights_dialog import ensure_sam2_weights
+    return ensure_sam2_weights()
 
-    notice = QLabel(tr("app_fewshot_loading"))
-    notice.setWindowFlags(Qt.SplashScreen | Qt.WindowStaysOnTopHint)
-    notice.setMargin(24)
-    notice.show()
+
+def _build_fewshot_main_window():
+    """Import the few-shot tool and build its window.
+
+    Imported lazily: pulls in torch, which production PCs may not have."""
+    from annotation_tool.ui import main_window as fewshot_main_window
+    return fewshot_main_window.MainWindow()
+
+
+def load_fewshot_window() -> tuple[object | None, str | None]:
+    """Load the few-shot tool.
+
+    Returns (window, None) on success, (None, message) on failure, and
+    (None, None) when the user declined the weights download -- a decline
+    is not an error, so the caller just returns to a normal login screen.
+
+    Building the window loads the SAM model synchronously and blocks the UI
+    thread; the caller shows the login dialog's inline loading area first."""
+    if not _ensure_weights():
+        return None, None
     QApplication.setOverrideCursor(Qt.WaitCursor)
-    QApplication.processEvents()
     try:
-        # imported lazily: pulls in torch, which production PCs may not have
-        from annotation_tool.ui import main_window as fewshot_main_window
-        return fewshot_main_window.MainWindow()
-    except Exception as exc:  # noqa: BLE001 - show any load failure to the user
+        return _build_fewshot_main_window(), None
+    except Exception as exc:  # noqa: BLE001 - any load failure is reported
         vlog().exception("few-shot tool failed to open")
-        QMessageBox.critical(
-            None, tr("app_fewshot_error_title"),
-            tr("app_fewshot_error_msg", type=type(exc).__name__, exc=exc))
-        return None
+        return None, tr("login_loading_failed",
+                        type=type(exc).__name__, exc=exc)
     finally:
         QApplication.restoreOverrideCursor()
-        notice.close()
-
-
-def open_tool_window(mode: str):
-    """Build the window for a tool that needs no server session.
-
-    Returns None when it could not be opened (caller goes back to login)."""
-    if mode == MODE_FEWSHOT:
-        return _open_fewshot_window()
-    raise ValueError(f"not a standalone tool mode: {mode}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -93,14 +93,32 @@ def main(argv: list[str] | None = None) -> int:
     workspace = manifest = None
     while True:
         login = LoginDialog()
+        # The few-shot model loads while this dialog is still up, so the
+        # notice lives inside it. `holder` carries the built window out of
+        # the callback; the dialog only accepts once it exists.
+        holder = {}
+
+        def _on_fewshot(dlg=login, holder=holder):
+            dlg.enter_loading_state(tr("app_fewshot_loading"),
+                                    tr("login_loading_detail"))
+            win, err = load_fewshot_window()
+            if win is None:
+                # err is None when the user declined the weights download:
+                # drop back to a clean login screen with nothing to report.
+                dlg.exit_loading_state(err)
+                return
+            holder["win"] = win
+            dlg.mode = MODE_FEWSHOT
+            dlg.accept()
+
+        login.fewshotRequested.connect(_on_fewshot)
+
         if not login.exec_():
             wait_for_checks()
             return 0  # user cancelled
 
         if login.mode == MODE_FEWSHOT:
-            tool_win = open_tool_window(login.mode)
-            if tool_win is None:
-                continue  # failed to open -> back to the login screen
+            tool_win = holder["win"]
             tool_win.show()
             code = app.exec_()
             wait_for_checks()

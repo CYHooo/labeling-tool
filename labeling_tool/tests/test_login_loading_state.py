@@ -72,3 +72,30 @@ def test_fewshot_button_emits_signal_instead_of_accepting(dlg):
     dlg.btn_fewshot.click()
     assert seen == [True]
     assert dlg.result() == 0  # not accepted yet
+
+
+def test_close_is_ignored_while_loading(dlg):
+    dlg.show()
+    dlg.enter_loading_state("로딩 중…")
+    dlg.close()
+    assert dlg.isVisible()          # the close was ignored
+    dlg.exit_loading_state()
+    dlg.close()
+    assert not dlg.isVisible()      # and honoured once loading ended
+
+
+def test_retry_after_failure_replaces_error_text(dlg):
+    dlg.enter_loading_state("로딩 중…")
+    dlg.exit_loading_state("첫 번째 실패")
+    assert "첫 번째 실패" in dlg._lbl_loading.text()
+    dlg.enter_loading_state("로딩 중…")
+    dlg.exit_loading_state("두 번째 실패")
+    assert dlg._lbl_loading.text() == "두 번째 실패"
+    assert "첫 번째 실패" not in dlg._lbl_loading.text()
+
+
+def test_cancelled_weights_download_leaves_no_error(dlg):
+    dlg.enter_loading_state("로딩 중…")
+    dlg.exit_loading_state(None)
+    assert not dlg._loading_box.isVisibleTo(dlg)
+    assert dlg.tabs.isEnabled()

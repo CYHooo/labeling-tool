@@ -18,11 +18,17 @@ class _FakeApp:
         pass
 
 
+class _FakeSignal:
+    """Just connectable -- main() wires the few-shot signal before exec_()."""
+    def connect(self, _slot):
+        pass
+
+
 class _RejectingLoginDialog:
     """A login dialog whose exec_() reports "cancelled" so main() returns
     right after building QApplication, without opening any real window."""
     def __init__(self, *a, **k):
-        pass
+        self.fewshotRequested = _FakeSignal()
 
     def exec_(self):
         return 0
