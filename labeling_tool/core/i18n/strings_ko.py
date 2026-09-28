@@ -141,6 +141,8 @@ STRINGS = {
     "login_version":                  "버전 {version}",
     "login_check_update":             "업데이트 확인",
 
+    "login_loading_detail":            "SAM2.1 가중치를 메모리에 올리는 중입니다. 잠시 기다려 주세요.",
+    "login_loading_failed":            "Few-shot 도구를 열 수 없습니다: {type}: {exc}",
     # --- fetch dialog ---
     "fetch_title":                     "데이터 가져오기",
     "fetch_from_label":                "fromNum (0=처음부터)",

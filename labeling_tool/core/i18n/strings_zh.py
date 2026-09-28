@@ -136,6 +136,8 @@ STRINGS = {
     "login_version":                  "版本 {version}",
     "login_check_update":             "检查更新",
 
+    "login_loading_detail":            "正在将 SAM2.1 权重载入内存，请稍候。",
+    "login_loading_failed":            "无法打开 Few-shot 工具：{type}：{exc}",
     # --- fetch dialog ---
     "fetch_title":                     "获取数据",
     "fetch_from_label":                "fromNum (0=从头开始)",
