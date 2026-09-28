@@ -10,6 +10,9 @@
 #ifndef MyVersion
   #define MyVersion "0.0.0"
 #endif
+#ifndef MyVersionInfo
+  #define MyVersionInfo "0.0.0"
+#endif
 #ifndef MySource
   #define MySource "dist\LabelingTool"
 #endif
@@ -33,7 +36,9 @@ DefaultGroupName=LabelingTool
 AppName={#MyAppName}
 AppVersion={#MyVersion}
 AppPublisher=CYHooo
-VersionInfoVersion={#MyVersion}
+; Windows version resources must be numeric (x.y[.z[.w]]). Dev builds
+; (MyVersion like "dev-a72cd7b") use MyVersionInfo="0.0.0" instead.
+VersionInfoVersion={#MyVersionInfo}
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
