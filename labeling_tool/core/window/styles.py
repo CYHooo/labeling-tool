@@ -27,18 +27,6 @@ STYLESHEET = """
             color: #9ea3aa;
             font-size: 11px;
         }
-        /* Scoped to the loading area on purpose: the fetch, download and
-           upload bars elsewhere keep their default height. */
-        QFrame#loadingBox QProgressBar {
-            background-color: #2d333d;
-            border: none;
-            border-radius: 2px;
-            max-height: 4px;
-        }
-        QFrame#loadingBox QProgressBar::chunk {
-            background-color: #2d6cdf;
-            border-radius: 2px;
-        }
         QLabel#hintText {
             color: #9ea3aa;
             font-size: 10px;

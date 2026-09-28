@@ -127,14 +127,14 @@ class LoginDialog(QDialog):
         loading_lay.setSpacing(10)
         self._lbl_loading = QLabel("")
         self._lbl_loading.setWordWrap(True)
-        self._loading_bar = QProgressBar()
-        self._loading_bar.setRange(0, 0)   # indeterminate
-        self._loading_bar.setTextVisible(False)
+        # Deliberately no progress bar: the model load blocks the UI thread,
+        # so an animated bar would freeze mid-sweep and read as a hung
+        # program (Windows adds "(Not Responding)" to the title bar). Text
+        # that admits the wait beats motion the event loop cannot deliver.
         self._lbl_loading_detail = QLabel("")
         self._lbl_loading_detail.setWordWrap(True)
         self._lbl_loading_detail.setObjectName("loadingDetail")
         loading_lay.addWidget(self._lbl_loading)
-        loading_lay.addWidget(self._loading_bar)
         loading_lay.addWidget(self._lbl_loading_detail)
         self._loading_box.setVisible(False)
         root.addWidget(self._loading_box)
@@ -386,7 +386,6 @@ class LoginDialog(QDialog):
         self._lbl_loading.setStyleSheet("")
         self._lbl_loading_detail.setText(detail)
         self._lbl_loading_detail.setVisible(bool(detail))
-        self._loading_bar.setVisible(True)
         self._loading_box.setVisible(True)
         self.tabs.setEnabled(False)
         self.cmb_language.setEnabled(False)
@@ -403,7 +402,6 @@ class LoginDialog(QDialog):
         self.cmb_language.setEnabled(True)
         self.btn_check_update.setEnabled(True)
         self._loading = False
-        self._loading_bar.setVisible(False)
         if error:
             self._lbl_loading.setText(error)
             self._lbl_loading.setStyleSheet("color: #e06c6c;")

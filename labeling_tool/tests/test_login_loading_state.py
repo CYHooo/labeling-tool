@@ -35,10 +35,13 @@ def test_enter_loading_state_shows_box_and_texts(dlg):
     assert dlg._lbl_loading_detail.text() == "가중치를 올리는 중"
 
 
-def test_progress_bar_is_indeterminate(dlg):
+def test_no_progress_bar_is_shown(dlg):
+    """The load blocks the UI thread, so an animated bar would freeze
+    mid-sweep and read as a hung program. Show no bar rather than promise
+    motion the event loop cannot deliver."""
+    from PyQt5.QtWidgets import QProgressBar
     dlg.enter_loading_state("로딩 중…")
-    assert dlg._loading_bar.minimum() == 0
-    assert dlg._loading_bar.maximum() == 0
+    assert dlg._loading_box.findChild(QProgressBar) is None
 
 
 def test_enter_loading_state_disables_interaction(dlg):
@@ -62,7 +65,7 @@ def test_exit_loading_state_with_error_keeps_box_and_hides_bar(dlg):
     dlg.exit_loading_state("열 수 없습니다: RuntimeError: boom")
     assert dlg._loading_box.isVisibleTo(dlg)
     assert "RuntimeError: boom" in dlg._lbl_loading.text()
-    assert not dlg._loading_bar.isVisibleTo(dlg)
+    assert not dlg._lbl_loading_detail.isVisibleTo(dlg)
     assert dlg.tabs.isEnabled()
 
 

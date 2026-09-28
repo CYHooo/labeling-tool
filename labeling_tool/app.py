@@ -50,16 +50,13 @@ def _build_fewshot_main_window():
 
 
 def load_fewshot_window() -> tuple[object | None, str | None]:
-    """Load the few-shot tool.
+    """Build the few-shot window: (window, None) or (None, message).
 
-    Returns (window, None) on success, (None, message) on failure, and
-    (None, None) when the user declined the weights download -- a decline
-    is not an error, so the caller just returns to a normal login screen.
+    Weights are the caller's business -- see open_fewshot_from_login, which
+    settles them before any loading notice goes up.
 
     Building the window loads the SAM model synchronously and blocks the UI
     thread; the caller shows the login dialog's inline loading area first."""
-    if not _ensure_weights():
-        return None, None
     QApplication.setOverrideCursor(Qt.WaitCursor)
     try:
         return _build_fewshot_main_window(), None
@@ -69,6 +66,27 @@ def load_fewshot_window() -> tuple[object | None, str | None]:
                         type=type(exc).__name__, exc=exc)
     finally:
         QApplication.restoreOverrideCursor()
+
+
+def open_fewshot_from_login(dlg):
+    """Drive the few-shot open from the login dialog. Returns the window
+    (the dialog has been accepted) or None (the dialog stays open).
+
+    Ordering matters: ensure_sam2_weights() puts up its own modal question
+    and download dialog, so it has to finish BEFORE the loading area claims
+    the model is being loaded -- otherwise that modal stacks on top of a
+    notice describing the wrong thing for the whole download."""
+    if not _ensure_weights():
+        return None  # declined -- nothing was shown, nothing to report
+    dlg.enter_loading_state(tr("app_fewshot_loading"),
+                            tr("login_loading_detail"))
+    win, err = load_fewshot_window()
+    if win is None:
+        dlg.exit_loading_state(err)
+        return None
+    dlg.mode = MODE_FEWSHOT
+    dlg.accept()
+    return win
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -99,17 +117,9 @@ def main(argv: list[str] | None = None) -> int:
         holder = {}
 
         def _on_fewshot(dlg=login, holder=holder):
-            dlg.enter_loading_state(tr("app_fewshot_loading"),
-                                    tr("login_loading_detail"))
-            win, err = load_fewshot_window()
-            if win is None:
-                # err is None when the user declined the weights download:
-                # drop back to a clean login screen with nothing to report.
-                dlg.exit_loading_state(err)
-                return
-            holder["win"] = win
-            dlg.mode = MODE_FEWSHOT
-            dlg.accept()
+            win = open_fewshot_from_login(dlg)
+            if win is not None:
+                holder["win"] = win
 
         login.fewshotRequested.connect(_on_fewshot)
 
