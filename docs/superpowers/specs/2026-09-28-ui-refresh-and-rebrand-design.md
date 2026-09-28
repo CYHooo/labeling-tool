@@ -100,7 +100,9 @@ notice.setWindowFlags(Qt.SplashScreen | Qt.WindowStaysOnTopHint)
 
 安装时 `AppId` 保持 full 变体原有的值，Inno Setup 会将其识别为升级，原地覆盖旧版本、保留 `config.json`、`data\` 与 `checkpoint\`，控制面板中不会出现两个程序条目。
 
-**前提是现有安装为 full 变体**。由于 lite 与 full 使用不同的 `AppId`（分别以 `...0F01` 与 `...0F02` 结尾），若现有安装是 lite 变体，v1.3.0 不会将其识别为升级，两者会并存于控制面板。此种情况下需先手动卸载 lite 版本，再安装 v1.3.0。实施第二期前需确认现有安装的变体（登录界面右下角的 build 标识会显示 `lite` 或 `full`）。
+**前提是现有安装为 full 变体**。由于 lite 与 full 使用不同的 `AppId`（分别以 `...0F01` 与 `...0F02` 结尾），若现有安装是 lite 变体，v1.3.0 不会将其识别为升级，两者会并存于控制面板。
+
+已于 2026-09-28 与用户确认：**现有安装为 full 变体**，因此 v1.3.0 沿用 full 的 `AppId`（`...0F02`）即可原地升级，无需卸载。
 
 从 v1.3.0 起，新旧资产名一致，自动更新恢复正常。
 
