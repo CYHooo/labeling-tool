@@ -5,7 +5,7 @@ STRINGS = {
     # --- main window ---
     "window_title":       "掩码编辑标注工具",
     "settings":           "设置",
-    "language":           "语言",
+    "language":           "语言:",
     "btn_select_origin":  "选择 Origin 文件夹",
     "btn_select_detected":"选择 Detected 文件夹",
     "lbl_origin":         "Origin: {p}",

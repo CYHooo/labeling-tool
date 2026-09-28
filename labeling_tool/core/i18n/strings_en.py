@@ -5,7 +5,7 @@ STRINGS = {
     # --- main window ---
     "window_title":       "Mask Editing Annotation Tool",
     "settings":           "Settings",
-    "language":           "Language",
+    "language":           "Language:",
     "btn_select_origin":  "Select Origin Folder",
     "btn_select_detected":"Select Detected Folder",
     "lbl_origin":         "Origin: {p}",

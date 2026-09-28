@@ -10,7 +10,7 @@ STRINGS = {
     # --- main window ---
     "window_title":       "마스크 편집 라벨링 도구",
     "settings":           "설정",
-    "language":           "언어",
+    "language":           "언어:",
     "btn_select_origin":  "Origin 폴더 선택",
     "btn_select_detected":"Detected 폴더 선택",
     "lbl_origin":         "Origin: {p}",

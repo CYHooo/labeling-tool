@@ -341,3 +341,26 @@ def test_job_table_headers_are_translated(monkeypatch, tmp_path):
     i18n.set_language("en")
     dlg = ld.LoginDialog()
     assert dlg.tbl_jobs.horizontalHeaderItem(0).text() == i18n.tr("login_col_job")
+
+
+def test_closed_dialog_stops_listening_for_language_changes(monkeypatch, tmp_path):
+    # app.py's login loop recreates LoginDialog() on every retry, all of them
+    # listening on the process-wide LanguageManager singleton; a closed
+    # dialog must disconnect so it isn't retranslated (or kept alive) forever.
+    from labeling_tool.core import i18n
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path)
+    i18n.set_language("ko")
+
+    dead = ld.LoginDialog()
+    dead_calls = []
+    monkeypatch.setattr(dead, "retranslate", lambda: dead_calls.append(1))
+    dead.close()
+
+    live = ld.LoginDialog()
+    live_calls = []
+    monkeypatch.setattr(live, "retranslate", lambda: live_calls.append(1))
+
+    i18n.set_language("en")
+
+    assert dead_calls == []
+    assert live_calls == [1]

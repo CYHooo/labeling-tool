@@ -126,7 +126,13 @@ class LoginDialog(QDialog):
         root.addLayout(bottom)
 
         self.retranslate()
-        i18n.language_manager().languageChanged.connect(lambda *_: self.retranslate())
+        # app.py's login loop recreates LoginDialog() on every retry (failed
+        # fetch, failed few-shot open); disconnect from the process-wide
+        # LanguageManager singleton once this dialog is done so dead dialogs
+        # don't keep piling up as listeners.
+        self._lang_conn = i18n.language_manager().languageChanged.connect(
+            self._on_language_changed_elsewhere)
+        self.finished.connect(self._disconnect_language_manager)
 
     # ------------------------------------------------------------ i18n
     def _on_language_changed(self, idx: int) -> None:
@@ -134,12 +140,31 @@ class LoginDialog(QDialog):
         if code:
             i18n.set_language(code)
 
+    def _on_language_changed_elsewhere(self, _code: str) -> None:
+        self.retranslate()
+
+    def _disconnect_language_manager(self, *_args) -> None:
+        conn = getattr(self, "_lang_conn", None)
+        if conn is not None:
+            try:
+                i18n.language_manager().languageChanged.disconnect(conn)
+            except TypeError:
+                pass  # already disconnected
+            self._lang_conn = None
+
+    def closeEvent(self, event) -> None:
+        # accept()/reject() (the exec_() path used by app.py) already emit
+        # `finished`, but a plain close() (e.g. the window's [x] button, or
+        # a test) does not -- cover that path here too.
+        self._disconnect_language_manager()
+        super().closeEvent(event)
+
     def retranslate(self) -> None:
         """Re-apply every translated string. Called on init and whenever
         the language changes (either from this dialog's own combo, or from
         elsewhere, e.g. the main window)."""
         self.setWindowTitle(i18n.tr("login_title"))
-        self.lbl_language.setText(i18n.tr("language") + ":")
+        self.lbl_language.setText(i18n.tr("language"))
         self.tabs.setTabText(TAB_ONLINE, i18n.tr("login_tab_online"))
         self.tabs.setTabText(TAB_LOCAL, i18n.tr("login_tab_local"))
         self.tabs.setTabText(TAB_FEWSHOT, i18n.tr("login_tab_fewshot"))

@@ -117,7 +117,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(self.tr_("window_title"))
         self._lbl_app_title.setText(self.tr_("window_title"))
         self._grp_settings.setTitle(self.tr_("settings"))
-        self._lbl_lang.setText(self.tr_("language") + ":")
+        self._lbl_lang.setText(self.tr_("language"))
         self._btn_select_origin.setText(self.tr_("btn_select_origin"))
         self._btn_select_detected.setText(self.tr_("btn_select_detected"))
         self._grp_category.setTitle(self.tr_("lbl_category"))

@@ -40,7 +40,7 @@ def build_settings_group(window: "MainWindow") -> QGroupBox:
     _tidy_group_layout(gs)
 
     lang_row = QHBoxLayout()
-    window._lbl_lang = QLabel(window.tr_("language") + ":")
+    window._lbl_lang = QLabel(window.tr_("language"))
     window._cmb_lang = QComboBox()
     for code, display in LANG_DISPLAY_NAMES.items():
         window._cmb_lang.addItem(display, code)
