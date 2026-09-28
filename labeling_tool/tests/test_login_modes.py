@@ -209,8 +209,12 @@ def test_fewshot_tab_enabled_when_torch_installed(monkeypatch):
     monkeypatch.setattr(ld, "fewshot_available", lambda: True)
     dlg = ld.LoginDialog()
     assert dlg.btn_fewshot.isEnabled()
+    seen = []
+    dlg.fewshotRequested.connect(lambda: seen.append(True))
     dlg.btn_fewshot.click()
-    assert dlg.mode == ld.MODE_FEWSHOT
+    # app.py drives the load and only then accepts; the click itself just
+    # asks for it.
+    assert seen == [True]
 
 
 def test_fewshot_tab_disabled_without_torch(monkeypatch):

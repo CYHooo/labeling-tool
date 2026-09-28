@@ -18,11 +18,12 @@ from __future__ import annotations
 import importlib.util
 from datetime import datetime
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QFormLayout, QLineEdit, QPushButton, QHBoxLayout, QVBoxLayout,
     QLabel, QProgressBar, QMessageBox, QTabWidget, QWidget, QTableWidget,
-    QTableWidgetItem, QAbstractItemView, QHeaderView, QComboBox,
+    QTableWidgetItem, QAbstractItemView, QHeaderView, QComboBox, QFrame,
+    QApplication,
 )
 
 from labeling_tool.core import i18n
@@ -76,6 +77,11 @@ def _tool_page(description: QLabel, button: QPushButton, hint: QLabel | None = N
 
 
 class LoginDialog(QDialog):
+    # Emitted when the user picks the few-shot tool. app.py connects this and
+    # drives the loading state; the dialog cannot import app.py itself
+    # (circular import), so the ordering lives on the app side.
+    fewshotRequested = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.resize(680, 460)
@@ -94,6 +100,9 @@ class LoginDialog(QDialog):
         # remembered build info, so retranslate() can rebuild the version
         # label without calling read_build_info() again.
         self._build_info = read_build_info()
+        # True between enter_loading_state() and exit_loading_state(); a
+        # close during that window is ignored (see closeEvent).
+        self._loading = False
 
         cfg = load_config()
 
@@ -105,6 +114,30 @@ class LoginDialog(QDialog):
 
         root = QVBoxLayout(self)
         root.addWidget(self.tabs)
+
+        # Inline loading area, shown while the few-shot model loads. Hidden
+        # until enter_loading_state() is called. This replaces the old
+        # free-floating QLabel splash, which rendered as grey-on-white
+        # because a parentless QLabel picks up the theme's color rule but
+        # not its background.
+        self._loading_box = QFrame()
+        self._loading_box.setObjectName("loadingBox")
+        loading_lay = QVBoxLayout(self._loading_box)
+        loading_lay.setContentsMargins(16, 14, 16, 14)
+        loading_lay.setSpacing(10)
+        self._lbl_loading = QLabel("")
+        self._lbl_loading.setWordWrap(True)
+        self._loading_bar = QProgressBar()
+        self._loading_bar.setRange(0, 0)   # indeterminate
+        self._loading_bar.setTextVisible(False)
+        self._lbl_loading_detail = QLabel("")
+        self._lbl_loading_detail.setWordWrap(True)
+        self._lbl_loading_detail.setObjectName("loadingDetail")
+        loading_lay.addWidget(self._lbl_loading)
+        loading_lay.addWidget(self._loading_bar)
+        loading_lay.addWidget(self._lbl_loading_detail)
+        self._loading_box.setVisible(False)
+        root.addWidget(self._loading_box)
 
         # bottom row: language selector, build identity, manual update check
         self.lbl_language = QLabel("")
@@ -153,6 +186,13 @@ class LoginDialog(QDialog):
             self._lang_conn = None
 
     def closeEvent(self, event) -> None:
+        # The model load blocks the UI thread, so a close during loading
+        # cannot be honoured anyway -- ignore it rather than let the window
+        # look frozen. Checked before the disconnect below: a dialog that
+        # stays open must keep listening for language changes.
+        if getattr(self, "_loading", False):
+            event.ignore()
+            return
         # accept()/reject() (the exec_() path used by app.py) already emit
         # `finished`, but a plain close() (e.g. the window's [x] button, or
         # a test) does not -- cover that path here too.
@@ -309,7 +349,7 @@ class LoginDialog(QDialog):
     def _build_fewshot_page(self) -> QWidget:
         """Tab 3: few-shot annotation tool (annotation_tool, needs torch)."""
         self.btn_fewshot = QPushButton("")
-        self.btn_fewshot.clicked.connect(lambda: self._accept_mode(MODE_FEWSHOT))
+        self.btn_fewshot.clicked.connect(self.fewshotRequested.emit)
         self.lbl_fewshot_hint = QLabel("")
         self.lbl_fewshot_desc = QLabel("")
         self.lbl_fewshot_desc.setWordWrap(True)
@@ -336,6 +376,42 @@ class LoginDialog(QDialog):
             else i18n.tr("login_fewshot_desc_full"))
 
     # -------------------------------------------------------------- actions
+    def enter_loading_state(self, message: str, detail: str = "") -> None:
+        """Show the inline loading area and lock the dialog down.
+
+        The model load blocks the UI thread, so everything that would open a
+        second modal (update check) or rewrite the loading text (language
+        switch) is disabled for the duration."""
+        self._lbl_loading.setText(message)
+        self._lbl_loading.setStyleSheet("")
+        self._lbl_loading_detail.setText(detail)
+        self._lbl_loading_detail.setVisible(bool(detail))
+        self._loading_bar.setVisible(True)
+        self._loading_box.setVisible(True)
+        self.tabs.setEnabled(False)
+        self.cmb_language.setEnabled(False)
+        self.btn_check_update.setEnabled(False)
+        self._loading = True
+        QApplication.processEvents()
+
+    def exit_loading_state(self, error: str | None = None) -> None:
+        """Unlock the dialog. With `error`, keep the area visible and show
+        the message there instead of in a QMessageBox -- a modal box under
+        offscreen Qt hangs the test suite, and an inline error lets the user
+        pick another tab without restarting."""
+        self.tabs.setEnabled(True)
+        self.cmb_language.setEnabled(True)
+        self.btn_check_update.setEnabled(True)
+        self._loading = False
+        self._loading_bar.setVisible(False)
+        if error:
+            self._lbl_loading.setText(error)
+            self._lbl_loading.setStyleSheet("color: #e06c6c;")
+            self._lbl_loading_detail.setVisible(False)
+            self._loading_box.setVisible(True)
+        else:
+            self._loading_box.setVisible(False)
+
     def _accept_mode(self, mode: str) -> None:
         self.mode = mode
         vlog().info("login: tool selected -> %s", mode)
