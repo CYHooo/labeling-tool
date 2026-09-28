@@ -137,3 +137,43 @@ def test_empty_runtime_reads_as_none(tmp_path):
     (tmp_path / "build-info.json").write_text(json.dumps(
         {"version": "1.3.0", "runtime": "", "variant": "full"}), encoding="utf-8")
     assert ver.read_build_info(tmp_path).runtime is None
+
+
+# ------------------------------------------------------------------- CLI
+# CI calls these; PowerShell has no heredoc, so the logic lives in the
+# module rather than inline in the workflow YAML.
+
+def test_stage_app_layer_copies_only_the_app_layer(tmp_path):
+    dist = _make_dist(tmp_path / "dist", {
+        "LM_LabelingTool.exe": b"x" * 10,
+        "build-info.json": b"{}",
+        "_internal/labeling_tool/core.pyc": b"y" * 20,
+        "_internal/torch/big.dll": b"z" * 100,
+    })
+    out = tmp_path / "app"
+    app_bytes, all_bytes = layers.stage_app_layer(dist, out)
+    copied = sorted(p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_file())
+    assert copied == ["LM_LabelingTool.exe", "_internal/labeling_tool/core.pyc",
+                      "build-info.json"]
+    assert app_bytes == 32
+    assert all_bytes == 132
+
+
+def test_cli_runtime_id(tmp_path, capsys):
+    d = _make_dist(tmp_path / "d", {"_internal/torch/a.dll": b"aaa"})
+    assert layers.main(["runtime-id", str(d)]) == 0
+    assert capsys.readouterr().out.strip() == layers.compute_runtime_id(d)
+
+
+def test_cli_stage(tmp_path, capsys):
+    d = _make_dist(tmp_path / "d", {"LM_LabelingTool.exe": b"x",
+                                    "_internal/torch/a.dll": b"aaa"})
+    assert layers.main(["stage", str(d), str(tmp_path / "out")]) == 0
+    assert "app layer:" in capsys.readouterr().out
+    assert (tmp_path / "out" / "LM_LabelingTool.exe").exists()
+    assert not (tmp_path / "out" / "_internal" / "torch").exists()
+
+
+def test_cli_rejects_bad_usage(capsys):
+    assert layers.main(["nonsense"]) == 2
+    assert "usage:" in capsys.readouterr().err

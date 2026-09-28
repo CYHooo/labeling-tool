@@ -67,3 +67,50 @@ def compute_runtime_id(dist_dir: Path) -> str:
         digest.update(hashlib.sha256(path.read_bytes()).hexdigest().encode("ascii"))
         digest.update(b"\0")
     return "r" + digest.hexdigest()[:8]
+
+
+def stage_app_layer(dist_dir: Path, out_dir: Path) -> tuple[int, int]:
+    """Copy just the app layer into out_dir. Returns (app bytes, all bytes).
+
+    A separate directory is what the app-layer installer compiles from, so
+    the layer rule above is the single place that decides what ships in a
+    partial update."""
+    import shutil
+
+    src, dst = Path(dist_dir), Path(out_dir)
+    app_bytes = all_bytes = 0
+    for path in src.rglob("*"):
+        if not path.is_file():
+            continue
+        size = path.stat().st_size
+        all_bytes += size
+        rel = path.relative_to(src).as_posix()
+        if is_app_layer(rel):
+            target = dst / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, target)
+            app_bytes += size
+    return app_bytes, all_bytes
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI for CI. PowerShell is the workflow's default shell and has no
+    heredoc, so the logic lives here rather than inline in the YAML."""
+    import sys
+
+    args = sys.argv[1:] if argv is None else argv
+    if len(args) == 2 and args[0] == "runtime-id":
+        print(compute_runtime_id(Path(args[1])))
+        return 0
+    if len(args) == 3 and args[0] == "stage":
+        app, whole = stage_app_layer(Path(args[1]), Path(args[2]))
+        print(f"app layer: {app / 1024 / 1024:.1f} MB of "
+              f"{whole / 1024 / 1024:.1f} MB")
+        return 0
+    print("usage: layers.py runtime-id <dist>\n"
+          "       layers.py stage <dist> <out>", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
