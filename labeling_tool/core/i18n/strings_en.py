@@ -49,7 +49,6 @@ STRINGS = {
     "loaded_n_images":    "Loaded {n} images",
     "dlg_origin":         "Select Origin Image Folder",
     "dlg_detected":       "Select Detected Mask Folder",
-    "dlg_output":         "Select Output Mask Folder",
     "warn_select_first":  "Please select Origin and Detected folders first",
     "warn_title":         "Warning",
     "warn_no_images":     "No image files in {dir}/.",
@@ -60,9 +59,9 @@ STRINGS = {
     "status_edited_no":   "no",
     "status_category_changed": "Category -> {cat}",
     "status_error":       "[Error] {error}",
-    "group_bbox":            "BBox Annotation",
-    "btn_bbox_on":           "Enter BBox Mode",
-    "btn_bbox_off":          "Exit BBox Mode",
+    "group_bbox":            "Repair area labeling",
+    "btn_bbox_on":           "Enter Repair Area Mode",
+    "btn_bbox_off":          "Exit Repair Area Mode",
     "group_scale":           "Scale (px/cm)",
     "lbl_scale_template":    "Scale: {scale} mm/px ({source})",
     "scale_source_aruco":    "ArUco (auto)",
@@ -76,11 +75,6 @@ STRINGS = {
     "measure_dialog_label":  "Real length of the measured segment (cm):",
     "measure_hint":          "Click the two ends of a known-length reference (default 7 cm marker side)",
     "measure_done":          "Manual scale set: {scale} mm/px",
-    "bbox_hint":
-        "Click   Add point\n"
-        "Enter   Commit (>=2 clicks)\n"
-        "Esc     Cancel in-progress / deselect\n"
-        "Del     Delete selected box",
     "bbox_need_more_clicks": "Need at least 2 clicks",
     "bbox_no_scale":         "No scale; cannot compute 15cm padding",
     "btn_show_highlight":    "Show Highlight",

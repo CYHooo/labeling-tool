@@ -8,8 +8,6 @@ retranslate themselves when the language changes.
 
 from __future__ import annotations
 
-from PyQt5.QtCore import QObject, pyqtSignal
-
 from labeling_tool.core.i18n import strings_en, strings_ko, strings_zh
 
 LANGUAGES = ("ko", "zh", "en")
@@ -26,14 +24,18 @@ _current: str | None = None
 _manager: "LanguageManager | None" = None
 
 
-class LanguageManager(QObject):
-    """Emits languageChanged(code) so open windows can retranslate."""
-    languageChanged = pyqtSignal(str)
-
-
-def language_manager() -> LanguageManager:
+def language_manager() -> "LanguageManager":
+    # PyQt5 is imported lazily, here, so plain tr() lookups (used by non-GUI
+    # code and by tests that only exercise translation lookup) stay Qt-free,
+    # as this module's own docstring and spec section 1 both claim.
     global _manager
     if _manager is None:
+        from PyQt5.QtCore import QObject, pyqtSignal
+
+        class LanguageManager(QObject):
+            """Emits languageChanged(code) so open windows can retranslate."""
+            languageChanged = pyqtSignal(str)
+
         _manager = LanguageManager()
     return _manager
 

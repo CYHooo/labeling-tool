@@ -12,6 +12,18 @@ ROOT = Path(__file__).resolve().parent.parent
 CJK = re.compile(r"[ㄱ-ㅣ가-힣一-鿿]")
 PLACEHOLDER = re.compile(r"\{(\w+)[^}]*\}")
 
+# English words the CJK guard can't catch, because they're plain ASCII left
+# inside an otherwise Korean/Chinese string (see docs/i18n-glossary.md: these
+# all have a glossary term -- 균열/裂缝, 박리/剥落, 축척/比例尺, 작업/任务,
+# 보수 구역/修补区域). Case-insensitive, word-boundary so a technical
+# identifier like `sessionId` (glossary: never translated) is left alone.
+ENGLISH_LEFTOVER = re.compile(
+    r"\b(crack|spalling|scale|session|bbox)\b", re.IGNORECASE)
+# Technical identifiers that legitimately keep one of the words above in
+# ko/zh text (docs/i18n-glossary.md: "技术标识符不翻译"); add {key: {word,...}}
+# entries here if a future string needs one.
+ENGLISH_LEFTOVER_ALLOWLIST: dict[str, set[str]] = {}
+
 # UI modules that must already be free of hardcoded CJK string literals.
 # Tasks 3-6 append to this list as each screen is migrated; the list is the
 # regression guard that keeps them migrated.
@@ -99,6 +111,26 @@ msg = """
     offenders = _cjk_literals(test_module)
     assert offenders, "Guard should catch CJK in multi-line strings"
     assert "오류" in str(offenders)
+
+
+def test_ko_zh_have_no_leftover_english_terms():
+    """The CJK guard only catches non-Latin text; this catches the other
+    class of un-migrated wording: an ASCII English word left inside an
+    otherwise Korean/Chinese string, for a term the glossary already gives
+    a ko/zh word for (crack, spalling, scale, session, bbox)."""
+    offenders = []
+    for code in ("ko", "zh"):
+        allowed = ENGLISH_LEFTOVER_ALLOWLIST
+        for key, text in TRANSLATIONS[code].items():
+            # placeholders (e.g. "{scale}") are substituted before display;
+            # a placeholder *name* matching a banned word is not user text.
+            without_placeholders = re.sub(r"\{[^}]*\}", "", str(text))
+            for match in ENGLISH_LEFTOVER.finditer(without_placeholders):
+                word = match.group().lower()
+                if word in allowed.get(key, ()):
+                    continue
+                offenders.append(f"{code}.{key}: {word!r} in {text!r}")
+    assert not offenders, "leftover English term (see glossary):\n" + "\n".join(offenders)
 
 
 def test_ui_module_guard_catches_cjk_in_fstring(tmp_path):

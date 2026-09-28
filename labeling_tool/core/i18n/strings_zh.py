@@ -13,8 +13,8 @@ STRINGS = {
     "lbl_output":         "输出(自动): {p}",
     "no_path":            "(未选择)",
     "lbl_category":       "当前类别:",
-    "cat_crack":          "Crack(裂缝)",
-    "cat_spalling":       "Spalling(剥落)",
+    "cat_crack":          "裂缝",
+    "cat_spalling":       "剥落",
     "group_brush":        "画笔标注",
     "btn_brush_on":       "进入画笔模式",
     "btn_brush_off":      "退出画笔模式",
@@ -28,7 +28,7 @@ STRINGS = {
         "Ctrl+拖拽   平移视图\n"
         "滚轮        缩放\n"
         "切换图片时自动保存到 Labeling/<mask 名>\n"
-        "  R 通道=crack, G 通道=spalling",
+        "  R 通道=裂缝, G 通道=剥落",
     "brush_saved":        "Mask 已保存 → {p}",
     "brush_no_image":     "未加载图片",
     "brush_reset":        "Mask 已恢复为加载状态",
@@ -49,7 +49,6 @@ STRINGS = {
     "loaded_n_images":    "共加载 {n} 张图片",
     "dlg_origin":         "选择 Origin 图片文件夹",
     "dlg_detected":       "选择 Detected Mask 文件夹",
-    "dlg_output":         "选择输出 Mask 文件夹",
     "warn_select_first":  "请先选择 Origin 和 Detected 文件夹",
     "warn_title":         "警告",
     "warn_no_images":     "{dir}/ 目录中没有图片。",
@@ -60,11 +59,11 @@ STRINGS = {
     "status_edited_no":   "否",
     "status_category_changed": "类别 -> {cat}",
     "status_error":       "[错误] {error}",
-    "group_bbox":            "BBox 标注",
-    "btn_bbox_on":           "进入 BBox 模式",
-    "btn_bbox_off":          "退出 BBox 模式",
+    "group_bbox":            "修补区域标注",
+    "btn_bbox_on":           "进入修补区域模式",
+    "btn_bbox_off":          "退出修补区域模式",
     "group_scale":           "比例尺 (px/cm)",
-    "lbl_scale_template":    "Scale: {scale} mm/px ({source})",
+    "lbl_scale_template":    "比例尺：{scale} mm/px（{source}）",
     "scale_source_aruco":    "ArUco(自动)",
     "scale_source_fallback": "沿用上次",
     "scale_source_manual":   "手动",
@@ -76,22 +75,17 @@ STRINGS = {
     "measure_dialog_label":  "测量线段的实际长度 (cm):",
     "measure_hint":          "在图上点已知长度参照物的两端(默认 ArUco marker 边长 7cm)",
     "measure_done":          "已设置手动比例: {scale} mm/px",
-    "bbox_hint":
-        "点击    添加点\n"
-        "Enter   提交(≥2 点)\n"
-        "Esc     取消当前点集/取消选中\n"
-        "Del     删除选中",
     "bbox_need_more_clicks": "至少需要 2 个点",
-    "bbox_no_scale":         "未检测到 scale,无法计算 15cm 余量",
+    "bbox_no_scale":         "未检测到比例尺，无法计算 15cm 余量",
     "btn_show_highlight":    "显示高亮",
     "btn_show_repair15":     "显示15cm边界",
-    "btn_sam":         "SAM 分割 (剥离)",
-    "btn_sam_commit":  "确认 (写入剥离)",
+    "btn_sam":         "SAM 分割 (剥落)",
+    "btn_sam_commit":  "确认 (写入剥落)",
     "btn_sam_cancel":  "取消",
     "btn_sam_undo":    "撤回点 (Esc)",
     "sam_undone":      "已撤回上一个 SAM 点。",
-    "sam_hint":        "左键=加入、右键=排除;Esc 撤回上一点;确认将区域写入剥离层。",
-    "sam_committed":   "SAM 区域已写入剥离层。",
+    "sam_hint":        "左键=加入、右键=排除;Esc 撤回上一点;确认将区域写入剥落层。",
+    "sam_committed":   "SAM 区域已写入剥落层。",
     "sam_unavailable": "SAM 不可用(缺 onnxruntime 或 models/sam/*.onnx)。",
 
     # --- fetch/progress (shared, used across future screens too) ---
@@ -151,7 +145,7 @@ STRINGS = {
     "fetch_session_item":              "任务 {sid}",
     "fetch_session_item_named":        "任务 {sid} · {name}",
     "fetch_photo_count":               "({count} 张)",
-    "fetch_sessions_failed_title":     "作业列表失败",
+    "fetch_sessions_failed_title":     "任务列表失败",
     "fetch_sessions_failed_msg":       "无法获取作业列表，请手动输入。\n{error}",
     "fetch_input_required_title":      "需要输入",
     "fetch_input_required_msg":        "请选择或输入 sessionId。",
@@ -205,8 +199,9 @@ STRINGS = {
         "（参见 annotation_tool/USAGE.md）。",
 
     # --- few-shot tool (annotation_tool/ui/main_window.py) ---
-    # 类别名（joint、concrete、scalebar、shoe、distractor 及用户新增的类别）
-    # 不翻译：它们是 classes.json 中的身份标识，对应训练数据里的像素值。
+    # Class names themselves (joint, concrete, scalebar, shoe, distractor,
+    # and any user-added class) are never translated: they are the identities
+    # stored in classes.json and map to pixel values in the training data.
     "fs_status_choose_folder":
         "请用 File ▸ Open Folder (Ctrl+O) 选择存放图片的文件夹",
     "fs_classes_corrupt":
