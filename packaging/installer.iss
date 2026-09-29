@@ -109,20 +109,37 @@ Filename: "{app}\LM_LabelingTool.exe"; Flags: nowait runasoriginaluser; \
 
 [Code]
 #if MyLayer == "app"
+// Must equal [Setup]'s AppId. Built from literal parts because '{' starts a
+// comment in Inno's Pascal and {#...} is a preprocessor directive -- an
+// inline constant here silently produced a key with one brace too many,
+// which made this guard find nothing at all (CI run 36518723697).
+// labeling_tool/tests/test_installer_script.py asserts the two agree.
+const
+  APP_GUID = '{' + '9E1E0C6B-6E0F-4E8E-9E2F-0F7B5C1A0F02' + '}';
+
 function InstalledDir(): String;
 var
   Key: String;
 begin
-  // AppId is unchanged from v1.2.0's full variant, so Inno reinstalls into
-  // the directory it RECORDED then -- which was {autopf}\LabelingTool-full,
-  // not today's default. Assuming the default would make this guard dead on
-  // exactly the machines it has to protect. A custom /DIR has the same
-  // effect. Ask the registry where the install actually is.
-  Key := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1';
+  // AppId is inherited from v1.2.0's full variant, which installed to
+  // {autopf}\LabelingTool-full. Inno reinstalls into the directory it
+  // RECORDED, so assuming today's default would make this guard dead on
+  // exactly the machines it must protect. A custom /DIR does the same.
+  Key := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\' + APP_GUID + '_is1';
   Result := '';
   if not RegQueryStringValue(HKCU, Key, 'InstallLocation', Result) then
     RegQueryStringValue(HKLM, Key, 'InstallLocation', Result);
   Result := RemoveBackslashUnlessRoot(Result);
+end;
+
+procedure Refuse(const Message: String);
+begin
+  // SuppressibleMsgBox, never MsgBox: /SUPPRESSMSGBOXES does not suppress a
+  // [Code] MsgBox, so a silent install -- which is what the in-app updater
+  // runs -- waits forever for a click nobody makes. One such call hung a CI
+  // job for 96 minutes before it was killed.
+  Log('app-layer guard refused: ' + Message);
+  SuppressibleMsgBox(Message, mbError, MB_OK, IDOK);
 end;
 
 function InitializeSetup(): Boolean;
@@ -131,36 +148,31 @@ var
   Raw: AnsiString;
 begin
   // This package carries only our own code -- about 75 MB of a ~1.5 GB
-  // install. Installing it anywhere the matching runtime layer is not
-  // already present produces a program that cannot start, so refuse unless
-  // the runtime id on disk matches the one this package was built against.
+  // install. Installed anywhere the matching runtime layer is not already
+  // present, it produces a program that cannot start.
   Result := False;
   Dir := InstalledDir();
   if Dir = '' then
   begin
-    MsgBox('LM_LabelingTool 이 설치되어 있지 않습니다.' + #13#10 +
-           '이 파일은 업데이트 전용입니다. 전체 설치 파일을 내려받아 주세요.',
-           mbError, MB_OK);
+    Refuse('LM_LabelingTool 이 설치되어 있지 않습니다.' + #13#10 +
+           '이 파일은 업데이트 전용입니다. 전체 설치 파일을 내려받아 주세요.');
     exit;
   end;
   Info := Dir + '\build-info.json';
   if not LoadStringFromFile(Info, Raw) then
   begin
     // No build-info.json means either no install or a damaged one. Both are
-    // broken targets for a partial package: refuse and point at the full
-    // installer, which is the right advice either way.
-    MsgBox('설치 정보를 읽을 수 없습니다: ' + Info + #13#10 +
-           '전체 설치 파일을 내려받아 주세요.', mbError, MB_OK);
+    // broken targets for a partial package.
+    Refuse('설치 정보를 읽을 수 없습니다: ' + Info + #13#10 +
+           '전체 설치 파일을 내려받아 주세요.');
     exit;
   end;
-  if Pos('"runtime": "{#MyRuntime}"', String(Raw)) = 0 then
+  if (Pos('"runtime":"{#MyRuntime}"', String(Raw)) = 0) and
+     (Pos('"runtime": "{#MyRuntime}"', String(Raw)) = 0) then
   begin
-    if Pos('"runtime":"{#MyRuntime}"', String(Raw)) = 0 then
-    begin
-      MsgBox('이 업데이트는 현재 설치된 버전과 맞지 않습니다.' + #13#10 +
-             '전체 설치 파일을 내려받아 주세요.', mbError, MB_OK);
-      exit;
-    end;
+    Refuse('이 업데이트는 현재 설치된 버전과 맞지 않습니다.' + #13#10 +
+           '전체 설치 파일을 내려받아 주세요.');
+    exit;
   end;
   Result := True;
 end;

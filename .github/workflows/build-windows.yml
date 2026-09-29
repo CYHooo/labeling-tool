@@ -171,9 +171,23 @@ jobs:
 
       - name: Installer smoke test (full, then app layer on top, then uninstall)
         run: |
+          # Every installer call goes through this: a hung installer must fail
+          # in minutes, not burn the job's 120-minute budget. CI run
+          # 36518723697 lost 96 minutes to a [Code] MsgBox waiting for a
+          # click in a silent install.
+          function Invoke-Installer($Path, $ExtraArgs, $TimeoutSec) {
+            $args = @("/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART") + $ExtraArgs
+            $p = Start-Process -FilePath $Path -ArgumentList $args -PassThru
+            if (-not $p.WaitForExit($TimeoutSec * 1000)) {
+              try { $p.Kill() } catch { }
+              throw "installer timed out after ${TimeoutSec}s: $(Split-Path $Path -Leaf)"
+            }
+            return $p.ExitCode
+          }
+
           $target = "$env:RUNNER_TEMP\lt-install"
-          $p = Start-Process -FilePath $env:LT_SETUP -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=$target","/LOG=$env:RUNNER_TEMP\install.log" -Wait -PassThru
-          if ($p.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\install.log" -Tail 40; throw "install failed ($($p.ExitCode))" }
+          $code = Invoke-Installer $env:LT_SETUP @("/DIR=$target","/LOG=$env:RUNNER_TEMP\install.log") 900
+          if ($code -ne 0) { Get-Content "$env:RUNNER_TEMP\install.log" -Tail 40; throw "install failed ($code)" }
           if (-not (Test-Path "$target\build-info.json")) { throw "build-info.json missing from the install" }
           $s = Start-Process -FilePath "$target\LM_LabelingTool.exe" -ArgumentList "--selftest=full" -Wait -PassThru
           if (Test-Path "$target\selftest.log") { Get-Content "$target\selftest.log" }
@@ -184,8 +198,8 @@ jobs:
           # ~1.4 GB here and the program would no longer start.
           $before = (Get-ChildItem "$target\_internal" -Recurse -File | Measure-Object -Property Length -Sum).Sum
           Write-Host "_internal before app install: $([math]::Round($before/1MB,1)) MB"
-          $a = Start-Process -FilePath $env:LT_APP_SETUP -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=$target","/LOG=$env:RUNNER_TEMP\app-install.log" -Wait -PassThru
-          if ($a.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\app-install.log" -Tail 40; throw "app install failed ($($a.ExitCode))" }
+          $code = Invoke-Installer $env:LT_APP_SETUP @("/DIR=$target","/LOG=$env:RUNNER_TEMP\app-install.log") 300
+          if ($code -ne 0) { Get-Content "$env:RUNNER_TEMP\app-install.log" -Tail 40; throw "app install failed ($code)" }
           $after = (Get-ChildItem "$target\_internal" -Recurse -File | Measure-Object -Property Length -Sum).Sum
           Write-Host "_internal after app install:  $([math]::Round($after/1MB,1)) MB"
           if ($after -lt $before * 0.9) { throw "the app package deleted the runtime layer: $before -> $after bytes" }
@@ -193,21 +207,10 @@ jobs:
           if (Test-Path "$target\selftest.log") { Get-Content "$target\selftest.log" }
           if ($s2.ExitCode -ne 0) { throw "selftest after the app-layer install failed ($($s2.ExitCode))" }
 
-          $u = Get-ChildItem "$target\unins*.exe" | Select-Object -First 1
-          Start-Process -FilePath $u.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES" -Wait
-          Start-Sleep -Seconds 5
-          # Installing the app package on top must not have truncated the
-          # uninstall log: everything, runtime layer included, has to go.
-          if (Test-Path "$target\_internal") {
-            $left = (Get-ChildItem "$target\_internal" -Recurse -File | Measure-Object -Property Length -Sum).Sum
-            throw "uninstall left $([math]::Round($left/1MB,1)) MB under _internal"
-          }
-
-      - name: The app package refuses a runtime it was not built for
-        run: |
-          # Builds a second app package stamped with a bogus runtime id and
-          # tries to install it. Without this, the [Code] guard ships
-          # untested -- the happy path never exercises the comparison.
+          # The guard's refusal path, tested against the install that is
+          # already here rather than a second 1.5 GB install of its own.
+          # Without this the Pos() comparison ships unexercised: the happy
+          # path returns True before ever reaching it.
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           $ver = $env:LT_VERSION -replace '^v', ''
           New-Item -ItemType Directory -Force out-bad | Out-Null
@@ -215,20 +218,24 @@ jobs:
             "/DMySource=$PWD\dist\app-layer" "/DMySourceRoot=$PWD" `
             "/DMyRuntime=rbadbad00" "/DMyOutDir=$PWD\out-bad" packaging\installer.iss
           if ($LASTEXITCODE -ne 0) { throw "could not build the mismatched app package" }
-
-          $target = "$env:RUNNER_TEMP\lt-guard"
-          $full = Get-ChildItem out\LM_LabelingTool-Setup-*.exe | Select-Object -First 1
-          Start-Process -FilePath $full.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=$target" -Wait
-          if (-not (Test-Path "$target\build-info.json")) { throw "setup for the guard test did not install" }
-
           $bad = Get-ChildItem out-bad\LM_LabelingTool-App-*.exe | Select-Object -First 1
-          $r = Start-Process -FilePath $bad.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait -PassThru
-          if ($r.ExitCode -eq 0) { throw "the mismatched app package installed anyway (exit 0) -- the runtime guard did not fire" }
-          Write-Host "mismatched app package refused, exit code $($r.ExitCode)"
+          $sizeBefore = (Get-ChildItem "$target" -Recurse -File | Measure-Object -Property Length -Sum).Sum
+          $code = Invoke-Installer $bad.FullName @("/LOG=$env:RUNNER_TEMP\bad-install.log") 300
+          if ($code -eq 0) { throw "the mismatched app package installed anyway -- the runtime guard did not fire" }
+          $sizeAfter = (Get-ChildItem "$target" -Recurse -File | Measure-Object -Property Length -Sum).Sum
+          if ($sizeAfter -ne $sizeBefore) { throw "the refused package still changed the install" }
+          Write-Host "mismatched app package refused, exit code $code, install untouched"
+          Remove-Item -Recurse -Force out-bad
 
           $u = Get-ChildItem "$target\unins*.exe" | Select-Object -First 1
-          Start-Process -FilePath $u.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES" -Wait
-          Remove-Item -Recurse -Force out-bad
+          $null = Invoke-Installer $u.FullName @() 600
+          Start-Sleep -Seconds 5
+          # Installing the app package on top must not have truncated the
+          # uninstall log: everything, runtime layer included, has to go.
+          if (Test-Path "$target\_internal") {
+            $left = (Get-ChildItem "$target\_internal" -Recurse -File | Measure-Object -Property Length -Sum).Sum
+            throw "uninstall left $([math]::Round($left/1MB,1)) MB under _internal"
+          }
 
       - name: Package
         run: |
