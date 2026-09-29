@@ -155,6 +155,16 @@ jobs:
           if (-not $app)  { throw "ISCC produced no app installer" }
           "LT_SETUP=$($full.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "LT_APP_SETUP=$($app.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          # A third package, stamped with a runtime id that matches nothing,
+          # for the guard's refusal test further down. Built here so that
+          # step only has to install, not compile.
+          New-Item -ItemType Directory -Force out-bad | Out-Null
+          & $iscc /DMyLayer=app /DMyVersion=$ver "/DMyVersionInfo=$infoVer" `
+            "/DMySource=$PWD\dist\app-layer" "/DMySourceRoot=$PWD" `
+            "/DMyRuntime=rbadbad00" "/DMyOutDir=$PWD\out-bad" packaging\installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "could not build the mismatched app package" }
+          $badApp = Get-ChildItem out-bad\LM_LabelingTool-App-*.exe | Select-Object -First 1
+          "LT_BAD_SETUP=$($badApp.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Get-ChildItem out\*.exe | ForEach-Object { "{0}  {1:N1} MB" -f $_.Name, ($_.Length/1MB) }
           # GitHub release assets must stay below 2 GiB
           if ($full.Length -ge 1.9GB) { throw "installer too large for a release asset: $($full.Length) bytes" }
@@ -171,18 +181,22 @@ jobs:
 
       - name: Installer smoke test (full, then app layer on top, then uninstall)
         run: |
-          # Every installer call goes through this: a hung installer must fail
-          # in minutes, not burn the job's 120-minute budget. CI run
-          # 36518723697 lost 96 minutes to a [Code] MsgBox waiting for a
-          # click in a silent install.
-          function Invoke-Installer($Path, $ExtraArgs, $TimeoutSec) {
-            $args = @("/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART") + $ExtraArgs
-            $p = Start-Process -FilePath $Path -ArgumentList $args -PassThru
-            if (-not $p.WaitForExit($TimeoutSec * 1000)) {
-              try { $p.Kill() } catch { }
+          # Deliberately avoids Get-ChildItem -Recurse over the install: the
+          # runtime layer is tens of thousands of files, and materialising a
+          # FileInfo per file starved the runner of memory until it lost
+          # contact with the server (run 36528692844). The self-test already
+          # proves the runtime layer is intact -- it imports torch and sam2
+          # and composes the hydra config -- so sentinel files are enough to
+          # show the app package left it alone.
+          function Invoke-Installer($Path, $InstallerArgs, $TimeoutSec) {
+            $all = @("/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART") + $InstallerArgs
+            $proc = Start-Process -FilePath $Path -ArgumentList $all -PassThru
+            $null = $proc.Handle   # cache the handle or ExitCode stays null
+            if (-not $proc.WaitForExit($TimeoutSec * 1000)) {
+              try { $proc.Kill() } catch { }
               throw "installer timed out after ${TimeoutSec}s: $(Split-Path $Path -Leaf)"
             }
-            return $p.ExitCode
+            return $proc.ExitCode
           }
 
           $target = "$env:RUNNER_TEMP\lt-install"
@@ -193,53 +207,49 @@ jobs:
           if (Test-Path "$target\selftest.log") { Get-Content "$target\selftest.log" }
           if ($s.ExitCode -ne 0) { throw "installed selftest failed ($($s.ExitCode))" }
 
-          # The app package must leave the runtime layer alone. If its
-          # [InstallDelete] ever clears _internal wholesale it would drop
-          # ~1.4 GB here and the program would no longer start.
-          $before = (Get-ChildItem "$target\_internal" -Recurse -File | Measure-Object -Property Length -Sum).Sum
-          Write-Host "_internal before app install: $([math]::Round($before/1MB,1)) MB"
+          # Sentinels from the runtime layer, which the app package does not
+          # ship. If its [InstallDelete] ever clears _internal wholesale,
+          # these vanish and the self-test below stops passing.
+          $sentinels = @(
+            "$target\_internal\torch\version.py",
+            "$target\_internal\sam2\build_sam.py",
+            "$target\_internal\PyQt5\QtWidgets.pyd"
+          ) | Where-Object { Test-Path $_ }
+          if ($sentinels.Count -lt 2) { throw "expected runtime-layer sentinels are missing before the app install" }
+          Write-Host "runtime sentinels present: $($sentinels.Count)"
+
           $code = Invoke-Installer $env:LT_APP_SETUP @("/DIR=$target","/LOG=$env:RUNNER_TEMP\app-install.log") 300
           if ($code -ne 0) { Get-Content "$env:RUNNER_TEMP\app-install.log" -Tail 40; throw "app install failed ($code)" }
-          $after = (Get-ChildItem "$target\_internal" -Recurse -File | Measure-Object -Property Length -Sum).Sum
-          Write-Host "_internal after app install:  $([math]::Round($after/1MB,1)) MB"
-          if ($after -lt $before * 0.9) { throw "the app package deleted the runtime layer: $before -> $after bytes" }
+          foreach ($f in $sentinels) {
+            if (-not (Test-Path $f)) { throw "the app package deleted a runtime-layer file: $f" }
+          }
           $s2 = Start-Process -FilePath "$target\LM_LabelingTool.exe" -ArgumentList "--selftest=full" -Wait -PassThru
           if (Test-Path "$target\selftest.log") { Get-Content "$target\selftest.log" }
           if ($s2.ExitCode -ne 0) { throw "selftest after the app-layer install failed ($($s2.ExitCode))" }
 
-          # The guard's refusal path, tested against the install that is
-          # already here rather than a second 1.5 GB install of its own.
-          # Without this the Pos() comparison ships unexercised: the happy
-          # path returns True before ever reaching it.
-          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          $ver = $env:LT_VERSION -replace '^v', ''
-          New-Item -ItemType Directory -Force out-bad | Out-Null
-          & $iscc /DMyLayer=app /DMyVersion=$ver "/DMyVersionInfo=$infoVer" `
-            "/DMySource=$PWD\dist\app-layer" "/DMySourceRoot=$PWD" `
-            "/DMyRuntime=rbadbad00" "/DMyOutDir=$PWD\out-bad" packaging\installer.iss
-          if ($LASTEXITCODE -ne 0) { throw "could not build the mismatched app package" }
-          $bad = Get-ChildItem out-bad\LM_LabelingTool-App-*.exe | Select-Object -First 1
-          $sizeBefore = (Get-ChildItem "$target" -Recurse -File | Measure-Object -Property Length -Sum).Sum
-          $code = Invoke-Installer $bad.FullName @("/LOG=$env:RUNNER_TEMP\bad-install.log") 300
+          # The guard's refusal path. Without this the Pos() comparison ships
+          # unexercised: the happy path returns True before reaching it.
+          $stamp = (Get-Item "$target\LM_LabelingTool.exe").LastWriteTimeUtc
+          $code = Invoke-Installer $env:LT_BAD_SETUP @("/LOG=$env:RUNNER_TEMP\bad-install.log") 300
           if ($code -eq 0) { throw "the mismatched app package installed anyway -- the runtime guard did not fire" }
-          $sizeAfter = (Get-ChildItem "$target" -Recurse -File | Measure-Object -Property Length -Sum).Sum
-          if ($sizeAfter -ne $sizeBefore) { throw "the refused package still changed the install" }
+          if ((Get-Item "$target\LM_LabelingTool.exe").LastWriteTimeUtc -ne $stamp) {
+            throw "the refused package still wrote to the install"
+          }
           Write-Host "mismatched app package refused, exit code $code, install untouched"
-          Remove-Item -Recurse -Force out-bad
 
           $u = Get-ChildItem "$target\unins*.exe" | Select-Object -First 1
           $null = Invoke-Installer $u.FullName @() 600
-          Start-Sleep -Seconds 5
+          Start-Sleep -Seconds 10
           # Installing the app package on top must not have truncated the
-          # uninstall log: everything, runtime layer included, has to go.
-          if (Test-Path "$target\_internal") {
-            $left = (Get-ChildItem "$target\_internal" -Recurse -File | Measure-Object -Property Length -Sum).Sum
-            throw "uninstall left $([math]::Round($left/1MB,1)) MB under _internal"
+          # uninstall log: the runtime layer has to go too.
+          foreach ($f in $sentinels) {
+            if (Test-Path $f) { throw "uninstall left a runtime-layer file behind: $f" }
           }
+          Write-Host "uninstall removed the runtime layer"
 
       - name: Package
         run: |
-          Remove-Item -Recurse -Force build
+          Remove-Item -Recurse -Force build, out-bad -ErrorAction SilentlyContinue
           pip cache purge
           # both installers get a published checksum: the updater refuses any
           # asset it cannot verify
