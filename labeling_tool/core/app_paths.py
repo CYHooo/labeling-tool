@@ -27,6 +27,14 @@ def app_home() -> Path:
     return REPO_ROOT
 
 
+def resource_path(name: str) -> Path:
+    """A read-only bundled resource (the app icon, ONNX models).
+
+    Resolved from __file__, so the same path works from source and inside
+    PyInstaller's _internal/, where labeling_tool/ is collected whole."""
+    return Path(__file__).resolve().parent.parent / "resources" / name
+
+
 def writable_path(source_path: Path, frozen_name: str) -> Path:
     """``source_path`` from source; ``app_home() / frozen_name`` in the exe."""
     return app_home() / frozen_name if is_frozen() else Path(source_path)

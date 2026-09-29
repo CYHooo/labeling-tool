@@ -19,6 +19,7 @@ import sys
 os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = ""
 
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QApplication
 
 from labeling_tool.core.i18n import tr
@@ -98,6 +99,12 @@ def main(argv: list[str] | None = None) -> int:
             return selftest.run_selftest(arg.partition("=")[2] or "full")
 
     app = QApplication([sys.argv[0], *argv])
+    # The exe's own icon is a PE resource written by PyInstaller; Windows
+    # uses it for the file. The title bar and the taskbar button come from
+    # Qt, so without this the running app shows Qt's default icon. Set on
+    # the QApplication so every window inherits it.
+    from labeling_tool.core.app_paths import resource_path
+    app.setWindowIcon(QIcon(str(resource_path("icon.ico"))))
     # Apply the dark theme app-wide so the login/fetch dialogs and every
     # QMessageBox match the main window (set before the first dialog shows).
     from labeling_tool.core.window.styles import STYLESHEET

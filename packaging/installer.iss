@@ -64,7 +64,7 @@ OutputBaseFilename=LM_LabelingTool-App-v{#MyVersion}-{#MyRuntime}
 OutputBaseFilename=LM_LabelingTool-Setup-v{#MyVersion}
 #endif
 UninstallDisplayIcon={app}\LM_LabelingTool.exe
-SetupIconFile={#MySourceRoot}\packaging\icon.ico
+SetupIconFile={#MySourceRoot}\labeling_tool\resources\icon.ico
 WizardStyle=modern
 
 [Languages]

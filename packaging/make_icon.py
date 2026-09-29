@@ -1,11 +1,14 @@
-"""Render packaging/icon.ico from the LM letter mark.
+"""Render labeling_tool/resources/icon.ico from the LM letter mark.
 
 Kept as a script rather than a one-off command so the icon can be rebuilt
 identically later. Drawn directly with Pillow: no SVG rasteriser is
 installed in this project's environment, and adding one (cairosvg,
 librsvg) for a mark this simple is not worth the dependency.
-packaging/icon.svg is the vector reference for a designer; THIS file is
-what actually produces the shipped .ico.
+labeling_tool/resources/icon.svg is the vector reference for a designer;
+THIS file is what actually produces the shipped .ico. The .ico lives in the
+package rather than in packaging/ because it is needed at RUNTIME too:
+PyInstaller's EXE(icon=) only writes the exe's PE resource, while the title
+bar and taskbar come from QApplication.setWindowIcon.
 
 Small sizes get a heavier stroke, a larger glyph and a thicker underline:
 at 16px the 64px proportions turn into mush in the taskbar.
@@ -71,7 +74,7 @@ def render(px: int) -> Image.Image:
 
 
 def main() -> None:
-    out = Path(__file__).with_name("icon.ico")
+    out = Path(__file__).resolve().parents[1] / "labeling_tool" / "resources" / "icon.ico"
     imgs = [render(px) for px in SIZES]
     # The base image caps the sizes Pillow will write: anything larger than
     # it is silently skipped (IcoImagePlugin._save). Hand it the largest and

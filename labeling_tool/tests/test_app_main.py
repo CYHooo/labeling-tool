@@ -17,6 +17,9 @@ class _FakeApp:
     def setStyleSheet(self, *_a, **_k):
         pass
 
+    def setWindowIcon(self, *_a, **_k):
+        pass
+
 
 class _FakeSignal:
     """Just connectable -- main() wires the few-shot signal before exec_()."""
