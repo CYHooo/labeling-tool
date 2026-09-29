@@ -14,8 +14,13 @@ def _not_tests_or_scripts(name):
     return ".tests" not in name and ".scripts" not in name
 
 
+ICON = os.path.join(ROOT, "labeling_tool", "resources", "icon.ico")
 datas = [(os.path.join(ROOT, "labeling_tool", "models", "sam", "*.onnx"),
-          os.path.join("labeling_tool", "models", "sam"))]
+          os.path.join("labeling_tool", "models", "sam")),
+         # needed at runtime as well as in the exe's resources: the title bar
+         # and taskbar icon come from QApplication.setWindowIcon, not from
+         # the PE resource below
+         (ICON, os.path.join("labeling_tool", "resources"))]
 binaries = []
 # labeling_tool imports several modules lazily inside functions
 hiddenimports = collect_submodules("labeling_tool", filter=_not_tests_or_scripts)
@@ -50,6 +55,6 @@ exe = EXE(
     name="LM_LabelingTool",
     console=False,
     upx=False,
-    icon=os.path.join(SPECPATH, "icon.ico"),
+    icon=ICON,
 )
 coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="LM_LabelingTool")
