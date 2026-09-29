@@ -109,25 +109,60 @@ Filename: "{app}\LM_LabelingTool.exe"; Flags: nowait runasoriginaluser; \
 
 [Code]
 #if MyLayer == "app"
+function InstalledDir(): String;
+var
+  Key: String;
+begin
+  // AppId is unchanged from v1.2.0's full variant, so Inno reinstalls into
+  // the directory it RECORDED then -- which was {autopf}\LabelingTool-full,
+  // not today's default. Assuming the default would make this guard dead on
+  // exactly the machines it has to protect. A custom /DIR has the same
+  // effect. Ask the registry where the install actually is.
+  Key := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1';
+  Result := '';
+  if not RegQueryStringValue(HKCU, Key, 'InstallLocation', Result) then
+    RegQueryStringValue(HKLM, Key, 'InstallLocation', Result);
+  Result := RemoveBackslashUnlessRoot(Result);
+end;
+
 function InitializeSetup(): Boolean;
 var
-  Info: AnsiString;
+  Dir, Info: String;
+  Raw: AnsiString;
 begin
-  Result := True;
-  // Normal path: the client only downloads an app package whose asset name
-  // carries this machine's runtime id, so this cannot fire. It guards the
-  // user who downloaded the wrong file by hand. A machine with no
-  // build-info.json is let through: there is no baseline to compare, and
-  // refusing would block a legitimate repair install.
-  if LoadStringFromFile(ExpandConstant('{autopf}\LM_LabelingTool\build-info.json'), Info) then
+  // This package carries only our own code -- about 75 MB of a ~1.5 GB
+  // install. Installing it anywhere the matching runtime layer is not
+  // already present produces a program that cannot start, so refuse unless
+  // the runtime id on disk matches the one this package was built against.
+  Result := False;
+  Dir := InstalledDir();
+  if Dir = '' then
   begin
-    if Pos('"{#MyRuntime}"', String(Info)) = 0 then
+    MsgBox('LM_LabelingTool 이 설치되어 있지 않습니다.' + #13#10 +
+           '이 파일은 업데이트 전용입니다. 전체 설치 파일을 내려받아 주세요.',
+           mbError, MB_OK);
+    exit;
+  end;
+  Info := Dir + '\build-info.json';
+  if not LoadStringFromFile(Info, Raw) then
+  begin
+    // No build-info.json means either no install or a damaged one. Both are
+    // broken targets for a partial package: refuse and point at the full
+    // installer, which is the right advice either way.
+    MsgBox('설치 정보를 읽을 수 없습니다: ' + Info + #13#10 +
+           '전체 설치 파일을 내려받아 주세요.', mbError, MB_OK);
+    exit;
+  end;
+  if Pos('"runtime": "{#MyRuntime}"', String(Raw)) = 0 then
+  begin
+    if Pos('"runtime":"{#MyRuntime}"', String(Raw)) = 0 then
     begin
       MsgBox('이 업데이트는 현재 설치된 버전과 맞지 않습니다.' + #13#10 +
              '전체 설치 파일을 내려받아 주세요.', mbError, MB_OK);
-      Result := False;
+      exit;
     end;
   end;
+  Result := True;
 end;
 #endif
 

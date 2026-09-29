@@ -89,12 +89,13 @@ jobs:
 
       - name: Compute the runtime id and write build info
         run: |
-          # The runtime id hashes the dependency MANIFESTS, not the build
-          # output: two PyInstaller runs of the same commit emit different
-          # bytes (proved on runs 36421966949 / 36424404832), so hashing the
-          # output would move the id every release and the app package would
-          # match nothing.
-          $rt = python packaging/layers.py runtime-id .
+          # The runtime id hashes the RESOLVED environment (pip freeze) plus
+          # the PyInstaller spec -- not the build output, which is not
+          # reproducible (runs 36421966949 / 36424404832 differed), and not
+          # the requirement files, which pin nothing (`PyQt5>=5.15`) and so
+          # would not move when pip resolves a different version.
+          pip freeze | Out-File -FilePath runtime-freeze.txt -Encoding utf8
+          $rt = python packaging/layers.py runtime-id . runtime-freeze.txt
           if (-not ($rt -match '^r[0-9a-f]{8}$')) { throw "bad runtime id: $rt" }
           "LT_RUNTIME=$rt" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "runtime id: $rt"
@@ -201,6 +202,33 @@ jobs:
             $left = (Get-ChildItem "$target\_internal" -Recurse -File | Measure-Object -Property Length -Sum).Sum
             throw "uninstall left $([math]::Round($left/1MB,1)) MB under _internal"
           }
+
+      - name: The app package refuses a runtime it was not built for
+        run: |
+          # Builds a second app package stamped with a bogus runtime id and
+          # tries to install it. Without this, the [Code] guard ships
+          # untested -- the happy path never exercises the comparison.
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          $ver = $env:LT_VERSION -replace '^v', ''
+          New-Item -ItemType Directory -Force out-bad | Out-Null
+          & $iscc /DMyLayer=app /DMyVersion=$ver "/DMyVersionInfo=$infoVer" `
+            "/DMySource=$PWD\dist\app-layer" "/DMySourceRoot=$PWD" `
+            "/DMyRuntime=rbadbad00" "/DMyOutDir=$PWD\out-bad" packaging\installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "could not build the mismatched app package" }
+
+          $target = "$env:RUNNER_TEMP\lt-guard"
+          $full = Get-ChildItem out\LM_LabelingTool-Setup-*.exe | Select-Object -First 1
+          Start-Process -FilePath $full.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=$target" -Wait
+          if (-not (Test-Path "$target\build-info.json")) { throw "setup for the guard test did not install" }
+
+          $bad = Get-ChildItem out-bad\LM_LabelingTool-App-*.exe | Select-Object -First 1
+          $r = Start-Process -FilePath $bad.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait -PassThru
+          if ($r.ExitCode -eq 0) { throw "the mismatched app package installed anyway (exit 0) -- the runtime guard did not fire" }
+          Write-Host "mismatched app package refused, exit code $($r.ExitCode)"
+
+          $u = Get-ChildItem "$target\unins*.exe" | Select-Object -First 1
+          Start-Process -FilePath $u.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES" -Wait
+          Remove-Item -Recurse -Force out-bad
 
       - name: Package
         run: |

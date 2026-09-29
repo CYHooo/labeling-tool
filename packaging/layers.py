@@ -53,37 +53,43 @@ def iter_runtime_files(dist_dir: Path):
             yield rel, path
 
 
-# The files that pin every runtime-layer dependency. torch, torchvision and
-# the sam2 commit are installed by the workflow, not by requirements.txt, so
-# the workflow is part of the identity too.
-RUNTIME_MANIFESTS = (
-    "requirements.txt",
-    "requirements-dev.txt",
-    "packaging/build-constraints.txt",
-    ".github/workflows/build-windows.yml",
-)
+# The PyInstaller spec decides WHICH packages enter the runtime layer
+# (collect_all, excludes, binaries, datas), so a change here can move the
+# runtime layer without any dependency version changing.
+RUNTIME_SPEC_FILES = ("packaging/labeling_tool.spec",)
 
 
-def compute_runtime_id(repo_root: Path) -> str:
-    """A short identity for the runtime layer, derived from its pins.
+def compute_runtime_id(repo_root: Path, freeze_text: str) -> str:
+    """A short identity for the runtime layer: what is installed, plus what
+    gets packed.
 
-    NOT from the built files. Two PyInstaller runs of the same commit emit
+    NOT the built files. Two PyInstaller runs of the same commit emit
     different bytes (CI runs 36421966949 and 36424404832 produced ra9adeaed
     and r138b837f), so hashing the output would move the id on every release
     and the app package would never match anything.
 
-    Hashing the manifests instead is less precise -- a dependency that
-    changes without its pin changing does not move the id -- but it is
-    stable across builds, which is what the scheme needs. It errs toward
-    demanding a full reinstall: any edit to these files moves the id, even
-    one that does not affect the runtime.
+    `freeze_text` is `pip freeze` from the build environment, taken after
+    every dependency is installed. Hashing the resolved versions rather than
+    the requirement files is what makes this sound: requirements.txt pins
+    nothing (`PyQt5>=5.15`), so pip can resolve a different version with no
+    file changing. That matters because the layer split cuts through those
+    packages -- PyQt5's Python code rides inside the exe (app layer) while
+    its .pyd files are runtime layer, so shipping an app package across a
+    version change installs half an upgrade that cannot import.
 
-    Raises FileNotFoundError if a manifest is missing, rather than quietly
-    hashing less than it should.
+    Raises ValueError on an empty freeze and FileNotFoundError on a missing
+    spec, rather than quietly hashing less than it should.
     """
     root = Path(repo_root)
+    # pip freeze's order is not guaranteed stable between runs
+    pins = sorted(line.strip() for line in freeze_text.splitlines()
+                  if line.strip() and not line.lstrip().startswith("#"))
+    if not pins:
+        raise ValueError("empty pip freeze: the build environment was not captured")
     digest = hashlib.sha256()
-    for rel in RUNTIME_MANIFESTS:
+    digest.update("\n".join(pins).encode("utf-8"))
+    digest.update(b"\0")
+    for rel in RUNTIME_SPEC_FILES:
         digest.update(rel.encode("utf-8"))
         digest.update(b"\0")
         digest.update((root / rel).read_bytes())
@@ -121,15 +127,16 @@ def main(argv: list[str] | None = None) -> int:
     import sys
 
     args = sys.argv[1:] if argv is None else argv
-    if len(args) == 2 and args[0] == "runtime-id":
-        print(compute_runtime_id(Path(args[1])))
+    if len(args) == 3 and args[0] == "runtime-id":
+        freeze = Path(args[2]).read_text(encoding="utf-8")
+        print(compute_runtime_id(Path(args[1]), freeze))
         return 0
     if len(args) == 3 and args[0] == "stage":
         app, whole = stage_app_layer(Path(args[1]), Path(args[2]))
         print(f"app layer: {app / 1024 / 1024:.1f} MB of "
               f"{whole / 1024 / 1024:.1f} MB")
         return 0
-    print("usage: layers.py runtime-id <repo-root>\n"
+    print("usage: layers.py runtime-id <repo-root> <pip-freeze-file>\n"
           "       layers.py stage <dist> <out>", file=sys.stderr)
     return 2
 

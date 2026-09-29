@@ -63,66 +63,83 @@ def _make_repo(tmp_path, manifests):
     return tmp_path
 
 
-MANIFESTS = {
-    "requirements.txt": b"PyQt5==5.15.11\n",
-    "requirements-dev.txt": b"pytest\n",
-    "packaging/build-constraints.txt": b"numpy<2\n",
-    ".github/workflows/build-windows.yml": b'run: pip install "torch==2.5.1"\n',
-}
+SPEC = b'coll = COLLECT(exe, a.binaries, name="LM_LabelingTool")\n'
+FREEZE = "PyQt5==5.15.11\nnumpy==1.26.4\ntorch==2.5.1+cu124\n"
 
 
-def test_runtime_id_is_stable_for_identical_manifests(tmp_path):
+def _make_repo(tmp_path, spec=SPEC):
+    """A fake repo root holding the files the runtime id reads."""
+    p = tmp_path / "packaging" / "labeling_tool.spec"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(spec)
+    return tmp_path
+
+
+def test_runtime_id_is_stable_for_the_same_environment(tmp_path):
     """The built files are NOT hashed: two PyInstaller runs of the same
     commit produce different bytes (verified on CI runs 36421966949 and
     36424404832), which would move the id on every release and make the
     app package match nothing."""
-    one = _make_repo(tmp_path / "one", MANIFESTS)
-    two = _make_repo(tmp_path / "two", MANIFESTS)
-    assert layers.compute_runtime_id(one) == layers.compute_runtime_id(two)
+    one, two = _make_repo(tmp_path / "one"), _make_repo(tmp_path / "two")
+    assert layers.compute_runtime_id(one, FREEZE) == layers.compute_runtime_id(two, FREEZE)
 
 
-def test_runtime_id_changes_when_a_pinned_dependency_changes(tmp_path):
-    one = _make_repo(tmp_path / "one", MANIFESTS)
+def test_runtime_id_changes_when_a_resolved_version_changes(tmp_path):
+    """requirements.txt says PyQt5>=5.15, so pip can resolve a different
+    version with no file changing. PyQt5's .py code rides in the exe (app
+    layer) while its .pyd files are runtime layer -- shipping an app
+    package across that split is a half-upgraded PyQt5 that cannot import."""
+    repo = _make_repo(tmp_path / "repo")
+    a = layers.compute_runtime_id(repo, FREEZE)
+    b = layers.compute_runtime_id(repo, FREEZE.replace("5.15.11", "5.15.13"))
+    assert a != b
+
+
+def test_runtime_id_changes_when_the_pyinstaller_spec_changes(tmp_path):
+    """The spec decides what enters the runtime layer (collect_all, excludes).
+    Adding a dependency there without moving the id would ship an exe whose
+    PYZ imports a package the installed runtime layer does not have."""
+    one = _make_repo(tmp_path / "one")
     two = _make_repo(tmp_path / "two",
-                     {**MANIFESTS, "requirements.txt": b"PyQt5==5.15.12\n"})
-    assert layers.compute_runtime_id(one) != layers.compute_runtime_id(two)
+                     spec=SPEC + b'for pkg in ("scipy",): collect_all(pkg)\n')
+    assert layers.compute_runtime_id(one, FREEZE) != layers.compute_runtime_id(two, FREEZE)
 
 
-def test_runtime_id_changes_when_torch_is_bumped_in_the_workflow(tmp_path):
-    """torch and sam2 are pinned in the workflow, not in requirements.txt,
-    so the workflow has to be part of the identity -- otherwise bumping
-    torch would ship an app package against the wrong runtime."""
-    one = _make_repo(tmp_path / "one", MANIFESTS)
-    two = _make_repo(tmp_path / "two",
-                     {**MANIFESTS,
-                      ".github/workflows/build-windows.yml":
-                          b'run: pip install "torch==2.6.0"\n'})
-    assert layers.compute_runtime_id(one) != layers.compute_runtime_id(two)
+def test_runtime_id_ignores_freeze_ordering_and_blank_lines(tmp_path):
+    """pip freeze ordering is not guaranteed stable across runs."""
+    repo = _make_repo(tmp_path / "repo")
+    shuffled = "\n\ntorch==2.5.1+cu124\nPyQt5==5.15.11\n\nnumpy==1.26.4\n"
+    assert layers.compute_runtime_id(repo, FREEZE) == layers.compute_runtime_id(repo, shuffled)
 
 
 def test_runtime_id_ignores_the_build_output(tmp_path):
     """Whatever PyInstaller emitted does not enter the identity."""
-    repo = _make_repo(tmp_path / "repo", MANIFESTS)
-    before = layers.compute_runtime_id(repo)
-    _make_dist(repo / "dist" / "LM_LabelingTool",
-               {"_internal/torch/a.dll": b"whatever"})
-    assert layers.compute_runtime_id(repo) == before
+    repo = _make_repo(tmp_path / "repo")
+    before = layers.compute_runtime_id(repo, FREEZE)
+    _make_dist(repo / "dist" / "LM_LabelingTool", {"_internal/torch/a.dll": b"whatever"})
+    assert layers.compute_runtime_id(repo, FREEZE) == before
 
 
-def test_runtime_id_rejects_a_missing_manifest(tmp_path):
-    """A silently-skipped manifest would weaken the identity without
-    anyone noticing."""
+def test_runtime_id_rejects_an_empty_freeze(tmp_path):
+    """An empty freeze means the caller did not actually capture the
+    environment; hashing it would produce a confident-looking wrong id."""
     import pytest
-    repo = _make_repo(tmp_path / "repo",
-                      {k: v for k, v in MANIFESTS.items() if k != "requirements.txt"})
+    repo = _make_repo(tmp_path / "repo")
+    with pytest.raises(ValueError):
+        layers.compute_runtime_id(repo, "   \n\n")
+
+
+def test_runtime_id_rejects_a_missing_spec(tmp_path):
+    import pytest
+    (tmp_path / "bare").mkdir()
     with pytest.raises(FileNotFoundError):
-        layers.compute_runtime_id(repo)
+        layers.compute_runtime_id(tmp_path / "bare", FREEZE)
 
 
 def test_runtime_id_format(tmp_path):
     import re
-    repo = _make_repo(tmp_path / "repo", MANIFESTS)
-    assert re.fullmatch(r"r[0-9a-f]{8}", layers.compute_runtime_id(repo))
+    repo = _make_repo(tmp_path / "repo")
+    assert re.fullmatch(r"r[0-9a-f]{8}", layers.compute_runtime_id(repo, FREEZE))
 
 
 # ------------------------------------------------------- build-info.json
@@ -189,17 +206,21 @@ def test_stage_app_layer_copies_only_the_app_layer(tmp_path):
 
 
 def test_cli_runtime_id(tmp_path, capsys):
-    repo = _make_repo(tmp_path / "repo", MANIFESTS)
-    assert layers.main(["runtime-id", str(repo)]) == 0
-    assert capsys.readouterr().out.strip() == layers.compute_runtime_id(repo)
+    repo = _make_repo(tmp_path / "repo")
+    freeze = tmp_path / "freeze.txt"
+    freeze.write_text(FREEZE, encoding="utf-8")
+    assert layers.main(["runtime-id", str(repo), str(freeze)]) == 0
+    assert capsys.readouterr().out.strip() == layers.compute_runtime_id(repo, FREEZE)
 
 
-def test_cli_runtime_id_on_this_repo(capsys):
-    """The real manifests exist and produce a well-formed id -- this is what
-    CI runs, so a renamed manifest fails here rather than on the runner."""
+def test_cli_runtime_id_on_this_repo(tmp_path, capsys):
+    """The real spec file exists where the CLI expects it -- a rename fails
+    here rather than on the runner."""
     import re
     root = pathlib.Path(__file__).resolve().parents[2]
-    assert layers.main(["runtime-id", str(root)]) == 0
+    freeze = tmp_path / "freeze.txt"
+    freeze.write_text(FREEZE, encoding="utf-8")
+    assert layers.main(["runtime-id", str(root), str(freeze)]) == 0
     assert re.fullmatch(r"r[0-9a-f]{8}", capsys.readouterr().out.strip())
 
 

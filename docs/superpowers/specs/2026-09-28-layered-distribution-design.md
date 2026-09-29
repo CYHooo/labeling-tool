@@ -64,9 +64,14 @@ SAM2.1 模型权重不在此列：它已经是首次使用时下载到 `checkpoi
 {"version": "1.3.0", "runtime": "r3f8a1c92", "variant": "full", "commit": "abc1234"}
 ```
 
-`runtime` 由 CI 计算，对**依赖清单**取哈希：`requirements.txt`、`requirements-dev.txt`、
-`packaging/build-constraints.txt` 与 `.github/workflows/build-windows.yml`（torch、torchvision
-与 sam2 的版本钉在 workflow 里，不在 requirements 中），取前 8 位十六进制并加 `r` 前缀。
+`runtime` 由 CI 计算，对两样东西取哈希，取前 8 位十六进制并加 `r` 前缀：
+
+1. **`pip freeze` 的输出**（在全部依赖安装完成后采集）——即构建环境中每个包的**实际解析版本**。
+2. **`packaging/labeling_tool.spec`** ——它通过 `collect_all` / `excludes` 决定哪些包进入运行时层。
+
+不能只哈希需求文件：`requirements.txt` 并未精确固定版本（`PyQt5>=5.15`），pip 每次可能解析到不同
+版本而文件毫无变化。这一点在分层场景下是致命的——PyQt5、numpy 的**纯 Python 代码随 exe 进入应用层**，
+而它们的 `.pyd` 在运行时层，跨版本投送应用包等于装了半个升级，`import` 直接失败。
 
 **这是回退方案，最初的设计是对构建产物取哈希。** 实测（2026-09-28，CI run 36421966949 与
 36424404832）同一提交两次构建产出不同的 runtime id（`ra9adeaed` 与 `r138b837f`），证明
@@ -150,7 +155,7 @@ return None                                  # 无可用资产，静默跳过
 | PyInstaller 构建不可重现（时间戳、路径写入产物），导致相同依赖两次构建的运行时层哈希不同 | 每次发布都要求完整重装，本设计失效 | **实现的第一步就验证**：同一提交连续构建两次，比对运行时层哈希。若不可重现，退回用依赖清单哈希（`requirements.txt` + `packaging/build-constraints.txt` + torch/CUDA 版本串）作为 `runtime`，精度略低但绝对稳定 |
 | Inno Setup 升级安装时用应用包覆盖卸载日志，导致卸载后残留运行时层文件 | 卸载留下约 1.4 GB 垃圾 | 实测验证：装完整包 → 装应用包 → 卸载 → 检查安装目录是否清空。列为实现计划中的独立验证步骤。若确有此问题，改用 `[UninstallDelete]` 显式声明运行时层目录 |
 | 资产名与客户端模板漂移 | 客户端匹配不到资产，静默不提示更新 | CI 中断言生成的两个资产名与 `checker.py` 的模板一致。第一期复审已指出此类风险，现在有两个模板，更易漂移 |
-| 应用包安装后与运行时层不兼容（例如应用代码用了新版依赖的 API） | 程序启动即崩溃 | `runtime` 哈希覆盖全部运行时文件，依赖任何变化都会触发完整包路径，此风险在设计上已被排除 |
+| 应用包安装后与运行时层不兼容（例如应用代码用了新版依赖的 API） | 程序启动即崩溃 | `runtime` 由 `pip freeze` 的解析结果与 `packaging/labeling_tool.spec` 共同决定：任何依赖版本变化、任何打包规则变化都会改变它，从而走完整包路径。**注意这不是绝对的**——若某依赖内容变化而版本号未变（例如同版本重新发布），`runtime` 不会移动 |
 
 ## 10. 测试
 
