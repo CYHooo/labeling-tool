@@ -8,7 +8,9 @@ from labeling_tool.update import checker
 
 
 def test_asset_name_and_version_parsing():
-    assert checker.asset_name_for("lite", "1.2.3") == "LabelingTool-lite-Setup-v1.2.3.exe"
+    assert checker.full_asset_name("1.2.3") == "LM_LabelingTool-Setup-v1.2.3.exe"
+    assert (checker.app_asset_name("1.2.3", "r3f8a1c92")
+            == "LM_LabelingTool-App-v1.2.3-r3f8a1c92.exe")
     assert checker.parse_version("v1.2.3") == (1, 2, 3)
     assert checker.parse_version("1.0.10") == (1, 0, 10)
     assert checker.parse_version("nightly") is None
@@ -38,8 +40,7 @@ def test_parse_sha256sums():
     assert len(sums) == 2
 
 
-def _release(tag="v1.0.1", names=("LabelingTool-lite-Setup-v1.0.1.exe",
-                                  "LabelingTool-full-Setup-v1.0.1.exe",
+def _release(tag="v1.0.1", names=("LM_LabelingTool-Setup-v1.0.1.exe",
                                   "SHA256SUMS.txt")):
     return {"tag_name": tag, "body": "fixes things",
             "assets": [{"name": n, "browser_download_url": f"https://x/{n}", "size": 1234}
@@ -55,28 +56,31 @@ def _opener(release, sums_text):
 
 
 def test_find_update_returns_matching_asset():
-    sums = "c" * 64 + "  LabelingTool-lite-Setup-v1.0.1.exe\n"
-    info = checker.find_update("1.0.0", "lite", opener=_opener(_release(), sums))
+    sums = "c" * 64 + "  LM_LabelingTool-Setup-v1.0.1.exe\n"
+    info = checker.find_update("1.0.0", "full", opener=_opener(_release(), sums))
     assert info.version == "1.0.1"
-    assert info.asset_name == "LabelingTool-lite-Setup-v1.0.1.exe"
-    assert info.asset_url == "https://x/LabelingTool-lite-Setup-v1.0.1.exe"
+    assert info.asset_name == "LM_LabelingTool-Setup-v1.0.1.exe"
+    assert info.asset_url == "https://x/LM_LabelingTool-Setup-v1.0.1.exe"
     assert info.sha256 == "c" * 64
     assert info.size == 1234
     assert "fixes things" in info.notes
 
 
 def test_find_update_none_when_same_version():
-    assert checker.find_update("1.0.1", "lite", opener=_opener(_release(), "")) is None
+    assert checker.find_update("1.0.1", "full", opener=_opener(_release(), "")) is None
 
 
-def test_find_update_none_when_variant_asset_missing():
-    rel = _release(names=("LabelingTool-full-Setup-v1.0.1.exe", "SHA256SUMS.txt"))
-    assert checker.find_update("1.0.0", "lite", opener=_opener(rel, "")) is None
+def test_find_update_none_when_no_installer_asset_present():
+    """Variant no longer selects the asset -- only the version and, for the
+    app package, the runtime id do. A release carrying neither installer
+    offers nothing."""
+    rel = _release(names=("SomethingElse-v1.0.1.zip", "SHA256SUMS.txt"))
+    assert checker.find_update("1.0.0", "full", opener=_opener(rel, "")) is None
 
 
 def test_find_update_requires_checksum():
     # an asset without an entry in SHA256SUMS.txt must not be offered
-    assert checker.find_update("1.0.0", "lite", opener=_opener(_release(), "")) is None
+    assert checker.find_update("1.0.0", "full", opener=_opener(_release(), "")) is None
 
 
 def test_find_update_propagates_network_errors():

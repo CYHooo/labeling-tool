@@ -14,7 +14,8 @@ from labeling_tool.core.app_paths import app_home
 
 BUILD_INFO_NAME = "build-info.json"
 DEV_VERSION = "0.0.0-dev"
-VARIANTS = ("lite", "full")
+# The lite variant was dropped in v1.3.0; see the rebrand design doc 2.1.
+VARIANTS = ("full",)
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,10 @@ class BuildInfo:
     version: str
     variant: str | None
     commit: str | None
+    # Identity of the runtime layer this build was made against; None on a
+    # dev build and on releases predating layered updates (<= v1.2.0), which
+    # the updater treats as "full installer only".
+    runtime: str | None = None
 
     @property
     def is_release_build(self) -> bool:
@@ -45,6 +50,8 @@ def read_build_info(home: Path | None = None) -> BuildInfo:
         variant = data.get("variant")
     except (OSError, ValueError, KeyError, TypeError):
         return BuildInfo(DEV_VERSION, None, None)
+    runtime = data.get("runtime")
     return BuildInfo(version,
                      variant if variant in VARIANTS else None,
-                     str(data["commit"]) if data.get("commit") else None)
+                     str(data["commit"]) if data.get("commit") else None,
+                     runtime if isinstance(runtime, str) and runtime else None)

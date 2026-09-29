@@ -40,15 +40,19 @@ GitHub 의 **Releases**(태그 버전)에서 다운로드합니다. Python 없�
 
 ### 설치
 
-| 파일 | 내용 | 크기 | 대상 PC |
+| 파일 | 내용 | 크기 | 용도 |
 |---|---|---|---|
-| `LabelingTool-lite-Setup-v<버전>.exe` | 온라인 라벨링 + 로컬 작업 | 약 170 MB | 일반 PC (GPU 불필요) |
-| `LabelingTool-full-Setup-v<버전>.exe` | lite + Few-shot 라벨링 (SAM2.1) | 약 1.5 GB | NVIDIA GPU PC |
+| `LM_LabelingTool-Setup-v<버전>.exe` | 전체 설치 (온라인 라벨링 + 로컬 작업 + Few-shot) | 약 1.5 GB | **처음 설치할 때** |
+| `LM_LabelingTool-App-v<버전>-r<id>.exe` | 앱 계층만 (코드 변경분) | 약 75 MB | 앱이 자동으로 내려받는 업데이트 파일 |
 
-1. 다운로드한 `LabelingTool-lite-Setup-v<버전>.exe` (또는 full) 를 더블클릭합니다.
+**처음 설치할 때는 `LM_LabelingTool-Setup-...exe` 를 받으세요.** `App` 파일은 이미 설치된 PC 를
+갱신하는 전용 파일이라, 설치되지 않은 PC 에서 실행하면 설치를 거부합니다 (실행되더라도 torch /
+CUDA 가 없어 프로그램이 시작되지 않기 때문입니다).
+
+1. 다운로드한 `LM_LabelingTool-Setup-v<버전>.exe` 를 더블클릭합니다.
 2. 처음 실행 시 "Windows 의 PC 보호" 창이 뜨면 **「추가 정보」→「실행」** 을 누릅니다 (코드 서명 없음).
-3. 설치 마법사가 뜨면 기본값으로 진행하면 `%LOCALAPPDATA%\Programs\LabelingTool` 에 설치됩니다 (**관리자 권한 불필요**).
-4. 설치가 끝나면 **시작 메뉴**에서 "LabelingTool" 을 찾아 실행합니다 (바탕화면 바로가기는 설치 중 체크하지 않는 한 만들어지지 않습니다).
+3. 설치 마법사가 뜨면 기본값으로 진행하면 `%LOCALAPPDATA%\Programs\LM_LabelingTool` 에 설치됩니다 (**관리자 권한 불필요**).
+4. 설치가 끝나면 **시작 메뉴**에서 "LM_LabelingTool" 을 찾아 실행합니다 (바탕화면 바로가기는 설치 중 체크하지 않는 한 만들어지지 않습니다).
 5. 로그인 정보(`config.json`), 받은 작업(`data\`), 가중치(`checkpoint\`), 클래스 정의(`classes.json`) 는 설치 폴더 안에 저장됩니다.
 
 ### 업데이트
@@ -60,20 +64,24 @@ GitHub 의 **Releases**(태그 버전)에서 다운로드합니다. Python 없�
 - **나중에**: 다음 시작 시 다시 물어봄
 - **이 버전 건너뛰기**: 해당 버전을 더 이상 제시하지 않음
 
-### 전체 판 (full) 업데이트 주의사항
+### 업데이트 크기 (v1.3.0 부터)
 
-full 판의 업데이트 파일은 약 1.5 GB 입니다 (SAM2.1 모델 포함). 충분한 네트워크 연결과 디스크 공간(3 GB 이상)이 필요합니다.
+설치 파일은 **앱 계층**(우리 코드, 약 75 MB)과 **런타임 계층**(torch / CUDA, 약 1.4 GB)으로 나뉘어
+배포됩니다. 코드만 바뀐 업데이트는 앱 계층만 내려받으므로 **약 75 MB** 입니다.
+
+torch 나 CUDA 구성이 바뀐 버전에서는 전체 설치 파일(약 1.5 GB)을 다시 받아야 하며, 업데이트
+대화창이 그 사실을 알려줍니다. 이때는 디스크 공간 3 GB 이상이 필요합니다.
 
 ### Few-shot 라벨링 모델 다운로드
 
-full 판: Few-shot 라벨링을 처음 열 때 SAM2.1 모델(약 308 MB)을 자동으로 내려받아 저장합니다 (인터넷 필요, 한 번만).
+Few-shot 라벨링을 처음 열 때 SAM2.1 모델(약 308 MB)을 자동으로 내려받아 저장합니다 (인터넷 필요, 한 번만).
 오프라인 PC 에서는 https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt 를 받아 설치 폴더의 `checkpoint\` 에 두세요.
 
 ### 제거 (Uninstall)
 
 Windows 의 **제어판 → 프로그램 제거** 또는 설치 폴더의 **unins000.exe** 로 제거하면 됩니다.
 
-**주의**: 제거 시 `config.json`, `data\`, `checkpoint\`, `classes.json` 등 사용자 데이터는 **남아 있습니다**. 새로 설치하면 이전 데이터를 그대로 사용할 수 있습니다. lite 와 full 을 같은 PC 에 설치하면 별개로 동작합니다 (데이터 공유 안 됨).
+**주의**: 제거 시 `config.json`, `data\`, `checkpoint\`, `classes.json` 등 사용자 데이터는 **남아 있습니다**. 새로 설치하면 이전 데이터를 그대로 사용할 수 있습니다.
 
 ### v1.0.0 압축판(zip) 사용자 마이그레이션
 
@@ -81,9 +89,9 @@ v1.0.0 은 압축판(`.zip`)으로 배포되었습니다. 압축을 푼 그 폴�
 **자동 업데이트가 동작하지 않으며**, 이제는 압축판을 새로 배포하지도 않습니다. 아래 순서로
 설치 프로그램으로 옮겨오세요:
 
-1. 위 [설치](#설치) 안내대로 `LabelingTool-lite-Setup-v<버전>.exe` (또는 full) 를 설치합니다.
+1. 위 [설치](#설치) 안내대로 `LM_LabelingTool-Setup-v<버전>.exe` 를 설치합니다.
 2. 기존 압축 해제 폴더에서 `config.json`, `data\`, `checkpoint\`, `classes.json` 을 새 설치 폴더
-   (`%LOCALAPPDATA%\Programs\LabelingTool` 등)로 복사합니다.
+   (`%LOCALAPPDATA%\Programs\LM_LabelingTool` 등)로 복사합니다.
 3. 기존 압축 해제 폴더는 삭제합니다. 남겨 두면 두 개의 사본이 생겨 새 설치 폴더만 업데이트되고
    예전 사본은 계속 구버전으로 남습니다.
 

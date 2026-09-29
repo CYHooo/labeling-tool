@@ -1,4 +1,4 @@
-"""``LabelingTool.exe --selftest=lite|full``: import-level smoke test for builds.
+"""``LM_LabelingTool.exe --selftest=full``: import-level smoke test for builds.
 
 CI runs it on the packaged exe right after PyInstaller to catch modules and
 data files missing from the bundle (the usual failure with torch / SAM). It
@@ -50,13 +50,6 @@ def _check_login_dialog() -> None:
     LoginDialog().deleteLater()
 
 
-def _check_no_torch() -> None:
-    missing = [mod for mod in ("torch", "annotation_tool", "sam2")
-               if importlib.util.find_spec(mod) is not None]
-    if missing:
-        raise RuntimeError(f"{', '.join(missing)} present in a lite build")
-
-
 def _check_sam2_cfg() -> None:
     """Compose the SAM2.1 config through hydra exactly as build_sam2 does."""
     import sam2  # noqa: F401 - registers sam2's hydra config module
@@ -84,9 +77,6 @@ def _checks(variant: str):
         yield f"import {mod}", lambda mod=mod: importlib.import_module(mod)
     yield "MobileSAM ONNX models", _check_onnx
     yield "Qt login dialog (offscreen)", _check_login_dialog
-    if variant == "lite":
-        yield "few-shot stack not bundled", _check_no_torch
-        return
     for mod in FULL_MODULES:
         yield f"import {mod}", lambda mod=mod: importlib.import_module(mod)
     yield "SAM2 hydra config composes", _check_sam2_cfg
@@ -96,8 +86,8 @@ def _checks(variant: str):
 
 def run_selftest(variant: str) -> int:
     """Run every check; 0 = all passed, 1 = failures, 2 = unknown variant."""
-    if variant not in ("lite", "full"):
-        message = f"unknown selftest variant: {variant!r} (use lite or full)\n"
+    if variant != "full":
+        message = f"unknown selftest variant: {variant!r} (use full)\n"
         print(message, end="")
         (app_home() / "selftest.log").write_text(message, encoding="utf-8")
         return 2

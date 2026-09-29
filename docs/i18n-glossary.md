@@ -50,6 +50,7 @@
 | weights（模型权重） | **가중치** | 权重 | Weights | |
 | lite / full（安装包变体） | **lite / full** | lite / full | lite / full | 不翻译，与下载文件名一致 |
 | loading（模型加载） | **로딩** | 加载 | Loading | 指把权重载入内存的过程；进行中用 `로딩 중…`，句尾省略号统一用 `…` |
+| full reinstall（完整重装） | **전체 설치** | 完整重装 | Full reinstall | 仅当运行时层（torch/CUDA）变化时需要，约 1.5 GB；应用层更新只有几十 MB |
 
 ## 5. 文体规则
 

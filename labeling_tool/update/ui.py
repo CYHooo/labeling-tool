@@ -38,14 +38,17 @@ class UpdateCheckThread(QThread):
     # wait_for_checks() at shutdown has a predictable ceiling.
     CHECK_TIMEOUT = 5
 
-    def __init__(self, current_version: str, variant: str, parent=None):
+    def __init__(self, current_version: str, variant: str,
+                 runtime: str | None = None, parent=None):
         super().__init__(parent)
         self._version, self._variant = current_version, variant
+        self._runtime = runtime
 
     def run(self):
         try:
             self.found.emit(checker.find_update(
-                self._version, self._variant, timeout=self.CHECK_TIMEOUT))
+                self._version, self._variant, timeout=self.CHECK_TIMEOUT,
+                runtime=self._runtime))
         except Exception as exc:  # noqa: BLE001 - reporting is the caller's call
             vlog().info("update check failed: %s: %s", type(exc).__name__, exc)
             self.found.emit(exc)
@@ -77,9 +80,22 @@ def _session_in_progress() -> bool:
               for w in app.topLevelWidgets())
 
 
+def prompt_text(info) -> str:
+    """The body of the update prompt.
+
+    Extracted from _ask so it can be tested without building a QMessageBox
+    (a modal box under offscreen Qt hangs the suite). The warning hangs off
+    `kind`, not the variant: a full reinstall is needed when the runtime
+    layer changed, which is what kind == "full" means."""
+    size_mb = info.size // (1024 * 1024)
+    text = tr("update_available", version=info.version, size=size_mb)
+    if info.kind == "full":
+        text += tr("update_full_warning")
+    return text
+
+
 def _ask(parent, info) -> str:
     """The three-button prompt; returns UPDATE / LATER / SKIP."""
-    size_mb = info.size // (1024 * 1024)
     notes = "\n".join(info.notes.splitlines()[:8])
     box = QMessageBox(parent)
     box.setWindowTitle(tr("update_title"))
@@ -87,10 +103,7 @@ def _ask(parent, info) -> str:
     # A release body is untrusted remote text: PlainText keeps AutoText from
     # rendering it as rich text (which could otherwise fetch remote images).
     box.setTextFormat(Qt.PlainText)
-    text = tr("update_available", version=info.version, size=size_mb)
-    if info.variant == "full":
-        text += tr("update_full_warning")
-    box.setText(text)
+    box.setText(prompt_text(info))
     box.setInformativeText(tr("update_informative", notes=notes))
     btn_update = box.addButton(tr("update_btn_update"), QMessageBox.AcceptRole)
     box.addButton(tr("update_btn_later"), QMessageBox.RejectRole)
@@ -168,7 +181,7 @@ def check_for_updates(parent, *, force: bool = False, home: Path | None = None):
     # login dialog is recreated every loop iteration in app.py), which is
     # exactly the "destroyed while still running" crash this module must
     # avoid. Lifetime is owned by _RUNNING_CHECKS/_on_finished instead.
-    thread = UpdateCheckThread(info.version, info.variant)
+    thread = UpdateCheckThread(info.version, info.variant, info.runtime)
 
     def _on_found(found):
         # The found signal is a queued cross-thread connection, so this can

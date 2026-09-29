@@ -28,7 +28,7 @@ def test_unknown_variant_is_rejected(tmp_path):
 
 def test_defaults_to_app_home(monkeypatch, tmp_path):
     import labeling_tool.update.version as v
-    (tmp_path / BUILD_INFO_NAME).write_text(json.dumps({"version": "9.9.9", "variant": "lite"}))
+    (tmp_path / BUILD_INFO_NAME).write_text(json.dumps({"version": "9.9.9", "variant": "full"}))
     monkeypatch.setattr(v, "app_home", lambda: tmp_path)
     assert read_build_info().version == "9.9.9"
 
@@ -36,21 +36,21 @@ def test_defaults_to_app_home(monkeypatch, tmp_path):
 def test_is_release_build_rejects_dev_build():
     """dev-<sha> builds should not be treated as release builds."""
     from labeling_tool.update.version import BuildInfo
-    assert BuildInfo("dev-abc1234", "lite", None).is_release_build is False
+    assert BuildInfo("dev-abc1234", "full", None).is_release_build is False
 
 
 def test_is_release_build_accepts_numeric_version():
     """Valid numeric versions with known variants are release builds."""
     from labeling_tool.update.version import BuildInfo
-    assert BuildInfo("1.0.0", "lite", None).is_release_build is True
+    assert BuildInfo("1.0.0", "full", None).is_release_build is True
     assert BuildInfo("1.2.3", "full", None).is_release_build is True
 
 
 def test_is_release_build_rejects_non_numeric_version():
     """Non-numeric version strings should not be release builds."""
     from labeling_tool.update.version import BuildInfo
-    assert BuildInfo("v1.0.0-alpha", "lite", None).is_release_build is False
-    assert BuildInfo("1.0.0-dev", "lite", None).is_release_build is False
+    assert BuildInfo("v1.0.0-alpha", "full", None).is_release_build is False
+    assert BuildInfo("1.0.0-dev", "full", None).is_release_build is False
 
 
 def test_is_release_build_rejects_unknown_variant():
@@ -58,3 +58,5 @@ def test_is_release_build_rejects_unknown_variant():
     from labeling_tool.update.version import BuildInfo
     assert BuildInfo("1.0.0", "beta", None).is_release_build is False
     assert BuildInfo("1.0.0", None, None).is_release_build is False
+    # lite was dropped in v1.3.0, so a lite install can no longer update
+    assert BuildInfo("1.0.0", "lite", None).is_release_build is False

@@ -176,7 +176,8 @@ STRINGS = {
     "update_title":                    "更新",
     "update_available":                "有新版本可用：v{version}\n下载大小：约 {size} MB",
     "update_full_warning":
-        "\n\n⚠ full 版本更新约需下载 1.5 GB，请确认网络和磁盘空间充足。",
+        "\n\n⚠ torch / CUDA 组成已变更，需下载完整安装包。"
+        "请确认网络和磁盘空间充足。",
     "update_informative":              "安装后将自动重启。\n\n{notes}",
     "update_btn_update":               "立即更新",
     "update_btn_later":                "稍后",
