@@ -69,14 +69,16 @@ jobs:
 
       - name: Selftest packaged exe
         run: |
-          $p = Start-Process -FilePath dist\LM_LabelingTool\LM_LabelingTool.exe -ArgumentList "--selftest=full" -Wait -PassThru
+          . packaging/ci/bounded.ps1
+          $code = Invoke-Bounded -Path dist\LM_LabelingTool\LM_LabelingTool.exe `
+            -CallArgs @("--selftest=full") -TimeoutSec 300 -What "selftest on the build output"
           if (Test-Path dist\LM_LabelingTool\selftest.log) {
             Get-Content dist\LM_LabelingTool\selftest.log
             Remove-Item dist\LM_LabelingTool\selftest.log
           } else {
             Write-Host "selftest.log not found (early crash?)"
           }
-          if ($p.ExitCode -ne 0) { throw "selftest failed with exit code $($p.ExitCode)" }
+          if ($code -ne 0) { throw "selftest failed with exit code $code" }
 
       - name: Launch smoke test (login screen stays up)
         run: |
@@ -188,24 +190,15 @@ jobs:
           # proves the runtime layer is intact -- it imports torch and sam2
           # and composes the hydra config -- so sentinel files are enough to
           # show the app package left it alone.
-          function Invoke-Installer($Path, $InstallerArgs, $TimeoutSec) {
-            $all = @("/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART") + $InstallerArgs
-            $proc = Start-Process -FilePath $Path -ArgumentList $all -PassThru
-            $null = $proc.Handle   # cache the handle or ExitCode stays null
-            if (-not $proc.WaitForExit($TimeoutSec * 1000)) {
-              try { $proc.Kill() } catch { }
-              throw "installer timed out after ${TimeoutSec}s: $(Split-Path $Path -Leaf)"
-            }
-            return $proc.ExitCode
-          }
-
+          . packaging/ci/bounded.ps1
+          Write-DiskSpace
           $target = "$env:RUNNER_TEMP\lt-install"
-          $code = Invoke-Installer $env:LT_SETUP @("/DIR=$target","/LOG=$env:RUNNER_TEMP\install.log") 900
+          $code = Invoke-Installer -Path $env:LT_SETUP -InstallerArgs @("/DIR=$target","/LOG=$env:RUNNER_TEMP\install.log") -TimeoutSec 900
           if ($code -ne 0) { Get-Content "$env:RUNNER_TEMP\install.log" -Tail 40; throw "install failed ($code)" }
           if (-not (Test-Path "$target\build-info.json")) { throw "build-info.json missing from the install" }
-          $s = Start-Process -FilePath "$target\LM_LabelingTool.exe" -ArgumentList "--selftest=full" -Wait -PassThru
+          $code = Invoke-Bounded -Path "$target\LM_LabelingTool.exe" -CallArgs @("--selftest=full") -TimeoutSec 300 -What "selftest after the full install"
           if (Test-Path "$target\selftest.log") { Get-Content "$target\selftest.log" }
-          if ($s.ExitCode -ne 0) { throw "installed selftest failed ($($s.ExitCode))" }
+          if ($code -ne 0) { throw "installed selftest failed ($code)" }
 
           # Sentinels from the runtime layer, which the app package does not
           # ship. If its [InstallDelete] ever clears _internal wholesale,
@@ -218,19 +211,19 @@ jobs:
           if ($sentinels.Count -lt 2) { throw "expected runtime-layer sentinels are missing before the app install" }
           Write-Host "runtime sentinels present: $($sentinels.Count)"
 
-          $code = Invoke-Installer $env:LT_APP_SETUP @("/DIR=$target","/LOG=$env:RUNNER_TEMP\app-install.log") 300
+          $code = Invoke-Installer -Path $env:LT_APP_SETUP -InstallerArgs @("/DIR=$target","/LOG=$env:RUNNER_TEMP\app-install.log") -TimeoutSec 300
           if ($code -ne 0) { Get-Content "$env:RUNNER_TEMP\app-install.log" -Tail 40; throw "app install failed ($code)" }
           foreach ($f in $sentinels) {
             if (-not (Test-Path $f)) { throw "the app package deleted a runtime-layer file: $f" }
           }
-          $s2 = Start-Process -FilePath "$target\LM_LabelingTool.exe" -ArgumentList "--selftest=full" -Wait -PassThru
+          $code = Invoke-Bounded -Path "$target\LM_LabelingTool.exe" -CallArgs @("--selftest=full") -TimeoutSec 300 -What "selftest after the app-layer install"
           if (Test-Path "$target\selftest.log") { Get-Content "$target\selftest.log" }
-          if ($s2.ExitCode -ne 0) { throw "selftest after the app-layer install failed ($($s2.ExitCode))" }
+          if ($code -ne 0) { throw "selftest after the app-layer install failed ($code)" }
 
           # The guard's refusal path. Without this the Pos() comparison ships
           # unexercised: the happy path returns True before reaching it.
           $stamp = (Get-Item "$target\LM_LabelingTool.exe").LastWriteTimeUtc
-          $code = Invoke-Installer $env:LT_BAD_SETUP @("/LOG=$env:RUNNER_TEMP\bad-install.log") 300
+          $code = Invoke-Installer -Path $env:LT_BAD_SETUP -InstallerArgs @("/LOG=$env:RUNNER_TEMP\bad-install.log") -TimeoutSec 300
           if ($code -eq 0) { throw "the mismatched app package installed anyway -- the runtime guard did not fire" }
           if ((Get-Item "$target\LM_LabelingTool.exe").LastWriteTimeUtc -ne $stamp) {
             throw "the refused package still wrote to the install"
@@ -238,7 +231,7 @@ jobs:
           Write-Host "mismatched app package refused, exit code $code, install untouched"
 
           $u = Get-ChildItem "$target\unins*.exe" | Select-Object -First 1
-          $null = Invoke-Installer $u.FullName @() 600
+          $null = Invoke-Installer -Path $u.FullName -TimeoutSec 600
           Start-Sleep -Seconds 10
           # Installing the app package on top must not have truncated the
           # uninstall log: the runtime layer has to go too.
