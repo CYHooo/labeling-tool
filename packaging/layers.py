@@ -77,6 +77,10 @@ def compute_runtime_id(repo_root: Path, freeze_text: str) -> str:
     its .pyd files are runtime layer, so shipping an app package across a
     version change installs half an upgrade that cannot import.
 
+    Line endings are normalised before hashing: git may check the spec out
+    with CRLF on Windows and LF elsewhere, and hashing raw bytes made the
+    same commit produce different ids per platform.
+
     Raises ValueError on an empty freeze and FileNotFoundError on a missing
     spec, rather than quietly hashing less than it should.
     """
@@ -92,7 +96,8 @@ def compute_runtime_id(repo_root: Path, freeze_text: str) -> str:
     for rel in RUNTIME_SPEC_FILES:
         digest.update(rel.encode("utf-8"))
         digest.update(b"\0")
-        digest.update((root / rel).read_bytes())
+        text = (root / rel).read_bytes().replace(b"\r\n", b"\n")
+        digest.update(text)
         digest.update(b"\0")
     return "r" + digest.hexdigest()[:8]
 

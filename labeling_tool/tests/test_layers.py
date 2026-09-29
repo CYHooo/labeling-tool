@@ -236,3 +236,19 @@ def test_cli_stage(tmp_path, capsys):
 def test_cli_rejects_bad_usage(capsys):
     assert layers.main(["nonsense"]) == 2
     assert "usage:" in capsys.readouterr().err
+
+
+def test_runtime_id_ignores_line_endings(tmp_path):
+    """git may check the spec out with CRLF on Windows and LF elsewhere.
+    Hashing raw bytes made the same commit produce different ids on
+    different platforms, which is the silent-drift failure this whole
+    mechanism exists to avoid."""
+    lf = _make_repo(tmp_path / "lf", spec=b"a = 1\nb = 2\n")
+    crlf = _make_repo(tmp_path / "crlf", spec=b"a = 1\r\nb = 2\r\n")
+    assert layers.compute_runtime_id(lf, FREEZE) == layers.compute_runtime_id(crlf, FREEZE)
+
+
+def test_runtime_id_ignores_freeze_line_endings(tmp_path):
+    repo = _make_repo(tmp_path / "repo")
+    assert (layers.compute_runtime_id(repo, "PyQt5==5.15.11\r\nnumpy==1.26.4\r\n")
+            == layers.compute_runtime_id(repo, "PyQt5==5.15.11\nnumpy==1.26.4\n"))
