@@ -70,3 +70,39 @@ def test_app_layer_installdelete_never_clears_internal_wholesale(iss):
     assert '"{app}\\_internal"' not in app_part
     assert "_internal\\labeling_tool" in app_part
     assert "_internal\\annotation_tool" in app_part
+
+
+# ------------------------------------------------------------- CI workflow
+# Every wait in the Windows build must be bounded. Two runs were lost to
+# unbounded waits: one hung 96 minutes on a modal dialog, one left a tag
+# build with nothing after 47 minutes. Both surfaced only as "the hosted
+# runner lost communication with the server".
+
+WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "build-windows.yml"
+
+
+@pytest.fixture(scope="module")
+def workflow() -> str:
+    return WORKFLOW.read_text(encoding="utf-8")
+
+
+def test_no_unbounded_process_wait_in_the_workflow(workflow):
+    """`Start-Process -Wait` has no timeout: a hung child holds the job
+    until GitHub kills it, and the log is usually lost with it."""
+    assert "-Wait -PassThru" not in workflow
+    assert re.search(r"Start-Process[^\n]*\s-Wait(\s|$)", workflow) is None
+
+
+def test_waits_go_through_the_shared_helper(workflow):
+    helper = WORKFLOW.parent.parent.parent / "packaging" / "ci" / "bounded.ps1"
+    assert helper.is_file(), "packaging/ci/bounded.ps1 is missing"
+    assert workflow.count(". packaging/ci/bounded.ps1") >= 2
+
+
+def test_helper_caches_the_handle_before_waiting():
+    """Without touching .Handle first, PowerShell leaves ExitCode null and
+    a failed process reads as success."""
+    text = (WORKFLOW.parent.parent.parent / "packaging" / "ci" / "bounded.ps1").read_text(encoding="utf-8")
+    handle = text.index("$proc.Handle")
+    wait = text.index("WaitForExit")
+    assert handle < wait, "$proc.Handle must be read before WaitForExit"
