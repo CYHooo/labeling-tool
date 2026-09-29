@@ -53,18 +53,40 @@ def iter_runtime_files(dist_dir: Path):
             yield rel, path
 
 
-def compute_runtime_id(dist_dir: Path) -> str:
-    """A short, stable identity for the runtime layer's exact contents.
+# The files that pin every runtime-layer dependency. torch, torchvision and
+# the sam2 commit are installed by the workflow, not by requirements.txt, so
+# the workflow is part of the identity too.
+RUNTIME_MANIFESTS = (
+    "requirements.txt",
+    "requirements-dev.txt",
+    "packaging/build-constraints.txt",
+    ".github/workflows/build-windows.yml",
+)
 
-    Hashes each runtime file's relative path and SHA256, in path order, then
-    hashes that. Any added, removed, renamed or changed runtime file moves
-    the id, so nobody has to remember to bump a version number.
+
+def compute_runtime_id(repo_root: Path) -> str:
+    """A short identity for the runtime layer, derived from its pins.
+
+    NOT from the built files. Two PyInstaller runs of the same commit emit
+    different bytes (CI runs 36421966949 and 36424404832 produced ra9adeaed
+    and r138b837f), so hashing the output would move the id on every release
+    and the app package would never match anything.
+
+    Hashing the manifests instead is less precise -- a dependency that
+    changes without its pin changing does not move the id -- but it is
+    stable across builds, which is what the scheme needs. It errs toward
+    demanding a full reinstall: any edit to these files moves the id, even
+    one that does not affect the runtime.
+
+    Raises FileNotFoundError if a manifest is missing, rather than quietly
+    hashing less than it should.
     """
+    root = Path(repo_root)
     digest = hashlib.sha256()
-    for rel, path in iter_runtime_files(dist_dir):
+    for rel in RUNTIME_MANIFESTS:
         digest.update(rel.encode("utf-8"))
         digest.update(b"\0")
-        digest.update(hashlib.sha256(path.read_bytes()).hexdigest().encode("ascii"))
+        digest.update((root / rel).read_bytes())
         digest.update(b"\0")
     return "r" + digest.hexdigest()[:8]
 
@@ -107,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"app layer: {app / 1024 / 1024:.1f} MB of "
               f"{whole / 1024 / 1024:.1f} MB")
         return 0
-    print("usage: layers.py runtime-id <dist>\n"
+    print("usage: layers.py runtime-id <repo-root>\n"
           "       layers.py stage <dist> <out>", file=sys.stderr)
     return 2
 

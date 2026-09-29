@@ -2,6 +2,7 @@
 runtime-layer file changes, and must not change when only app-layer files do
 -- that is what lets an update ship 30 MB instead of 1.5 GB."""
 
+import pathlib
 import sys
 from pathlib import Path
 
@@ -53,47 +54,75 @@ def test_windows_backslashes_are_understood():
     assert layers.is_app_layer("_internal\\labeling_tool\\core\\i18n\\__init__.pyc")
 
 
-def test_runtime_id_is_stable_for_identical_trees(tmp_path):
-    files = {"_internal/torch/a.dll": b"aaa", "LM_LabelingTool.exe": b"app-v1"}
-    one = _make_dist(tmp_path / "one", files)
-    two = _make_dist(tmp_path / "two", files)
+def _make_repo(tmp_path, manifests):
+    """A fake repo root holding just the files the runtime id hashes."""
+    for rel, content in manifests.items():
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(content)
+    return tmp_path
+
+
+MANIFESTS = {
+    "requirements.txt": b"PyQt5==5.15.11\n",
+    "requirements-dev.txt": b"pytest\n",
+    "packaging/build-constraints.txt": b"numpy<2\n",
+    ".github/workflows/build-windows.yml": b'run: pip install "torch==2.5.1"\n',
+}
+
+
+def test_runtime_id_is_stable_for_identical_manifests(tmp_path):
+    """The built files are NOT hashed: two PyInstaller runs of the same
+    commit produce different bytes (verified on CI runs 36421966949 and
+    36424404832), which would move the id on every release and make the
+    app package match nothing."""
+    one = _make_repo(tmp_path / "one", MANIFESTS)
+    two = _make_repo(tmp_path / "two", MANIFESTS)
     assert layers.compute_runtime_id(one) == layers.compute_runtime_id(two)
 
 
-def test_runtime_id_ignores_app_layer_changes(tmp_path):
-    base = {"_internal/torch/a.dll": b"aaa"}
-    one = _make_dist(tmp_path / "one", {**base, "LM_LabelingTool.exe": b"app-v1"})
-    two = _make_dist(tmp_path / "two", {**base, "LM_LabelingTool.exe": b"app-v2"})
-    assert layers.compute_runtime_id(one) == layers.compute_runtime_id(two)
-
-
-def test_runtime_id_changes_when_a_runtime_file_changes(tmp_path):
-    app = {"LM_LabelingTool.exe": b"app-v1"}
-    one = _make_dist(tmp_path / "one", {**app, "_internal/torch/a.dll": b"aaa"})
-    two = _make_dist(tmp_path / "two", {**app, "_internal/torch/a.dll": b"bbb"})
+def test_runtime_id_changes_when_a_pinned_dependency_changes(tmp_path):
+    one = _make_repo(tmp_path / "one", MANIFESTS)
+    two = _make_repo(tmp_path / "two",
+                     {**MANIFESTS, "requirements.txt": b"PyQt5==5.15.12\n"})
     assert layers.compute_runtime_id(one) != layers.compute_runtime_id(two)
 
 
-def test_runtime_id_changes_when_a_runtime_file_is_added(tmp_path):
-    app = {"LM_LabelingTool.exe": b"app-v1", "_internal/torch/a.dll": b"aaa"}
-    one = _make_dist(tmp_path / "one", app)
-    two = _make_dist(tmp_path / "two", {**app, "_internal/torch/b.dll": b"ccc"})
+def test_runtime_id_changes_when_torch_is_bumped_in_the_workflow(tmp_path):
+    """torch and sam2 are pinned in the workflow, not in requirements.txt,
+    so the workflow has to be part of the identity -- otherwise bumping
+    torch would ship an app package against the wrong runtime."""
+    one = _make_repo(tmp_path / "one", MANIFESTS)
+    two = _make_repo(tmp_path / "two",
+                     {**MANIFESTS,
+                      ".github/workflows/build-windows.yml":
+                          b'run: pip install "torch==2.6.0"\n'})
     assert layers.compute_runtime_id(one) != layers.compute_runtime_id(two)
 
 
-def test_runtime_id_changes_when_a_runtime_file_is_renamed(tmp_path):
-    """Content alone is not the identity: the path is hashed too, so a
-    rename that keeps every byte still moves the id."""
-    app = {"LM_LabelingTool.exe": b"app-v1"}
-    one = _make_dist(tmp_path / "one", {**app, "_internal/torch/a.dll": b"aaa"})
-    two = _make_dist(tmp_path / "two", {**app, "_internal/torch/b.dll": b"aaa"})
-    assert layers.compute_runtime_id(one) != layers.compute_runtime_id(two)
+def test_runtime_id_ignores_the_build_output(tmp_path):
+    """Whatever PyInstaller emitted does not enter the identity."""
+    repo = _make_repo(tmp_path / "repo", MANIFESTS)
+    before = layers.compute_runtime_id(repo)
+    _make_dist(repo / "dist" / "LM_LabelingTool",
+               {"_internal/torch/a.dll": b"whatever"})
+    assert layers.compute_runtime_id(repo) == before
+
+
+def test_runtime_id_rejects_a_missing_manifest(tmp_path):
+    """A silently-skipped manifest would weaken the identity without
+    anyone noticing."""
+    import pytest
+    repo = _make_repo(tmp_path / "repo",
+                      {k: v for k, v in MANIFESTS.items() if k != "requirements.txt"})
+    with pytest.raises(FileNotFoundError):
+        layers.compute_runtime_id(repo)
 
 
 def test_runtime_id_format(tmp_path):
     import re
-    d = _make_dist(tmp_path / "d", {"_internal/torch/a.dll": b"aaa"})
-    assert re.fullmatch(r"r[0-9a-f]{8}", layers.compute_runtime_id(d))
+    repo = _make_repo(tmp_path / "repo", MANIFESTS)
+    assert re.fullmatch(r"r[0-9a-f]{8}", layers.compute_runtime_id(repo))
 
 
 # ------------------------------------------------------- build-info.json
@@ -160,9 +189,18 @@ def test_stage_app_layer_copies_only_the_app_layer(tmp_path):
 
 
 def test_cli_runtime_id(tmp_path, capsys):
-    d = _make_dist(tmp_path / "d", {"_internal/torch/a.dll": b"aaa"})
-    assert layers.main(["runtime-id", str(d)]) == 0
-    assert capsys.readouterr().out.strip() == layers.compute_runtime_id(d)
+    repo = _make_repo(tmp_path / "repo", MANIFESTS)
+    assert layers.main(["runtime-id", str(repo)]) == 0
+    assert capsys.readouterr().out.strip() == layers.compute_runtime_id(repo)
+
+
+def test_cli_runtime_id_on_this_repo(capsys):
+    """The real manifests exist and produce a well-formed id -- this is what
+    CI runs, so a renamed manifest fails here rather than on the runner."""
+    import re
+    root = pathlib.Path(__file__).resolve().parents[2]
+    assert layers.main(["runtime-id", str(root)]) == 0
+    assert re.fullmatch(r"r[0-9a-f]{8}", capsys.readouterr().out.strip())
 
 
 def test_cli_stage(tmp_path, capsys):

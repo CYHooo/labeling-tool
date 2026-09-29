@@ -89,11 +89,12 @@ jobs:
 
       - name: Compute the runtime id and write build info
         run: |
-          # The runtime id hashes every runtime-layer file, so it moves only
-          # when torch / CUDA / PyQt5 / Python do. It must be computed BEFORE
-          # build-info.json is written -- that file is app-layer, but writing
-          # it first would still be a needless ordering trap.
-          $rt = python packaging/layers.py runtime-id dist/LM_LabelingTool
+          # The runtime id hashes the dependency MANIFESTS, not the build
+          # output: two PyInstaller runs of the same commit emit different
+          # bytes (proved on runs 36421966949 / 36424404832), so hashing the
+          # output would move the id every release and the app package would
+          # match nothing.
+          $rt = python packaging/layers.py runtime-id .
           if (-not ($rt -match '^r[0-9a-f]{8}$')) { throw "bad runtime id: $rt" }
           "LT_RUNTIME=$rt" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "runtime id: $rt"

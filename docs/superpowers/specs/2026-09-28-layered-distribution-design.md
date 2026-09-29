@@ -64,9 +64,21 @@ SAM2.1 模型权重不在此列：它已经是首次使用时下载到 `checkpoi
 {"version": "1.3.0", "runtime": "r3f8a1c92", "variant": "full", "commit": "abc1234"}
 ```
 
-`runtime` 由 CI 在构建后计算：对运行时层的每个文件取 SHA256，按路径排序后汇总再取哈希，取前 8 位十六进制并加 `r` 前缀。
+`runtime` 由 CI 计算，对**依赖清单**取哈希：`requirements.txt`、`requirements-dev.txt`、
+`packaging/build-constraints.txt` 与 `.github/workflows/build-windows.yml`（torch、torchvision
+与 sam2 的版本钉在 workflow 里，不在 requirements 中），取前 8 位十六进制并加 `r` 前缀。
 
-这样只要 torch、CUDA、PyQt5、Python 运行时中任何一个文件发生变化，`runtime` 自动改变，不依赖任何人记得递增。
+**这是回退方案，最初的设计是对构建产物取哈希。** 实测（2026-09-28，CI run 36421966949 与
+36424404832）同一提交两次构建产出不同的 runtime id（`ra9adeaed` 与 `r138b837f`），证明
+PyInstaller 的产物不可重现。若沿用产物哈希，每次发布 `runtime` 都会变，客户端永远匹配不到
+应用包，分层更新形同虚设。
+
+清单哈希精度略低——依赖内容变化但版本号未变时不会触发——但绝对稳定。它的误差方向是安全的：
+任何对这四个文件的改动都会要求一次完整重装，包括与运行时无关的改动。反过来漏判才是危险的，
+那会把应用包装到不兼容的运行时上。
+
+未深究不可重现的根因：诊断需要下载并比对两个 1.5 GB 产物，而回退方案已消除该需求。若日后
+值得修复，从 `SOURCE_DATE_EPOCH` 与 `PYTHONHASHSEED` 入手。
 
 `labeling_tool/update/version.py` 的 `BuildInfo` 增加 `runtime: str | None` 字段。缺失或格式不符时读作 `None`，与现有的"读不到就是 dev 构建"策略一致。`is_release_build` 额外要求 `runtime` 非空。
 
