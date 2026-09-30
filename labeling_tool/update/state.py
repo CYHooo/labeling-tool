@@ -1,10 +1,15 @@
-"""Remember when we last checked for updates and which version was skipped."""
+"""Remember when we last checked for updates and which version was skipped.
+
+last_check is a record, not a throttle: every launch checks. A 24-hour
+throttle used to sit here, and it hid a release published a few hours after
+the day's first launch until the next day -- users ended up pressing the
+manual check button instead."""
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 from labeling_tool.core.app_paths import app_home
@@ -37,18 +42,6 @@ def save(st: UpdateState, home: Path | None = None) -> None:
             indent=2), encoding="utf-8")
     except OSError:
         pass  # a read-only install must not break the app over bookkeeping
-
-
-def should_check(st: UpdateState, now: datetime | None = None,
-                 interval_hours: int = 24) -> bool:
-    if not st.last_check:
-        return True
-    now = now or datetime.now(timezone.utc)
-    try:
-        last = datetime.fromisoformat(st.last_check)
-        return now - last >= timedelta(hours=interval_hours)
-    except (ValueError, TypeError):
-        return True
 
 
 def mark_checked(home: Path | None = None, now: datetime | None = None) -> None:

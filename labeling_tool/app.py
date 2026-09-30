@@ -110,8 +110,12 @@ def main(argv: list[str] | None = None) -> int:
     from labeling_tool.core.window.styles import STYLESHEET
     app.setStyleSheet(STYLESHEET)
 
-    # startup update check (silent when offline / throttled / a dev build)
-    from labeling_tool.update.ui import check_for_updates, wait_for_checks
+    # Update check on every launch (silent when offline or a dev build). A
+    # result that lands after a session window opened is offered when that
+    # window closes -- see prompt_pending_update() below.
+    from labeling_tool.update.ui import (
+        check_for_updates, prompt_pending_update, wait_for_checks,
+    )
     check_for_updates(None)
 
     base = key = ""
@@ -138,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
             tool_win = holder["win"]
             tool_win.show()
             code = app.exec_()
-            wait_for_checks()
+            prompt_pending_update()
             return code
 
         base, key = login.base, login.key
@@ -167,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
     win = ViewerMainWindow(workspace, manifest, client)
     win.show()
     code = app.exec_()
-    wait_for_checks()
+    prompt_pending_update()
     return code
 
 

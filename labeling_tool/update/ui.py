@@ -27,6 +27,11 @@ UPDATE, LATER, SKIP = "update", "later", "skip"
 # fires, then it is released and scheduled for deletion.
 _RUNNING_CHECKS: set[QThread] = set()
 
+# An update found while a session window was open. Prompting then would mean
+# quitting under the user's unsaved work, so it waits here until the session
+# ends and prompt_pending_update() offers it. (update info, state home)
+_PENDING: list[tuple[object, Path | None]] = []
+
 
 class UpdateCheckThread(QThread):
     """Look for an update off the UI thread; emits UpdateInfo, None, or the
@@ -63,6 +68,23 @@ def wait_for_checks(msec: int = 3000) -> None:
     """
     for thread in list(_RUNNING_CHECKS):
         thread.wait(msec)
+
+
+def prompt_pending_update() -> bool:
+    """Offer an update that was found while a session was open.
+
+    Call once the session's event loop has returned -- its window closed
+    through closeEvent, so the work is saved. Also finishes a check that is
+    still in flight: its result is a queued signal, and with no event loop
+    running it would otherwise never be delivered. True = installer started.
+    """
+    wait_for_checks()
+    QApplication.processEvents()
+    if not _PENDING:
+        return False
+    found, home = _PENDING.pop()
+    _PENDING.clear()
+    return prompt_and_install(None, found, home)
 
 
 def _session_in_progress() -> bool:
@@ -172,10 +194,6 @@ def check_for_updates(parent, *, force: bool = False, home: Path | None = None):
         if force:
             QMessageBox.information(parent, tr("update_title"), tr("update_checking_msg"))
         return None
-    st = state.load(home)
-    if not force and not state.should_check(st):
-        return None
-
     # Deliberately not Qt-parented to `parent`: Qt would then destroy this
     # QThread automatically if that widget is destroyed first (e.g. the
     # login dialog is recreated every loop iteration in app.py), which is
@@ -212,8 +230,10 @@ def check_for_updates(parent, *, force: bool = False, home: Path | None = None):
         if _session_in_progress():
             # A session with unsaved work is already open. Quitting via
             # QApplication.quit() would bypass ViewerMainWindow.closeEvent
-            # and lose it, so stay silent - the next launch/manual check
-            # asks again.
+            # and lose it, so hold the update until the session ends:
+            # app.py calls prompt_pending_update() after its window closes.
+            vlog().info("update %s found mid-session; offering it on exit", found.version)
+            _PENDING[:] = [(found, home)]
             return
         if prompt_and_install(box_parent, found, home):
             QApplication.quit()   # the installer restarts the new version
