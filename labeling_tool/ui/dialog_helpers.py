@@ -22,6 +22,10 @@ def load_config() -> dict:
 
 
 def save_config(base: str, api_key: str) -> None:
+    # On Linux, the default home is an XDG directory that may not exist yet
+    # on a fresh install -- app_home() (beside the exe) never needed this
+    # because the exe's own directory always exists.
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text(
         json.dumps({"base": base, "apiKey": api_key}, indent=2),
         encoding="utf-8")
