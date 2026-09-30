@@ -53,52 +53,43 @@ def iter_runtime_files(dist_dir: Path):
             yield rel, path
 
 
-# The PyInstaller spec decides WHICH packages enter the runtime layer
-# (collect_all, excludes, binaries, datas), so a change here can move the
-# runtime layer without any dependency version changing.
-RUNTIME_SPEC_FILES = ("packaging/labeling_tool.spec",)
+def compute_runtime_id(dist_dir: Path) -> str:
+    """A short identity for the runtime layer, measured from the build.
 
+    Hashes each runtime file's relative path and SIZE -- never its contents.
+    Two PyInstaller runs of the same commit emit different bytes (timestamps
+    go into the files; CI runs 36421966949 and 36424404832 produced
+    ra9adeaed and r138b837f), so hashing contents would move the id on every
+    release and the app package would never match anything. Paths and sizes
+    survive that.
 
-def compute_runtime_id(repo_root: Path, freeze_text: str) -> str:
-    """A short identity for the runtime layer: what is installed, plus what
-    gets packed.
+    Measuring the build directly also means nobody has to judge which config
+    affects the runtime layer: adding a dependency, upgrading torch or
+    excluding a CUDA library all change the listing, while editing an icon
+    path in the spec does not.
 
-    NOT the built files. Two PyInstaller runs of the same commit emit
-    different bytes (CI runs 36421966949 and 36424404832 produced ra9adeaed
-    and r138b837f), so hashing the output would move the id on every release
-    and the app package would never match anything.
+    The trade-off is on record in
+    test_runtime_id_does_not_see_content_changes_at_equal_size: a dependency
+    whose contents change without any file changing name or size will not
+    move the id.
 
-    `freeze_text` is `pip freeze` from the build environment, taken after
-    every dependency is installed. Hashing the resolved versions rather than
-    the requirement files is what makes this sound: requirements.txt pins
-    nothing (`PyQt5>=5.15`), so pip can resolve a different version with no
-    file changing. That matters because the layer split cuts through those
-    packages -- PyQt5's Python code rides inside the exe (app layer) while
-    its .pyd files are runtime layer, so shipping an app package across a
-    version change installs half an upgrade that cannot import.
-
-    Line endings are normalised before hashing: git may check the spec out
-    with CRLF on Windows and LF elsewhere, and hashing raw bytes made the
-    same commit produce different ids per platform.
-
-    Raises ValueError on an empty freeze and FileNotFoundError on a missing
-    spec, rather than quietly hashing less than it should.
+    Raises FileNotFoundError if dist_dir does not exist, and ValueError if it
+    holds no runtime-layer files at all -- both mean the caller pointed at
+    the wrong directory, and a hash of nothing would look authoritative.
     """
-    root = Path(repo_root)
-    # pip freeze's order is not guaranteed stable between runs
-    pins = sorted(line.strip() for line in freeze_text.splitlines()
-                  if line.strip() and not line.lstrip().startswith("#"))
-    if not pins:
-        raise ValueError("empty pip freeze: the build environment was not captured")
+    root = Path(dist_dir)
+    if not root.is_dir():
+        raise FileNotFoundError(f"no such build directory: {root}")
     digest = hashlib.sha256()
-    digest.update("\n".join(pins).encode("utf-8"))
-    digest.update(b"\0")
-    for rel in RUNTIME_SPEC_FILES:
+    count = 0
+    for rel, path in iter_runtime_files(root):
         digest.update(rel.encode("utf-8"))
         digest.update(b"\0")
-        text = (root / rel).read_bytes().replace(b"\r\n", b"\n")
-        digest.update(text)
+        digest.update(str(path.stat().st_size).encode("ascii"))
         digest.update(b"\0")
+        count += 1
+    if count == 0:
+        raise ValueError(f"no runtime-layer files under {root}")
     return "r" + digest.hexdigest()[:8]
 
 
@@ -132,16 +123,15 @@ def main(argv: list[str] | None = None) -> int:
     import sys
 
     args = sys.argv[1:] if argv is None else argv
-    if len(args) == 3 and args[0] == "runtime-id":
-        freeze = Path(args[2]).read_text(encoding="utf-8")
-        print(compute_runtime_id(Path(args[1]), freeze))
+    if len(args) == 2 and args[0] == "runtime-id":
+        print(compute_runtime_id(Path(args[1])))
         return 0
     if len(args) == 3 and args[0] == "stage":
         app, whole = stage_app_layer(Path(args[1]), Path(args[2]))
         print(f"app layer: {app / 1024 / 1024:.1f} MB of "
               f"{whole / 1024 / 1024:.1f} MB")
         return 0
-    print("usage: layers.py runtime-id <repo-root> <pip-freeze-file>\n"
+    print("usage: layers.py runtime-id <dist>\n"
           "       layers.py stage <dist> <out>", file=sys.stderr)
     return 2
 
