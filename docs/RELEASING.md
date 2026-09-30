@@ -12,6 +12,8 @@
 ```powershell
 & "C:\Program Files\Python312\python.exe" -m venv C:\lt\venv   # 必须是全新 venv
 $env:SAM2_BUILD_CUDA = "0"
+# sam2 的仓库里有符号链接，不开启的话 git 只会写出 30 字节的占位文件
+$env:GIT_CONFIG_COUNT = "1"; $env:GIT_CONFIG_KEY_0 = "core.symlinks"; $env:GIT_CONFIG_VALUE_0 = "true"
 $pip = "C:\lt\venv\Scripts\pip.exe"
 & $pip install -c packaging/build-constraints.txt -c packaging/build-lock.txt -r requirements-dev.txt "pyinstaller==6.22.3"
 & $pip install -c packaging/build-constraints.txt -c packaging/build-lock.txt "torch==2.5.1" "torchvision==0.20.1" --index-url https://download.pytorch.org/whl/cu124
@@ -61,6 +63,8 @@ runtime id 是对运行时层每个文件的「路径 + 大小」做哈希。以
 - **`packaging/build-lock.txt`** 固定了全部依赖的版本，包括传递依赖。上游发布新版本不会影响构建。
 - **全新的 venv**：CI 不使用 runner 自带的 Python，因为那里预装的 `filelock`、`packaging` 等包的版本
   会随 runner 镜像变化。
+- **git 展开符号链接**（`core.symlinks=true`）：sam2 的仓库里有几个 yaml 是符号链接。
+  没开启时 git 只写出占位文件，构建能通过，但 runtime id 会和 CI 不一样。`local-build.ps1` 会检查这一点。
 - **排除构建机的系统 DLL**：PyInstaller 从构建机的 Windows 或 SDK 里收集的 `api-ms-win-*`、
   `ucrtbase`、`vcruntime140*`、`msvcp140*` 不计入 id（文件本身照常发布）。GitHub 每周更新 runner 镜像，
   这些 DLL 的大小会随之改变。

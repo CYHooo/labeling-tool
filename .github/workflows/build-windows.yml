@@ -66,6 +66,13 @@ jobs:
       - name: Install dependencies
         env:
           SAM2_BUILD_CUDA: "0"
+          # sam2's repo has symlinks (sam2/sam2_hiera_*.yaml). Without this,
+          # git on a machine that defaults core.symlinks=false writes 30-byte
+          # placeholder files instead, and the runtime id differs from a
+          # build that resolved them. Set explicitly on both sides.
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: core.symlinks
+          GIT_CONFIG_VALUE_0: "true"
         run: |
           # Every step below uses the venv (it is first on PATH now).
           if (-not ((Get-Command python).Source -like "$env:RUNNER_TEMP\buildenv\*")) { throw "not running in the build venv" }

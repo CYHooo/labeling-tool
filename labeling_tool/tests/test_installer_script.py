@@ -147,6 +147,14 @@ def test_ci_builds_in_a_clean_pinned_environment(workflow):
         assert any(l.startswith(must) for l in pins), f"{must} is not pinned"
 
 
+def test_ci_resolves_git_symlinks_when_installing_sam2(workflow):
+    """sam2's repo holds symlinked yaml files. A git with core.symlinks=false
+    writes placeholders instead, and local and CI runtime ids part ways
+    (run 36682820480: r1970c21b locally vs r88c8d3f0)."""
+    assert "GIT_CONFIG_KEY_0: core.symlinks" in workflow
+    assert 'GIT_CONFIG_VALUE_0: "true"' in workflow
+
+
 def test_helper_caches_the_handle_before_waiting():
     """Without touching .Handle first, PowerShell leaves ExitCode null and
     a failed process reads as success."""

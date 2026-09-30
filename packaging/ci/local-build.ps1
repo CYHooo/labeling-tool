@@ -11,6 +11,8 @@
 # be FRESH -- stray packages in it get bundled and move the runtime id:
 #   & "C:\Program Files\Python312\python.exe" -m venv C:\lt\venv
 #   $env:SAM2_BUILD_CUDA = "0"
+#   # sam2's repo has symlinks; without this git writes placeholders (see CI)
+#   $env:GIT_CONFIG_COUNT = "1"; $env:GIT_CONFIG_KEY_0 = "core.symlinks"; $env:GIT_CONFIG_VALUE_0 = "true"
 #   $pip = "C:\lt\venv\Scripts\pip.exe"
 #   & $pip install -c packaging/build-constraints.txt -c packaging/build-lock.txt -r requirements-dev.txt "pyinstaller==6.22.3"
 #   & $pip install -c packaging/build-constraints.txt -c packaging/build-lock.txt "torch==2.5.1" "torchvision==0.20.1" --index-url https://download.pytorch.org/whl/cu124
@@ -63,6 +65,13 @@ Step "tests" {
 }
 
 Step "build" {
+    # sam2 installed with core.symlinks=false carries 30-byte placeholders
+    # where CI has the real yaml; the build would work but its runtime id
+    # would never match the release's.
+    $probe = Join-Path $Venv "Lib\site-packages\sam2\sam2_hiera_l.yaml"
+    if ((Test-Path $probe) -and (Get-Item $probe).Length -lt 1000) {
+        throw "sam2 was installed without git symlinks ($probe is a placeholder); reinstall it as in the setup notes at the top of this script"
+    }
     Remove-Item -Recurse -Force build, $dist -ErrorAction SilentlyContinue
     & (Join-Path $Venv "Scripts\pyinstaller.exe") --noconfirm --log-level WARN packaging/labeling_tool.spec
     if ($LASTEXITCODE -ne 0) { throw "pyinstaller failed" }

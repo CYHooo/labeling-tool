@@ -96,7 +96,10 @@ runtime id = "r" + sha256(每个运行时层文件的 "<相对路径>\0<字节�
 - 新增 `packaging/build-lock.txt`，锁定全部 52 个依赖的版本，本地与 CI 共用。
 - CI 改为在全新的 venv 里构建。
 
-这样本地构建的 runtime id 与 CI 相同，发布前就能在本地确认这次是增量更新还是完整安装。
+第一次演练（CI 36682820480）时本地和 CI 仍差 5 个文件：sam2 仓库里的 `sam2/sam2_hiera_*.yaml`
+是符号链接，runner 上的 git 会展开它们，本地 git 默认 `core.symlinks=false`，只写出 30 字节的
+占位文件。两边都显式设置 `core.symlinks=true` 之后，**本地与 CI 的 runtime id 一致（`r88c8d3f0`）**，
+发布前就能在本地确认这次是增量更新还是完整安装。
 CI 每次还会上传 `runtime-manifest`（id 所依据的清单）作为诊断产物，id 意外变化时可以直接 diff。
 
 ## 5. 应用层瘦身
