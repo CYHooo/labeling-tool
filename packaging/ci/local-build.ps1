@@ -1,16 +1,20 @@
-# Run the Windows CI build locally, step for step, before spending a CI run.
+# Verify a Windows release locally. This is the ONLY place the checks run:
+# CI (.github/workflows/build-windows.yml) just builds and publishes a tag,
+# because a CI round took 18-25 minutes and every failure cost another.
+# Run all steps and get a green result before tagging; see docs/RELEASING.md.
 #
-# CI takes ~18 minutes a round and only reports at the end; a local Windows
-# machine (or VM) gets the same answers faster and can be re-run piecemeal.
-# The steps mirror .github/workflows/build-windows.yml -- keep them in step
-# when that file changes.
+# The build steps match CI's (same Python, same lock, same spec), so the
+# runtime id printed here is the one the release will carry. That is the
+# answer to "will this release be a small update or a full install?".
 #
-# One-time setup (Python 3.12 and Inno Setup 6 installed):
-#   py -3.12 -m venv C:\lt\venv
+# One-time setup (Python 3.12.10 and Inno Setup 6 installed). The venv must
+# be FRESH -- stray packages in it get bundled and move the runtime id:
+#   & "C:\Program Files\Python312\python.exe" -m venv C:\lt\venv
 #   $env:SAM2_BUILD_CUDA = "0"
-#   C:\lt\venv\Scripts\pip install -c packaging/build-constraints.txt -r requirements-dev.txt "pyinstaller==6.22.3"
-#   C:\lt\venv\Scripts\pip install -c packaging/build-constraints.txt "torch==2.5.1" "torchvision==0.20.1" --index-url https://download.pytorch.org/whl/cu124
-#   C:\lt\venv\Scripts\pip install -c packaging/build-constraints.txt --no-build-isolation "git+https://github.com/facebookresearch/sam2.git@2b90b9f5ceec907a1c18123530e92e794ad901a4"
+#   $pip = "C:\lt\venv\Scripts\pip.exe"
+#   & $pip install -c packaging/build-constraints.txt -c packaging/build-lock.txt -r requirements-dev.txt "pyinstaller==6.22.3"
+#   & $pip install -c packaging/build-constraints.txt -c packaging/build-lock.txt "torch==2.5.1" "torchvision==0.20.1" --index-url https://download.pytorch.org/whl/cu124
+#   & $pip install -c packaging/build-constraints.txt -c packaging/build-lock.txt --no-build-isolation "git+https://github.com/facebookresearch/sam2.git@2b90b9f5ceec907a1c18123530e92e794ad901a4"
 #
 # Build on a local disk: a 4 GB onedir tree over a network share is slow.
 #
@@ -54,7 +58,7 @@ function Step([string] $name, [scriptblock] $body) {
 }
 
 Step "tests" {
-    & $py -m pytest tests labeling_tool/tests annotation_tool/tests -q -p no:cacheprovider
+    & $py -m pytest tests labeling_tool/tests annotation_tool/tests -q -p no:cacheprovider --color=no
     if ($LASTEXITCODE -ne 0) { throw "tests failed" }
 }
 
@@ -104,7 +108,11 @@ Step "installer" {
         Where-Object { Test-Path $_ } | Select-Object -First 1
     if (-not $iscc) { throw "ISCC.exe not found; install Inno Setup 6" }
     Remove-Item -Recurse -Force out, out-bad -ErrorAction SilentlyContinue
-    $common = @("/DMyVersion=$Version", "/DMyVersionInfo=0.0.0", "/DMySourceRoot=$PWD", "/DMyFast=1", "/Q")
+    # MyTestInstall: a separate AppId and Start menu name, so the smoke step
+    # can install and uninstall next to a real install. Local installers are
+    # never published -- releases are built by CI from the tag.
+    $common = @("/DMyVersion=$Version", "/DMyVersionInfo=0.0.0", "/DMySourceRoot=$PWD",
+                "/DMyFast=1", "/DMyTestInstall=1", "/Q")
     $isccArgs = @("/DMyLayer=full", "/DMySource=$PWD\$dist", "/DMyOutDir=$PWD\out",
                   "/DMyRuntime=$script:runtimeId") + $common + @("packaging\installer.iss")
     & $iscc @isccArgs
@@ -121,16 +129,17 @@ Step "installer" {
 }
 
 Step "smoke" {
-    # The test installs, upgrades and UNINSTALLS under the real AppId. On a
-    # machine that also has the app installed for use, that rewrites its
-    # uninstall entry and can take its data with it. CI runners are clean;
-    # a workstation usually is not.
-    $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{9E1E0C6B-6E0F-4E8E-9E2F-0F7B5C1A0F02}_is1"
+    # The installers above carry the TEST AppId (MyTestInstall), so a real
+    # install on this machine is never touched. A leftover test install from
+    # an aborted run would turn the full install into an upgrade; clear it.
+    $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{73FDC7BA-1CC5-4842-80BD-078ED75FD1A6}_is1"
     if (Test-Path $key) {
-        $where = (Get-ItemProperty $key).InstallLocation
-        throw "LM_LabelingTool is installed here ($where); the smoke step would disturb it. Run it on a clean VM, or leave it to CI."
+        $old = (Get-ItemProperty $key).UninstallString -replace '"', ''
+        Write-Host "removing a leftover test install: $old"
+        $null = Invoke-Installer -Path $old -TimeoutSec 600
+        Start-Sleep -Seconds 5
     }
-    $full =Get-ChildItem out\LM_LabelingTool-Setup-*.exe | Select-Object -First 1
+    $full = Get-ChildItem out\LM_LabelingTool-Setup-*.exe | Select-Object -First 1
     $app = Get-ChildItem out\LM_LabelingTool-App-*.exe | Select-Object -First 1
     $bad = Get-ChildItem out-bad\LM_LabelingTool-App-*.exe | Select-Object -First 1
     $target = Join-Path $env:TEMP "lt-install"
