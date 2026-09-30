@@ -23,6 +23,7 @@
 - **Windows 的一切既有行为必须逐字节不变**，尤其 `app_paths.writable_path()` 的返回值与资产命名。
 - 代码注释一律英文；Python 4 空格缩进、`snake_case`。
 - 每个 release 必须挂齐四个资产：Windows full/app、Linux runtime/app。
+- **全量回归命令是三个目录**：`QT_QPA_PLATFORM=offscreen python -m pytest tests labeling_tool/tests annotation_tool/tests -q`。这是项目权威命令（见 `packaging/ci/local-build.ps1:63`）。仓库根目录下另有一个独立的 `tests/` 目录，只跑 `labeling_tool/tests` 会漏掉它，而其中 `test_app_paths.py`、`test_selftest.py` 恰好覆盖本计划触及的行为。
 
 ## Review Focus
 
@@ -197,7 +198,7 @@ Expected: PASS，且**既有测试全部仍通过**（`test_nothing_runtime_laye
 
 - [ ] **Step 5: 全量回归**
 
-Run: `python -m pytest labeling_tool/tests -q`
+Run: `QT_QPA_PLATFORM=offscreen python -m pytest tests labeling_tool/tests annotation_tool/tests -q`
 Expected: PASS。`packaging/layers.py` 被 `test_installer_script.py`、`test_reuse_full.py` 间接使用，签名改动不得波及它们。
 
 - [ ] **Step 6: Commit**
@@ -385,7 +386,7 @@ Expected: PASS
 
 - [ ] **Step 5: 全量回归**
 
-Run: `python -m pytest labeling_tool/tests -q`
+Run: `QT_QPA_PLATFORM=offscreen python -m pytest tests labeling_tool/tests annotation_tool/tests -q`
 Expected: PASS。重点确认 `test_bundled_resources.py`、`test_workspace.py`、`test_settings.py` 不受影响 —— 它们走源码路径，`is_frozen()` 为假，行为不变。
 
 - [ ] **Step 6: Commit**
@@ -935,7 +936,7 @@ INFO = checker.UpdateInfo(
 
 同一文件中其它直接构造 `UpdateInfo` 或读取 `info.size` / `info.asset_url` 的地方一并改用新字段。
 
-Run: `python -m pytest labeling_tool/tests -q`
+Run: `QT_QPA_PLATFORM=offscreen python -m pytest tests labeling_tool/tests annotation_tool/tests -q`
 Expected: PASS
 
 - [ ] **Step 6: Commit**
@@ -1413,7 +1414,7 @@ Expected: PASS
 
 - [ ] **Step 5: 全量回归**
 
-Run: `python -m pytest labeling_tool/tests -q`
+Run: `QT_QPA_PLATFORM=offscreen python -m pytest tests labeling_tool/tests annotation_tool/tests -q`
 Expected: PASS
 
 - [ ] **Step 6: Commit**
@@ -1861,7 +1862,7 @@ an assumption."
 
 全部任务完成后，以下均须为真：
 
-- `python -m pytest labeling_tool/tests -q` 全绿。
+- `QT_QPA_PLATFORM=offscreen python -m pytest tests labeling_tool/tests annotation_tool/tests -q` 全绿。
 - 一次 `workflow_dispatch` 中两个 build job 均绿。
 - 一个 tag 产出的 Release 含四个资产：两个 `.exe` 与两个 `.deb`，外加合并后的单一 `SHA256SUMS.txt`。
 - 在 22.04 与 24.04 上均可用 `sudo dpkg -i` 两个包装成，无需 `apt-get install -f`，启动后 selftest 通过。
