@@ -3,7 +3,7 @@ from labeling_tool import selftest
 
 
 def test_full_reports_missing_module(monkeypatch, tmp_path):
-    monkeypatch.setattr(selftest, "app_home", lambda: tmp_path)
+    monkeypatch.setattr(selftest, "user_data_home", lambda: tmp_path)
     monkeypatch.setattr(selftest, "COMMON_MODULES", ())
     monkeypatch.setattr(selftest, "_check_onnx", lambda: None)
     monkeypatch.setattr(selftest, "_check_login_dialog", lambda: None)
@@ -18,7 +18,7 @@ def test_full_reports_missing_module(monkeypatch, tmp_path):
 
 
 def test_full_checks_fewshot_available(monkeypatch, tmp_path):
-    monkeypatch.setattr(selftest, "app_home", lambda: tmp_path)
+    monkeypatch.setattr(selftest, "user_data_home", lambda: tmp_path)
     monkeypatch.setattr(selftest, "COMMON_MODULES", ())
     monkeypatch.setattr(selftest, "FULL_MODULES", ())
     monkeypatch.setattr(selftest, "_check_onnx", lambda: None)
@@ -40,7 +40,7 @@ def test_full_checks_have_no_sam3():
 
 def test_unknown_variant(monkeypatch, tmp_path):
     """lite is gone as of v1.3.0, so it is now an unknown variant too."""
-    monkeypatch.setattr(selftest, "app_home", lambda: tmp_path)
+    monkeypatch.setattr(selftest, "user_data_home", lambda: tmp_path)
     # each run rewrites selftest.log, so check the log of the last one
     assert selftest.run_selftest("lite") == 2
     assert selftest.run_selftest("medium") == 2
