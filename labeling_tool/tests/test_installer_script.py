@@ -198,6 +198,14 @@ def test_release_builds_keep_maximum_compression(iss):
     assert fast < block.index("#else"), "lzma2/fast must sit under #ifdef MyFast"
 
 
+def test_release_compression_is_multithreaded(iss):
+    """Single-threaded lzma2/max was ~11 of ~18 minutes of a release; four
+    block threads cut it to about a third for 1% more size."""
+    block = iss[iss.index("#ifdef MyFast"):iss.index("[Languages]")]
+    release = block[block.index("#else"):block.index("#endif")]
+    assert "LZMANumBlockThreads=4" in release
+
+
 def test_the_size_ceiling_only_binds_on_published_builds(workflow):
     """A fast-compressed verification build is legitimately larger than a
     release one; the 2 GiB release ceiling must not fail it."""
