@@ -2,6 +2,7 @@
 import json
 from datetime import datetime, timezone
 
+from labeling_tool.core import app_paths
 from labeling_tool.update import state
 
 
@@ -44,3 +45,20 @@ def test_skip_version_keeps_last_check(tmp_path):
         json.dumps({"last_check": "2026-01-01T00:00:00+00:00"}))
     state.skip_version("1.0.1", tmp_path)
     assert state.load(tmp_path).last_check == "2026-01-01T00:00:00+00:00"
+
+
+def test_default_home_on_linux_frozen_writes_under_xdg(monkeypatch, tmp_path):
+    """No ``home`` passed: the default must resolve through user_data_home(),
+    which on a Linux frozen build is the XDG data dir, not app_home()'s
+    /opt/lm-labeling-tool (root-owned, read-only)."""
+    monkeypatch.setattr(app_paths.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(app_paths.sys, "executable",
+                         str(tmp_path / "opt" / "lm-labeling-tool" / "LM_LabelingTool"))
+    monkeypatch.setattr(app_paths.sys, "platform", "linux")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+
+    state.skip_version("1.0.1")  # no home= -- exercise the real default
+
+    state_path = tmp_path / "xdg" / "lm-labeling-tool" / state.STATE_NAME
+    assert state_path.exists()
+    assert json.loads(state_path.read_text())["skipped_version"] == "1.0.1"

@@ -37,7 +37,12 @@ def load(home: Path | None = None) -> UpdateState:
 
 def save(st: UpdateState, home: Path | None = None) -> None:
     try:
-        _path(home).write_text(json.dumps(
+        path = _path(home)
+        # On Linux, the default home is an XDG directory that may not exist
+        # yet on a fresh install -- app_home() (beside the exe) never needed
+        # this because the exe's own directory always exists.
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(
             {"last_check": st.last_check, "skipped_version": st.skipped_version},
             indent=2), encoding="utf-8")
     except OSError:

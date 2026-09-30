@@ -1,7 +1,7 @@
 """UI settings live next to the exe and never break the app."""
 import json
 
-from labeling_tool.core import settings
+from labeling_tool.core import app_paths, settings
 
 
 def test_defaults_to_korean(tmp_path):
@@ -34,3 +34,20 @@ def test_other_keys_survive(tmp_path):
     settings.save_settings({"lang": "en", "other": 1}, tmp_path)
     settings.set_language_setting("zh", tmp_path)
     assert settings.load_settings(tmp_path)["other"] == 1
+
+
+def test_default_home_on_linux_frozen_writes_under_xdg(monkeypatch, tmp_path):
+    """No ``home`` passed: the default must resolve through user_data_home(),
+    which on a Linux frozen build is the XDG data dir, not app_home()'s
+    /opt/lm-labeling-tool (root-owned, read-only)."""
+    monkeypatch.setattr(app_paths.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(app_paths.sys, "executable",
+                         str(tmp_path / "opt" / "lm-labeling-tool" / "LM_LabelingTool"))
+    monkeypatch.setattr(app_paths.sys, "platform", "linux")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+
+    settings.set_language_setting("zh")  # no home= -- exercise the real default
+
+    settings_path = tmp_path / "xdg" / "lm-labeling-tool" / settings.SETTINGS_NAME
+    assert settings_path.exists()
+    assert json.loads(settings_path.read_text())["lang"] == "zh"

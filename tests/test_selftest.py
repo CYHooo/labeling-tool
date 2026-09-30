@@ -1,5 +1,6 @@
 """Build smoke test entry point used by CI on the packaged exe."""
 from labeling_tool import selftest
+from labeling_tool.core import app_paths
 
 
 def test_full_reports_missing_module(monkeypatch, tmp_path):
@@ -46,6 +47,27 @@ def test_unknown_variant(monkeypatch, tmp_path):
     assert selftest.run_selftest("medium") == 2
     log = (tmp_path / "selftest.log").read_text(encoding="utf-8")
     assert "unknown selftest variant: 'medium'" in log
+
+
+def test_default_home_on_linux_frozen_writes_log_under_xdg(monkeypatch, tmp_path):
+    """No user_data_home() override: the default must resolve through the
+    real function, which on a Linux frozen build is the XDG data dir, not
+    app_home()'s /opt/lm-labeling-tool (root-owned, read-only)."""
+    monkeypatch.setattr(app_paths.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(app_paths.sys, "executable",
+                         str(tmp_path / "opt" / "lm-labeling-tool" / "LM_LabelingTool"))
+    monkeypatch.setattr(app_paths.sys, "platform", "linux")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+    # This test is only about where the log lands, not about the checks
+    # themselves, so replace them with an empty set rather than running the
+    # full torch/SAM/Qt import suite.
+    monkeypatch.setattr(selftest, "_checks", lambda variant: iter(()))
+
+    assert selftest.run_selftest("full") == 0
+
+    log_path = tmp_path / "xdg" / "lm-labeling-tool" / "selftest.log"
+    assert log_path.exists()
+    assert "RESULT: PASS" in log_path.read_text(encoding="utf-8")
 
 
 def test_app_main_dispatches_selftest(monkeypatch):

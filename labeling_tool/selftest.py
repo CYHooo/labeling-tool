@@ -86,12 +86,17 @@ def _checks(variant: str):
 
 def run_selftest(variant: str) -> int:
     """Run every check; 0 = all passed, 1 = failures, 2 = unknown variant."""
+    # On Linux, the default home is an XDG directory that may not exist yet
+    # on a fresh install -- app_home() (beside the exe) never needed this
+    # because the exe's own directory always exists.
+    home = user_data_home()
+    home.mkdir(parents=True, exist_ok=True)
     if variant != "full":
         message = f"unknown selftest variant: {variant!r} (use full)\n"
         print(message, end="")
-        (user_data_home() / "selftest.log").write_text(message, encoding="utf-8")
+        (home / "selftest.log").write_text(message, encoding="utf-8")
         return 2
-    lines, failed = [f"selftest variant={variant} home={user_data_home()}"], 0
+    lines, failed = [f"selftest variant={variant} home={home}"], 0
     for name, check in _checks(variant):
         try:
             check()
@@ -102,5 +107,5 @@ def run_selftest(variant: str) -> int:
     lines.append("RESULT: " + ("PASS" if not failed else f"FAIL ({failed})"))
     report = "\n".join(lines) + "\n"
     print(report, end="")
-    (user_data_home() / "selftest.log").write_text(report, encoding="utf-8")
+    (home / "selftest.log").write_text(report, encoding="utf-8")
     return 0 if not failed else 1
