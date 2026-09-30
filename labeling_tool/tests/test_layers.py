@@ -256,6 +256,44 @@ def test_cli_rejects_bad_usage(capsys):
     assert "usage:" in capsys.readouterr().err
 
 
+def test_build_machine_system_dlls_are_recognised():
+    for rel in ("_internal/api-ms-win-core-file-l1-1-0.dll",
+                "_internal/ucrtbase.dll",
+                "_internal/VCRUNTIME140_1.dll",
+                "_internal\\msvcp140.dll",
+                "_internal/concrt140.dll"):
+        assert layers.is_build_machine_file(rel), rel
+
+
+def test_a_wheels_own_copy_of_a_system_dll_is_not_a_build_machine_file():
+    # PyQt5 ships its own MSVCP140.dll inside its wheel: a PyQt5 upgrade
+    # that changes it must still move the id.
+    assert not layers.is_build_machine_file("_internal/PyQt5/Qt5/bin/MSVCP140.dll")
+    assert not layers.is_build_machine_file("_internal/python312.dll")
+    assert not layers.is_build_machine_file("_internal/ucrtbase_notes.txt")
+    assert not layers.is_build_machine_file("api-ms-win-core-file-l1-1-0.dll")
+
+
+def test_runtime_id_ignores_the_build_machines_system_dlls(tmp_path):
+    # Runner images 20260922.246.2 and 20260925.250.1 built the same commit
+    # with different UCRT/VC++ DLLs and so different ids.
+    a = _make_dist(tmp_path / "a", {"_internal/torch/a.dll": b"x" * 10,
+                                    "_internal/ucrtbase.dll": b"u" * 100,
+                                    "_internal/api-ms-win-crt-math-l1-1-0.dll": b"m"})
+    b = _make_dist(tmp_path / "b", {"_internal/torch/a.dll": b"x" * 10,
+                                    "_internal/ucrtbase.dll": b"u" * 120})
+    assert layers.compute_runtime_id(a) == layers.compute_runtime_id(b)
+
+
+def test_build_machine_dlls_still_ship_in_the_runtime_layer(tmp_path):
+    # Left out of the id, not out of the install: the full package needs them.
+    assert not layers.is_app_layer("_internal/ucrtbase.dll")
+    d = _make_dist(tmp_path / "d", {"_internal/ucrtbase.dll": b"u",
+                                    "_internal/torch/a.dll": b"x"})
+    assert [rel for rel, _ in layers.iter_runtime_files(d)] == [
+        "_internal/torch/a.dll", "_internal/ucrtbase.dll"]
+
+
 def test_manifest_lists_runtime_files_with_sizes_sorted(tmp_path):
     d = _make_dist(tmp_path / "d", {
         "LM_LabelingTool.exe": b"x",

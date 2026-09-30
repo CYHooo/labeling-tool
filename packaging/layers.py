@@ -45,6 +45,31 @@ APP_LAYER_PREFIXES = (
 APP_LAYER_EXCLUSIONS: tuple[str, ...] = ()
 
 
+# Top-level files PyInstaller copies from the BUILD MACHINE's Windows (the
+# UCRT forwarders and the VC++ runtime from System32 / the Windows SDK), not
+# from any pip package. They ship in the runtime layer as usual but stay out
+# of the runtime id: GitHub refreshes its runner image weekly, and image
+# 20260925.250.1 moved the id (r7c92a36d) while 20260922.246.2 gave
+# ra7115365 for the same commit and the same package versions. They are
+# backward compatible, so an install keeping an older copy is fine.
+# Only direct children of _internal/: copies inside a package's own
+# directory (PyQt5/Qt5/bin/MSVCP140.dll) come from its wheel and do count.
+_SYSTEM_RUNTIME_PREFIXES = ("api-ms-win-", "ucrtbase", "vcruntime140",
+                            "msvcp140", "concrt140")
+
+
+def is_build_machine_file(relpath: str) -> bool:
+    """True for a system runtime DLL that PyInstaller took from the build
+    machine rather than from a dependency."""
+    rel = relpath.replace("\\", "/")
+    if not rel.startswith("_internal/"):
+        return False
+    name = rel[len("_internal/"):]
+    if "/" in name or not name.lower().endswith(".dll"):
+        return False
+    return name.lower().startswith(_SYSTEM_RUNTIME_PREFIXES)
+
+
 def is_app_layer(relpath: str) -> bool:
     """True when this file ships in the small app-only package."""
     rel = relpath.replace("\\", "/")
@@ -69,7 +94,9 @@ def iter_runtime_files(dist_dir: Path):
 
 
 def runtime_manifest(dist_dir: Path) -> list[tuple[str, int]]:
-    """(relative path, size) for every runtime-layer file, sorted by path.
+    """(relative path, size) for every runtime-layer file the id covers,
+    sorted by path -- every runtime file except the build machine's own
+    system DLLs (see is_build_machine_file).
 
     This is exactly what compute_runtime_id hashes. CI publishes it so that
     when the id moves unexpectedly, two builds can be diffed file by file
@@ -79,7 +106,8 @@ def runtime_manifest(dist_dir: Path) -> list[tuple[str, int]]:
     root = Path(dist_dir)
     if not root.is_dir():
         raise FileNotFoundError(f"no such build directory: {root}")
-    return [(rel, path.stat().st_size) for rel, path in iter_runtime_files(root)]
+    return [(rel, path.stat().st_size) for rel, path in iter_runtime_files(root)
+            if not is_build_machine_file(rel)]
 
 
 def compute_runtime_id(dist_dir: Path) -> str:
