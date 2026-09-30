@@ -32,9 +32,20 @@ APP_LAYER_PREFIXES = (
 )
 
 
+# Carved back out of the prefixes above. The MobileSAM ONNX models live
+# inside labeling_tool/ but are fixed pretrained weights -- 42.4 MB that
+# never changes, which was over half of every app-layer update. Swapping a
+# model is a full reinstall, same as swapping torch.
+APP_LAYER_EXCLUSIONS = (
+    "_internal/labeling_tool/models/",
+)
+
+
 def is_app_layer(relpath: str) -> bool:
     """True when this file ships in the small app-only package."""
     rel = relpath.replace("\\", "/")
+    if any(rel.startswith(x) for x in APP_LAYER_EXCLUSIONS):
+        return False
     for prefix in APP_LAYER_PREFIXES:
         if prefix.endswith("/"):
             if rel.startswith(prefix):
