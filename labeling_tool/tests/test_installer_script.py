@@ -147,6 +147,29 @@ def test_ci_builds_in_a_clean_pinned_environment(workflow):
         assert any(l.startswith(must) for l in pins), f"{must} is not pinned"
 
 
+def test_a_reused_full_installer_is_verified_before_it_is_republished(workflow):
+    """A code-only release ships the previous full installer again under a
+    fresh checksum line; it has to match the checksum it was first published
+    with, or a corrupted download would be blessed."""
+    step = workflow[workflow.index("Reuse the previous full installer"):workflow.index("- name: Build installers")]
+    assert "reuse_full.py plan" in step
+    assert "reuse_full.py verify" in step
+    assert step.index("reuse_full.py verify") < step.index("LT_REUSE_FULL=")
+    build = workflow[workflow.index("- name: Build installers"):workflow.index("- name: Assert the asset names")]
+    assert 'Copy-Item $env:LT_REUSE_FULL "out\\LM_LabelingTool-Setup-v$ver.exe"' in build
+
+
+def test_no_string_interpolation_runs_into_a_colon(powershell_source):
+    """"$prevTag: x" parses as a scope-qualified variable, like $env:X, and
+    fails. Use ${name}: instead. Only $env: is a real scope here."""
+    for line in powershell_source.splitlines():
+        if line.strip().startswith("#"):
+            continue
+        for m in re.finditer(r"\$([A-Za-z_]\w*):", line):
+            assert m.group(1).lower() in ("env", "script", "global", "using"), (
+                f"${m.group(1)}: reads as a scope-qualified name: {line.strip()}")
+
+
 def test_ci_resolves_git_symlinks_when_installing_sam2(workflow):
     """sam2's repo holds symlinked yaml files. A git with core.symlinks=false
     writes placeholders instead, and local and CI runtime ids part ways
@@ -173,6 +196,14 @@ def test_release_builds_keep_maximum_compression(iss):
     fast, full = block.index("lzma2/fast"), block.index("lzma2/max")
     assert block.index("#else") < full, "lzma2/max must be the #else default"
     assert fast < block.index("#else"), "lzma2/fast must sit under #ifdef MyFast"
+
+
+def test_release_compression_is_multithreaded(iss):
+    """Single-threaded lzma2/max was ~11 of ~18 minutes of a release; four
+    block threads cut it to about a third for 1% more size."""
+    block = iss[iss.index("#ifdef MyFast"):iss.index("[Languages]")]
+    release = block[block.index("#else"):block.index("#endif")]
+    assert "LZMANumBlockThreads=4" in release
 
 
 def test_the_size_ceiling_only_binds_on_published_builds(workflow):

@@ -68,6 +68,10 @@ SolidCompression=no
 #else
 Compression=lzma2/max
 SolidCompression=yes
+; Four compression threads, one per core of a GitHub runner. Measured on
+; the v1.4 full installer: 645 s -> 200 s, 1522.0 MB -> 1538.5 MB (+1.1%).
+LZMANumBlockThreads=4
+LZMAUseSeparateProcess=yes
 #endif
 CloseApplications=force
 RestartApplications=no
