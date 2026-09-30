@@ -50,8 +50,17 @@ VersionInfoVersion={#MyVersionInfo}
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+; Compression is over half of a CI run: lzma2/max with solid compression
+; takes ~12 of ~22 minutes to squeeze 4 GB into 1.5 GB. Release builds pay
+; that for the download size users actually see; verification builds do not
+; need to, so CI passes /DMyFast=1 when it is not building a tag.
+#ifdef MyFast
+Compression=lzma2/fast
+SolidCompression=no
+#else
 Compression=lzma2/max
 SolidCompression=yes
+#endif
 CloseApplications=force
 RestartApplications=no
 DisableProgramGroupPage=yes

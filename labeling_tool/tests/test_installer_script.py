@@ -106,3 +106,26 @@ def test_helper_caches_the_handle_before_waiting():
     handle = text.index("$proc.Handle")
     wait = text.index("WaitForExit")
     assert handle < wait, "$proc.Handle must be read before WaitForExit"
+
+
+def test_release_builds_keep_maximum_compression(iss):
+    """Fast compression is a CI-time shortcut: it cuts ~10 minutes off a
+    verification run. What users download must still be squeezed as hard as
+    possible, so the fast path has to be opt-in via MyFast and the default
+    must remain lzma2/max."""
+    block = iss[iss.index("#ifdef MyFast"):iss.index("[Languages]")]
+    fast, full = block.index("lzma2/fast"), block.index("lzma2/max")
+    assert block.index("#else") < full, "lzma2/max must be the #else default"
+    assert fast < block.index("#else"), "lzma2/fast must sit under #ifdef MyFast"
+
+
+def test_the_size_ceiling_only_binds_on_published_builds(workflow):
+    """A fast-compressed verification build is legitimately larger than a
+    release one; the 2 GiB release ceiling must not fail it."""
+    assert "GITHUB_REF_TYPE -eq 'tag' -and $full.Length -ge 1.9GB" in workflow
+
+
+def test_every_iscc_invocation_honours_the_compression_mode(workflow):
+    """Three packages are compiled -- full, app, and the deliberately
+    mismatched one. If any misses @fast it silently costs minutes."""
+    assert workflow.count("@fast packaging\\installer.iss") == 3

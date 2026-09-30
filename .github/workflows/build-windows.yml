@@ -152,16 +152,21 @@ jobs:
             $infoVer = '0.0.0'
           }
           New-Item -ItemType Directory -Force out | Out-Null
+          # Tag builds are what users download, so they get maximum
+          # compression. Everything else is verification: compress fast and
+          # get the answer sooner.
+          $fast = if ($env:GITHUB_REF_TYPE -eq 'tag') { @() } else { @("/DMyFast=1") }
+          if ($fast) { Write-Host "verification build: fast compression" }
           # MySource/MyOutDir must be absolute: Inno resolves relative
           # [Files] Source / OutputDir against the .iss file's own directory
           # (packaging\), not this job's working directory.
           & $iscc /DMyLayer=full /DMyVersion=$ver "/DMyVersionInfo=$infoVer" `
             "/DMySource=$PWD\dist\LM_LabelingTool" "/DMySourceRoot=$PWD" `
-            "/DMyRuntime=$env:LT_RUNTIME" "/DMyOutDir=$PWD\out" packaging\installer.iss
+            "/DMyRuntime=$env:LT_RUNTIME" "/DMyOutDir=$PWD\out" @fast packaging\installer.iss
           if ($LASTEXITCODE -ne 0) { throw "full installer failed ($LASTEXITCODE)" }
           & $iscc /DMyLayer=app /DMyVersion=$ver "/DMyVersionInfo=$infoVer" `
             "/DMySource=$PWD\dist\app-layer" "/DMySourceRoot=$PWD" `
-            "/DMyRuntime=$env:LT_RUNTIME" "/DMyOutDir=$PWD\out" packaging\installer.iss
+            "/DMyRuntime=$env:LT_RUNTIME" "/DMyOutDir=$PWD\out" @fast packaging\installer.iss
           if ($LASTEXITCODE -ne 0) { throw "app installer failed ($LASTEXITCODE)" }
           $full = Get-ChildItem out\LM_LabelingTool-Setup-*.exe | Select-Object -First 1
           $app  = Get-ChildItem out\LM_LabelingTool-App-*.exe   | Select-Object -First 1
@@ -175,13 +180,19 @@ jobs:
           New-Item -ItemType Directory -Force out-bad | Out-Null
           & $iscc /DMyLayer=app /DMyVersion=$ver "/DMyVersionInfo=$infoVer" `
             "/DMySource=$PWD\dist\app-layer" "/DMySourceRoot=$PWD" `
-            "/DMyRuntime=rbadbad00" "/DMyOutDir=$PWD\out-bad" packaging\installer.iss
+            "/DMyRuntime=rbadbad00" "/DMyOutDir=$PWD\out-bad" @fast packaging\installer.iss
           if ($LASTEXITCODE -ne 0) { throw "could not build the mismatched app package" }
           $badApp = Get-ChildItem out-bad\LM_LabelingTool-App-*.exe | Select-Object -First 1
           "LT_BAD_SETUP=$($badApp.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Get-ChildItem out\*.exe | ForEach-Object { "{0}  {1:N1} MB" -f $_.Name, ($_.Length/1MB) }
-          # GitHub release assets must stay below 2 GiB
-          if ($full.Length -ge 1.9GB) { throw "installer too large for a release asset: $($full.Length) bytes" }
+          # GitHub release assets must stay below 2 GiB. Only tag builds are
+          # published, and only they use maximum compression -- a fast-
+          # compressed verification build is legitimately larger and must not
+          # trip this.
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $full.Length -ge 1.9GB) {
+            throw "installer too large for a release asset: $($full.Length) bytes"
+          }
+          Write-Host ("full installer: {0:N1} MB" -f ($full.Length/1MB))
 
       - name: Assert the asset names match what the client looks for
         run: |
