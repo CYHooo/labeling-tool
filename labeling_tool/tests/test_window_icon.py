@@ -71,3 +71,25 @@ def test_main_sets_the_application_window_icon(monkeypatch):
 
     assert "icon" in captured, "main() never called setWindowIcon"
     assert not captured["icon"].isNull(), "the window icon loaded empty"
+    # The icon must come from the PNG: an ICO here would be null on a Linux
+    # build whose Qt has no ICO plugin, and the assertion above would still
+    # pass on a developer's Windows machine.
+    assert captured["icon"].availableSizes(), "the window icon carries no bitmap"
+    expected = QIcon(str(app_paths.resource_path("icon.png")))
+    assert (captured["icon"].availableSizes()[0].width()
+            == expected.availableSizes()[0].width())
+
+
+def test_png_icon_resource_ships_with_the_package():
+    # Qt's ICO plugin is not guaranteed to be collected into the Linux
+    # build, and the .desktop entry needs a bitmap regardless.
+    png = app_paths.resource_path("icon.png")
+    assert png.is_file(), f"{png} missing"
+    assert png.stat().st_size > 1024
+
+
+def test_png_icon_loads_as_a_real_qicon():
+    icon = QIcon(str(app_paths.resource_path("icon.png")))
+    assert not icon.isNull()
+    have = {s.width() for s in icon.availableSizes()}
+    assert 256 in have, f"expected a 256px bitmap among {sorted(have)}"

@@ -104,7 +104,9 @@ def main(argv: list[str] | None = None) -> int:
     # Qt, so without this the running app shows Qt's default icon. Set on
     # the QApplication so every window inherits it.
     from labeling_tool.core.app_paths import resource_path
-    app.setWindowIcon(QIcon(str(resource_path("icon.ico"))))
+    # PNG rather than ICO: Qt's ICO plugin is not guaranteed to be collected
+    # into the Linux build, and the .desktop entry needs a bitmap anyway.
+    app.setWindowIcon(QIcon(str(resource_path("icon.png"))))
     # Apply the dark theme app-wide so the login/fetch dialogs and every
     # QMessageBox match the main window (set before the first dialog shows).
     from labeling_tool.core.window.styles import STYLESHEET

@@ -15,6 +15,7 @@ def _not_tests_or_scripts(name):
 
 
 ICON = os.path.join(ROOT, "labeling_tool", "resources", "icon.ico")
+ICON_PNG = os.path.join(ROOT, "labeling_tool", "resources", "icon.png")
 # The ONNX models go BESIDE labeling_tool/, not inside it: they ship in the
 # runtime layer, and the app-layer installer clears _internal\labeling_tool
 # wholesale to drop stale bytecode. Inside, they would be deleted by a
@@ -23,8 +24,9 @@ datas = [(os.path.join(ROOT, "labeling_tool", "models", "sam", "*.onnx"),
           os.path.join("models", "sam")),
          # needed at runtime as well as in the exe's resources: the title bar
          # and taskbar icon come from QApplication.setWindowIcon, not from
-         # the PE resource below
-         (ICON, os.path.join("labeling_tool", "resources"))]
+         # the PE resource below. PNG is used on both platforms; the .ico
+         # remains only for the Windows executable's own resource.
+         (ICON_PNG, os.path.join("labeling_tool", "resources"))]
 binaries = []
 # labeling_tool imports several modules lazily inside functions
 hiddenimports = collect_submodules("labeling_tool", filter=_not_tests_or_scripts)
