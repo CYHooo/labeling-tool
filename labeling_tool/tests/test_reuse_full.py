@@ -51,7 +51,7 @@ def test_names_follow_the_client_contract():
     other way would let the reuse path drift from what clients request."""
     from labeling_tool.update import checker
     tag, full = reuse_full.plan_reuse(PREV, "r88c8d3f0")
-    assert full == checker.full_asset_name("1.4.0")
+    assert full == checker.full_asset_names("1.4.0", checker.WINDOWS)[0]
 
 
 def _published(tmp_path, name, content):

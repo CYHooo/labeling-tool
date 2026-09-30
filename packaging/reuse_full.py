@@ -42,9 +42,9 @@ def plan_reuse(release: dict, runtime: str) -> tuple[str, str] | None:
     if not version or checker.parse_version(version) is None:
         return None
     names = {a.get("name") for a in release.get("assets") or []}
-    if checker.app_asset_name(version, runtime) not in names:
+    if checker.app_asset_name(version, runtime, checker.WINDOWS) not in names:
         return None   # runtime changed, or that release had no app package
-    full = checker.full_asset_name(version)
+    full = checker.full_asset_names(version, checker.WINDOWS)[0]
     if full not in names or checker.SUMS_ASSET not in names:
         return None
     return tag, full

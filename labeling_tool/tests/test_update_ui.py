@@ -39,10 +39,13 @@ def _drain_qt_events():
         QMessageBox.critical = orig_crit
 
 
-INFO = checker.UpdateInfo(version="1.0.1", variant="lite",
-                          asset_name="LabelingTool-lite-Setup-v1.0.1.exe",
-                          asset_url="https://x/s.exe", size=170 * 1024 * 1024,
-                          sha256="a" * 64, notes="fixes", kind="app")
+INFO = checker.UpdateInfo(
+    version="1.0.1", variant="lite",
+    assets=(checker.Asset(name="LabelingTool-lite-Setup-v1.0.1.exe",
+                          url="https://x/s.exe",
+                          size=170 * 1024 * 1024,
+                          sha256="a" * 64),),
+    notes="fixes", kind="app")
 
 
 def test_prompt_later_does_nothing(monkeypatch, tmp_path):
@@ -74,8 +77,8 @@ def test_prompt_update_downloads_verifies_and_launches(monkeypatch, tmp_path):
     monkeypatch.setattr(ui.installer, "launch_installer",
                         lambda path, log, **kw: seen.setdefault("launched", path))
     assert ui.prompt_and_install(None, INFO, home=tmp_path) is True
-    assert seen["download"] == (INFO.asset_url, INFO.sha256)
-    assert seen["launched"].name == INFO.asset_name
+    assert seen["download"] == (INFO.assets[0].url, INFO.assets[0].sha256)
+    assert seen["launched"].name == INFO.assets[0].name
 
 
 def test_download_failure_is_reported_and_app_keeps_running(monkeypatch, tmp_path):
@@ -405,9 +408,11 @@ def test_ask_warns_when_a_full_reinstall_is_needed(monkeypatch):
     installer has to come down. The prompt says why."""
     full_info = checker.UpdateInfo(
         version="1.0.1", variant="full",
-        asset_name="LM_LabelingTool-Setup-v1.0.1.exe",
-        asset_url="https://x/s.exe", size=1500 * 1024 * 1024,
-        sha256="a" * 64, notes="", kind="full")
+        assets=(checker.Asset(name="LM_LabelingTool-Setup-v1.0.1.exe",
+                              url="https://x/s.exe",
+                              size=1500 * 1024 * 1024,
+                              sha256="a" * 64),),
+        notes="", kind="full")
     captured = {}
 
     def fake_exec(self):
@@ -433,4 +438,4 @@ def test_prompt_text_follows_language(monkeypatch, tmp_path):
     i18n.set_language("en")
     ui._ask(None, INFO)
     assert captured["text"] == i18n.tr("update_available", version=INFO.version,
-                                       size=INFO.size // (1024 * 1024))
+                                       size=INFO.total_size // (1024 * 1024))

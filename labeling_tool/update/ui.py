@@ -109,7 +109,7 @@ def prompt_text(info) -> str:
     (a modal box under offscreen Qt hangs the suite). The warning hangs off
     `kind`, not the variant: a full reinstall is needed when the runtime
     layer changed, which is what kind == "full" means."""
-    size_mb = info.size // (1024 * 1024)
+    size_mb = info.total_size // (1024 * 1024)
     text = tr("update_available", version=info.version, size=size_mb)
     if info.kind == "full":
         text += tr("update_full_warning")
@@ -149,7 +149,9 @@ def prompt_and_install(parent, info, home: Path | None = None) -> bool:
     # user-writable path and stops installers (up to ~1.5 GB each)
     # accumulating forever under a single well-known name.
     target_dir = Path(tempfile.mkdtemp(prefix="LabelingTool-update-"))
-    dest = target_dir / info.asset_name
+    # Task 7 adds real multi-asset downloads (a Linux full update is two
+    # debs); for now the Windows path this ships stays exact -- one asset.
+    dest = target_dir / info.assets[0].name
     bar = QProgressDialog(tr("update_progress_label"), tr("update_cancel"), 0, 100, parent)
     bar.setWindowTitle(tr("update_title"))
     bar.setWindowModality(Qt.ApplicationModal)
@@ -157,7 +159,7 @@ def prompt_and_install(parent, info, home: Path | None = None) -> bool:
     bar.setValue(0)
 
     def on_progress(done: int, total: int) -> bool:
-        total = total or info.size
+        total = total or info.total_size
         bar.setValue(min(100, done * 100 // max(1, total)))
         bar.setLabelText(tr("update_progress_template",
                            done=done // (1024 * 1024), total=total // (1024 * 1024)))
@@ -165,7 +167,8 @@ def prompt_and_install(parent, info, home: Path | None = None) -> bool:
         return not bar.wasCanceled()
 
     try:
-        net_download.download_file(info.asset_url, dest, info.sha256, progress=on_progress)
+        net_download.download_file(info.assets[0].url, dest, info.assets[0].sha256,
+                                   progress=on_progress)
         installer.launch_installer(dest, target_dir / "update.log")
         return True
     except net_download.DownloadCancelled:
