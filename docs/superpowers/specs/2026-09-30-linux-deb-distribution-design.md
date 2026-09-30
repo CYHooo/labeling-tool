@@ -41,6 +41,7 @@ Linux 侧目前没有任何分发产物，使用者只能从源码运行。需�
 | 可写状态位置 | `~/.local/share/lm-labeling-tool/`，配置与数据同目录 | 严格 XDG 拆分（config 进 `~/.config`）：与 Windows 的「状态集中在一个目录」心智模型不一致，而拆分带来的收益对本工具没有实际用途 |
 | deb 组装方式 | `packaging/deb.py` 生成 control 后调 `dpkg-deb --build` | `dpkg-buildpackage` + `debian/` 目录：我们打的是二进制包而非源码包，其规则体系在此全是负担，且逻辑无法单测 |
 | 安装动作 | `pkexec dpkg -i <runtime.deb> <app.deb>`，同步等待退出码 | `apt-get install ./x.deb`：会因 runtime 包版本号非单调而拒绝（需额外 `--allow-downgrades`），而 `dpkg -i` 默认允许降级；与 Windows 一样 detach 后立刻退出：Linux 不受「无法替换运行中可执行文件」限制，同步等待能拿到失败原因并报告给用户 |
+| deb 文件名 vs 包版本 | 文件名与 `Version` 分担职责：app 文件名带 runtime id、包版本为纯版本号；runtime 文件名只带版本号、包版本为 `0~<runtime-id>` | 文件名与包版本一致：全量更新时客户端不知道新 runtime id，无法拼出 runtime deb 的文件名 |
 | 工作流结构 | 单 workflow 三 job：`build-windows` / `build-linux` / `publish` | 两个独立 workflow + `workflow_run`：跨 workflow 依赖难用且容易悬空，无法可靠实现「四个资产齐了才发布」 |
 
 ## 4. 包结构与版本绑定
@@ -127,7 +128,8 @@ def user_data_home() -> Path:
 挂在同一个 Release 下。
 
 `publish` job 在收齐两个平台的产物之前不创建 Release，四个资产（Windows full/app、
-Linux runtime/app）缺任何一个即整体失败。这条门禁的重要性高于其它检查：客户端只按
+Linux runtime/app）缺任何一个即整体失败；Linux 的 runtime deb 即便本次是复用上一个
+release 的产物也必须在列（见 7.2.1）。这条门禁的重要性高于其它检查：客户端只按
 名字查找资产，找不到就静默不更新，一边构建失败而另一边照常发布，是**无声的**故障。
 
 ### 6.2 依赖清单的漂移防护
@@ -171,16 +173,34 @@ Windows 的完整安装包是单文件、自带两层；Linux 的完整安装是
 
 ### 7.2 资产命名
 
-| | Windows | Linux |
-|---|---|---|
-| 应用层 | `LM_LabelingTool-App-v1.4.1-r3f8a1c92.exe` | `lm-labeling-tool_1.4.1_amd64.deb` |
-| 运行时层 | （含于完整包内） | `lm-labeling-tool-runtime_0~r3f8a1c92_amd64.deb` |
+**deb 的文件名与包内 `Version` 字段是两回事**，dpkg 不要求二者一致。这里刻意让它们承担
+不同职责：文件名要让客户端能在只知道版本号的情况下拼出来，`Version` 字段要表达运行时
+绑定。
 
-Linux 的 app deb 名中不带 runtime id——绑定关系写在包的 `Depends` 里，无需由文件名
-表达。
+| | Windows | Linux 文件名 | Linux 包内 `Version` |
+|---|---|---|---|
+| 应用层 | `LM_LabelingTool-App-v1.4.1-r3f8a1c92.exe` | `lm-labeling-tool_1.4.1-r3f8a1c92_amd64.deb` | `1.4.1` |
+| 运行时层 | （含于完整包内） | `lm-labeling-tool-runtime_1.4.1_amd64.deb` | `0~r3f8a1c92` |
 
-由此 `packaging/reuse_full.py` 的优化在 Linux 上自动生效且更彻底：运行时未变时
-runtime deb 根本无需重新构建，连复用旧文件都可省去，因为客户端不会去下载它。
+app deb 的**文件名**带 runtime id，与 Windows 完全对称：客户端用自己的 runtime id 拼出
+文件名，命中则说明这个应用层包正是为本机运行时构建的，无需下载即可判断。其**包版本**则
+是干净的 `1.4.1`，因为运行时绑定由 `Depends` 表达，不必挤进版本号。
+
+runtime deb 的**文件名**只带发布版本，不带 runtime id。这是必须的：全量更新时客户端要
+下载新的 runtime deb，而它只知道目标版本号、**不知道新的 runtime id**——若文件名含 id
+便无从拼出。其**包版本**是 `0~<runtime-id>`，承担 4.1 的绑定职责。
+
+### 7.2.1 每个 release 都必须挂一份 runtime deb
+
+即便运行时未变、当次发布无人需要下载它，runtime deb 也必须以**本次版本**的文件名出现在
+release 中。理由与 `packaging/reuse_full.py` 开头记录的完全相同：需要全量安装的人
+（新装机器、运行时不匹配的旧安装）只会去查最新 release 里 `lm-labeling-tool-runtime_<最新版本>_amd64.deb`
+这一个名字，缺了它，这些人将得不到任何可安装的东西，且故障是静默的。
+
+因此 Linux 侧要有与 `reuse_full.py` 对等的逻辑：运行时未变时不重新构建（省去 1.4 GB 的
+xz 压缩），而是下载上一个 release 的 runtime deb、核对其已发布的校验和、以本次版本的文件
+名重新发布。判定「运行时未变」的依据同样取自上一个 release 自身——其 app deb 文件名中的
+runtime id 若与本次相同，则其 runtime deb 逐字节就是本次所需的那一个。
 
 ### 7.3 安装动作
 
@@ -196,8 +216,8 @@ pkexec dpkg -i <runtime.deb> <app.deb>
 时使用者执行的是同一条命令，与更新器一致：
 
 ```bash
-sudo dpkg -i lm-labeling-tool-runtime_0~r3f8a1c92_amd64.deb \
-             lm-labeling-tool_1.4.1_amd64.deb
+sudo dpkg -i lm-labeling-tool-runtime_1.4.1_amd64.deb \
+             lm-labeling-tool_1.4.1-r3f8a1c92_amd64.deb
 ```
 
 与 Windows 的关键差异是**可以同步等待并取得退出码**。Windows 上应用必须 detach 安装
@@ -306,5 +326,6 @@ sudo dpkg -i lm-labeling-tool-runtime_0~r3f8a1c92_amd64.deb \
 | runtime 包版本非单调 | `apt upgrade` 无法发现运行时更新 | 更新器显式 `dpkg -i` 两个 deb（`dpkg` 默认允许降级）；不架 apt 仓库（4.1） |
 | `dpkg -i` 不解析依赖 | 目标机缺系统库时安装中断 | 依赖限于目标发行版桌面默认集合，CI 验证「无需 `-f` 一次装成」；更新器识别该失败并提示 `apt-get install -f`（7.4、9.2） |
 | 一侧构建失败仍发布 | 该平台客户端静默不更新 | `publish` 需两侧产物齐备（6.1） |
+| release 漏挂 runtime deb | 需全量安装者无任何可下载物，且静默 | 每个 release 必挂，运行时未变时复用上一个 release 的文件；资产完整性门禁覆盖（7.2.1、6.1） |
 | `user_data_home()` 改动波及 Windows | 已安装用户数据搬迁丢失 | `test_app_paths.py` 断言 Windows 行为逐字节不变（5） |
 | 22.04 构建在 24.04 上有意外 | 半数目标用户无法使用 | CI 在 24.04 容器中独立验证（9.2） |
