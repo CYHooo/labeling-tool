@@ -62,14 +62,23 @@ def test_relative_xdg_data_home_is_rejected(frozen, tmp_path, monkeypatch):
 
 
 def test_missing_home_does_not_raise(frozen, tmp_path, monkeypatch):
-    # Service accounts and some sudo invocations have no HOME. Raising here
-    # would happen during startup and the app would never open a window.
+    # Service accounts and some sudo invocations have no HOME, and on some of
+    # those Path.home() itself raises (it does not always fall back to the
+    # passwd database). Raising here would happen during startup and the app
+    # would never open a window.
     frozen("linux", tmp_path / "opt")
     monkeypatch.delenv("XDG_DATA_HOME", raising=False)
     monkeypatch.delenv("HOME", raising=False)
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
+
+    def _raise_no_home():
+        raise RuntimeError("could not determine home directory")
+
+    monkeypatch.setattr(app_paths.Path, "home", staticmethod(_raise_no_home))
     result = app_paths.user_data_home()
     assert result.is_absolute()
     assert result.name == "lm-labeling-tool"
+    assert result == tmp_path / "tmp" / ".local/share/lm-labeling-tool"
 
 
 def test_cache_home_is_separate_from_data_home(frozen, tmp_path, monkeypatch):

@@ -3,7 +3,7 @@
 CI runs it on the packaged exe right after PyInstaller to catch modules and
 data files missing from the bundle (the usual failure with torch / SAM). It
 never shows a window. The windowed exe has no console, so the report is also
-written to ``<app_home>/selftest.log``.
+written to ``<user_data_home>/selftest.log``.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import importlib
 import importlib.util
 import os
 
-from labeling_tool.core.app_paths import app_home
+from labeling_tool.core.app_paths import user_data_home
 
 COMMON_MODULES = (
     "numpy", "cv2", "skimage", "onnxruntime", "requests",
@@ -89,9 +89,9 @@ def run_selftest(variant: str) -> int:
     if variant != "full":
         message = f"unknown selftest variant: {variant!r} (use full)\n"
         print(message, end="")
-        (app_home() / "selftest.log").write_text(message, encoding="utf-8")
+        (user_data_home() / "selftest.log").write_text(message, encoding="utf-8")
         return 2
-    lines, failed = [f"selftest variant={variant} home={app_home()}"], 0
+    lines, failed = [f"selftest variant={variant} home={user_data_home()}"], 0
     for name, check in _checks(variant):
         try:
             check()
@@ -102,5 +102,5 @@ def run_selftest(variant: str) -> int:
     lines.append("RESULT: " + ("PASS" if not failed else f"FAIL ({failed})"))
     report = "\n".join(lines) + "\n"
     print(report, end="")
-    (app_home() / "selftest.log").write_text(report, encoding="utf-8")
+    (user_data_home() / "selftest.log").write_text(report, encoding="utf-8")
     return 0 if not failed else 1

@@ -13,14 +13,14 @@ import os
 import tempfile
 from pathlib import Path
 
-from labeling_tool.core.app_paths import app_home
+from labeling_tool.core.app_paths import user_data_home
 
 SETTINGS_NAME = "ui-settings.json"
 DEFAULT_LANGUAGE = "ko"
 
 
 def _path(home: Path | None) -> Path:
-    return (Path(home) if home is not None else app_home()) / SETTINGS_NAME
+    return (Path(home) if home is not None else user_data_home()) / SETTINGS_NAME
 
 
 def load_settings(home: Path | None = None) -> dict:

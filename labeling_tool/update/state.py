@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from labeling_tool.core.app_paths import app_home
+from labeling_tool.core.app_paths import user_data_home
 
 STATE_NAME = "update-state.json"
 
@@ -24,7 +24,7 @@ class UpdateState:
 
 
 def _path(home: Path | None) -> Path:
-    return (Path(home) if home is not None else app_home()) / STATE_NAME
+    return (Path(home) if home is not None else user_data_home()) / STATE_NAME
 
 
 def load(home: Path | None = None) -> UpdateState:
