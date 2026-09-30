@@ -32,13 +32,17 @@ APP_LAYER_PREFIXES = (
 )
 
 
-# Carved back out of the prefixes above. The MobileSAM ONNX models live
-# inside labeling_tool/ but are fixed pretrained weights -- 42.4 MB that
-# never changes, which was over half of every app-layer update. Swapping a
-# model is a full reinstall, same as swapping torch.
-APP_LAYER_EXCLUSIONS = (
-    "_internal/labeling_tool/models/",
-)
+# Carved back out of the prefixes above. Nothing needs it today: the ONNX
+# models used to sit at _internal/labeling_tool/models/ and were excluded
+# here, but they now ship at _internal/models/ instead -- outside the
+# directory the app-layer installer clears, which is the only safe place
+# for a runtime-layer file (CI run 36670089766).
+#
+# An entry here MUST NOT start with "_internal/labeling_tool/": that
+# directory is wiped before an app-layer install, so anything excluded from
+# the app layer while living inside it would be deleted and never restored.
+# test_nothing_runtime_layer_lives_under_the_cleared_directory enforces it.
+APP_LAYER_EXCLUSIONS: tuple[str, ...] = ()
 
 
 def is_app_layer(relpath: str) -> bool:

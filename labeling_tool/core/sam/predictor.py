@@ -147,8 +147,15 @@ class MobileSamPredictor:
 
 
 def default_model_paths() -> tuple[Path, Path]:
-    """(encoder, decoder) ONNX paths under labeling_tool/models/sam/."""
-    base = Path(__file__).resolve().parent.parent.parent / "models" / "sam"
+    """(encoder, decoder) ONNX paths.
+
+    From source these sit under labeling_tool/models/sam/; a frozen build
+    puts them at _internal/models/sam/, outside the labeling_tool package,
+    because they ship in the runtime layer and the app-layer installer
+    clears that package's directory wholesale."""
+    from labeling_tool.core.app_paths import bundled_path
+
+    base = bundled_path("models", "sam")
     return base / "mobile_sam_encoder.onnx", base / "mobile_sam_decoder.onnx"
 
 

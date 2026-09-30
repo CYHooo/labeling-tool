@@ -15,8 +15,12 @@ def _not_tests_or_scripts(name):
 
 
 ICON = os.path.join(ROOT, "labeling_tool", "resources", "icon.ico")
+# The ONNX models go BESIDE labeling_tool/, not inside it: they ship in the
+# runtime layer, and the app-layer installer clears _internal\labeling_tool
+# wholesale to drop stale bytecode. Inside, they would be deleted by a
+# package that does not carry them (CI run 36670089766).
 datas = [(os.path.join(ROOT, "labeling_tool", "models", "sam", "*.onnx"),
-          os.path.join("labeling_tool", "models", "sam")),
+          os.path.join("models", "sam")),
          # needed at runtime as well as in the exe's resources: the title bar
          # and taskbar icon come from QApplication.setWindowIcon, not from
          # the PE resource below

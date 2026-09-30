@@ -56,12 +56,13 @@ def test_windows_backslashes_are_understood():
     assert layers.is_app_layer("_internal\\labeling_tool\\core\\i18n\\__init__.pyc")
 
 
-def test_onnx_models_are_runtime_layer(tmp_path):
-    """42.4 MB of fixed pretrained weights. They sit under
-    _internal/labeling_tool/ so the prefix catches them, but they never
-    change -- shipping them in every update doubled its size."""
-    assert not layers.is_app_layer("_internal/labeling_tool/models/sam/mobile_sam_encoder.onnx")
-    assert not layers.is_app_layer("_internal/labeling_tool/models/sam/mobile_sam_decoder.onnx")
+def test_onnx_models_are_runtime_layer():
+    """42.4 MB of fixed pretrained weights -- over half of every app update
+    before this. A frozen build ships them at _internal/models/, beside the
+    package rather than inside it, so they fall outside the app-layer
+    prefixes naturally AND survive the installer clearing labeling_tool/."""
+    assert not layers.is_app_layer("_internal/models/sam/mobile_sam_encoder.onnx")
+    assert not layers.is_app_layer("_internal/models/sam/mobile_sam_decoder.onnx")
 
 
 def test_our_code_under_the_same_package_is_still_app_layer():
@@ -71,8 +72,8 @@ def test_our_code_under_the_same_package_is_still_app_layer():
     assert layers.is_app_layer("_internal/labeling_tool/ui/login_dialog.pyc")
 
 
-def test_exclusion_respects_directory_boundaries():
-    """A sibling named models_helper is ours, not an excluded model."""
+def test_our_own_modules_are_never_mistaken_for_bundled_data():
+    """A module named models_helper is code, not a model directory."""
     assert layers.is_app_layer("_internal/labeling_tool/models_helper.pyc")
 
 
@@ -80,10 +81,8 @@ def test_changing_a_model_moves_the_runtime_id(tmp_path):
     """Replacing MobileSAM is a full reinstall, consistent with the rule
     that swapping a big file means everyone re-downloads."""
     base = {"LM_LabelingTool.exe": b"app", "_internal/torch/a.dll": b"x" * 10}
-    one = _make_dist(tmp_path / "one",
-                     {**base, "_internal/labeling_tool/models/sam/m.onnx": b"m" * 100})
-    two = _make_dist(tmp_path / "two",
-                     {**base, "_internal/labeling_tool/models/sam/m.onnx": b"m" * 200})
+    one = _make_dist(tmp_path / "one", {**base, "_internal/models/sam/m.onnx": b"m" * 100})
+    two = _make_dist(tmp_path / "two", {**base, "_internal/models/sam/m.onnx": b"m" * 200})
     assert layers.compute_runtime_id(one) != layers.compute_runtime_id(two)
 
 
