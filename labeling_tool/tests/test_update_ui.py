@@ -26,7 +26,9 @@ def _drain_qt_events():
     QMessageBox) before the next test, instead of firing at an arbitrary
     later point in the suite.
     """
+    ui._PENDING.clear()
     yield
+    ui._PENDING.clear()
     orig_info, orig_crit = QMessageBox.information, QMessageBox.critical
     QMessageBox.information = staticmethod(lambda *a, **k: None)
     QMessageBox.critical = staticmethod(lambda *a, **k: None)
@@ -107,13 +109,29 @@ def test_check_skips_dev_builds(monkeypatch, tmp_path):
     ui.check_for_updates(None, home=tmp_path)          # dev build: version 0.0.0-dev
 
 
-def test_check_is_throttled(monkeypatch, tmp_path):
+def test_every_launch_checks_even_right_after_a_check(monkeypatch, tmp_path):
+    """No throttle: a release published an hour after the day's first launch
+    must be offered on the next launch, not the next day."""
     from labeling_tool.update.version import BuildInfo
+    calls = []
     monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "full", None))
-    state.mark_checked(tmp_path)
     monkeypatch.setattr(ui.checker, "find_update",
-                        lambda *a, **k: pytest.fail("checked despite throttle"))
-    ui.check_for_updates(None, home=tmp_path)
+                        lambda *a, **k: calls.append(a) or None)
+    state.mark_checked(tmp_path)
+    thread = ui.check_for_updates(None, home=tmp_path)
+    assert thread is not None
+    thread.wait(5000)
+    assert calls
+
+
+def test_an_unforced_check_still_honours_a_skipped_version(monkeypatch, tmp_path):
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "full", None))
+    monkeypatch.setattr(ui.checker, "find_update", lambda *a, **k: INFO)
+    monkeypatch.setattr(ui, "_ask", lambda *a, **k: pytest.fail("offered a skipped version"))
+    state.skip_version(INFO.version, tmp_path)
+    ui.check_for_updates(None, home=tmp_path).wait(5000)
+    _app.processEvents()
+    assert not ui._PENDING
 
 
 def test_forced_check_ignores_throttle_and_skip(monkeypatch, tmp_path):
@@ -225,6 +243,50 @@ def test_found_update_stays_silent_once_a_session_window_is_open(monkeypatch, tm
         _app.processEvents()
     finally:
         win.close()
+    # ... but it is not dropped: it waits for the session to end.
+    assert ui._PENDING and ui._PENDING[0][0] is INFO
+
+
+def test_update_found_mid_session_is_offered_when_the_session_ends(monkeypatch, tmp_path):
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "full", None))
+    monkeypatch.setattr(ui.checker, "find_update", lambda *a, **k: INFO)
+    offered = []
+    win = QMainWindow()
+    win.show()
+    try:
+        monkeypatch.setattr(ui, "_ask", lambda *a, **k: pytest.fail("prompted mid-session"))
+        ui.check_for_updates(None, home=tmp_path).wait(5000)
+        _app.processEvents()
+    finally:
+        win.close()
+    monkeypatch.setattr(ui, "prompt_and_install",
+                        lambda parent, info, home=None: offered.append((info, home)) or True)
+    assert ui.prompt_pending_update() is True
+    assert offered == [(INFO, tmp_path)]
+    assert not ui._PENDING, "offered once, then forgotten"
+    assert ui.prompt_pending_update() is False
+
+
+def test_a_result_still_in_flight_when_the_session_ends_is_delivered(monkeypatch, tmp_path):
+    """The found signal is queued to the main thread; after app.exec_()
+    returns nothing pumps it unless prompt_pending_update() does."""
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "full", None))
+    release = threading.Event()
+    monkeypatch.setattr(ui.checker, "find_update",
+                        lambda *a, **k: release.wait(5) and INFO)
+    asked = []
+    monkeypatch.setattr(ui, "prompt_and_install",
+                        lambda parent, info, home=None: asked.append(info) or False)
+    ui.check_for_updates(None, home=tmp_path)
+    release.set()
+    ui.prompt_pending_update()     # no window open: the result prompts directly
+    assert asked == [INFO]
+
+
+def test_nothing_pending_means_no_prompt(monkeypatch):
+    monkeypatch.setattr(ui, "prompt_and_install",
+                        lambda *a, **k: pytest.fail("prompted with nothing pending"))
+    assert ui.prompt_pending_update() is False
 
 
 # ------------------------------------------------- I7: never run two checks
