@@ -15,18 +15,23 @@ def _not_tests_or_scripts(name):
 
 
 ICON = os.path.join(ROOT, "labeling_tool", "resources", "icon.ico")
-ICON_PNG = os.path.join(ROOT, "labeling_tool", "resources", "icon.png")
+# One PNG per size app.py's QIcon.addFile() loop loads (16/32/48/256) -- see
+# packaging/make_icon.py's PNG_SIZES. A single 256px file would make Qt
+# rescale it generically for the taskbar/title bar, losing the hand-tuned
+# small-size renders make_icon.py produces.
+ICON_PNGS = [os.path.join(ROOT, "labeling_tool", "resources", f"icon-{px}.png")
+             for px in (16, 32, 48, 256)]
 # The ONNX models go BESIDE labeling_tool/, not inside it: they ship in the
 # runtime layer, and the app-layer installer clears _internal\labeling_tool
 # wholesale to drop stale bytecode. Inside, they would be deleted by a
 # package that does not carry them (CI run 36670089766).
 datas = [(os.path.join(ROOT, "labeling_tool", "models", "sam", "*.onnx"),
-          os.path.join("models", "sam")),
-         # needed at runtime as well as in the exe's resources: the title bar
-         # and taskbar icon come from QApplication.setWindowIcon, not from
-         # the PE resource below. PNG is used on both platforms; the .ico
-         # remains only for the Windows executable's own resource.
-         (ICON_PNG, os.path.join("labeling_tool", "resources"))]
+          os.path.join("models", "sam"))]
+# needed at runtime as well as in the exe's resources: the title bar
+# and taskbar icon come from QApplication.setWindowIcon, not from
+# the PE resource below. PNGs are used on both platforms; the .ico
+# remains only for the Windows executable's own resource.
+datas += [(png, os.path.join("labeling_tool", "resources")) for png in ICON_PNGS]
 binaries = []
 # labeling_tool imports several modules lazily inside functions
 hiddenimports = collect_submodules("labeling_tool", filter=_not_tests_or_scripts)

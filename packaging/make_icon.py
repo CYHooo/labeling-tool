@@ -75,7 +75,15 @@ def render(px: int) -> Image.Image:
     return img.resize((px, px), Image.LANCZOS)
 
 
-PNG_SIZE = 256
+# One PNG per size Qt/the desktop environment actually asks for, rather
+# than a single 256px file: QIcon would otherwise generically rescale that
+# one bitmap for the taskbar/title bar, throwing away the SMALL-branch
+# hand-tuning below (a 16px downscale of the 256px glyph turns to mush --
+# the same problem the .ico's multi-size resource exists to avoid). These
+# also map directly onto the hicolor icon theme's 16x16/32x32/256x256
+# directories, and 48 covers hicolor's common 48x48 plus Windows' medium
+# taskbar icon size.
+PNG_SIZES = (16, 32, 48, 256)
 
 
 def main() -> None:
@@ -92,12 +100,14 @@ def main() -> None:
                  append_images=imgs[:-1])
     print(f"wrote {ico_out} with sizes {list(SIZES)}")
 
-    # PNG for Qt's setWindowIcon and the .desktop entry: rendered fresh at
-    # 256px rather than reused from `imgs` above, so this stays correct even
-    # if SIZES ever drops 256.
-    png_out = resources / "icon.png"
-    render(PNG_SIZE).save(png_out, format="PNG")
-    print(f"wrote {png_out} at {PNG_SIZE}px")
+    # PNGs for Qt's setWindowIcon and the .desktop entry: each rendered at
+    # its own size via render(), NOT sliced from `imgs` above and NOT
+    # downscaled from the 256px file -- either would skip the SMALL-branch
+    # tuning that keeps 16/32px legible.
+    for px in PNG_SIZES:
+        png_out = resources / f"icon-{px}.png"
+        render(px).save(png_out, format="PNG")
+        print(f"wrote {png_out} at {px}px")
 
 
 if __name__ == "__main__":
