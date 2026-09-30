@@ -91,14 +91,15 @@ jobs:
 
       - name: Compute the runtime id and write build info
         run: |
-          # The runtime id hashes the RESOLVED environment (pip freeze) plus
-          # the PyInstaller spec -- not the build output, which is not
-          # reproducible (runs 36421966949 / 36424404832 differed), and not
-          # the requirement files, which pin nothing (`PyQt5>=5.15`) and so
-          # would not move when pip resolves a different version.
-          pip freeze | Out-File -FilePath runtime-freeze.txt -Encoding utf8
-          $rt = python packaging/layers.py runtime-id . runtime-freeze.txt
+          # The runtime id measures the runtime layer itself -- each file's
+          # path and size. Contents are not hashed: PyInstaller's output is
+          # not reproducible (runs 36421966949 / 36424404832 differed), while
+          # paths and sizes are stable.
+          $rt = python packaging/layers.py runtime-id dist/LM_LabelingTool
           if (-not ($rt -match '^r[0-9a-f]{8}$')) { throw "bad runtime id: $rt" }
+          # Cheap determinism check: the same tree must hash the same twice.
+          $rt2 = python packaging/layers.py runtime-id dist/LM_LabelingTool
+          if ($rt -ne $rt2) { throw "runtime id is not deterministic: $rt vs $rt2" }
           "LT_RUNTIME=$rt" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "runtime id: $rt"
           $ver = $env:LT_VERSION -replace '^v', ''
@@ -112,6 +113,17 @@ jobs:
           # rule lives in packaging/layers.py (where it is unit-tested).
           python packaging/layers.py stage dist/LM_LabelingTool dist/app-layer
           if ($LASTEXITCODE -ne 0) { throw "staging the app layer failed" }
+
+      - name: Record the layer split
+        run: |
+          $app = (Get-ChildItem dist/app-layer -Recurse -File | Measure-Object -Property Length -Sum)
+          Write-Host ("app layer: {0:N1} MB in {1} files" -f ($app.Sum/1MB), $app.Count)
+          # The app package is what every routine update downloads. If it
+          # climbs back into the tens of MB something leaked out of the
+          # runtime layer. Scanning dist/app-layer is safe -- it holds only
+          # app-layer files; what starves the runner is scanning the 4 GB
+          # install directory.
+          if ($app.Sum -gt 20MB) { throw ("app layer unexpectedly large: {0:N1} MB" -f ($app.Sum/1MB)) }
 
       - name: Build installer
         run: |
