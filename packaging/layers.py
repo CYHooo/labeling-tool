@@ -68,6 +68,20 @@ def iter_runtime_files(dist_dir: Path):
             yield rel, path
 
 
+def runtime_manifest(dist_dir: Path) -> list[tuple[str, int]]:
+    """(relative path, size) for every runtime-layer file, sorted by path.
+
+    This is exactly what compute_runtime_id hashes. CI publishes it so that
+    when the id moves unexpectedly, two builds can be diffed file by file
+    instead of guessed at.
+
+    Raises FileNotFoundError if dist_dir does not exist."""
+    root = Path(dist_dir)
+    if not root.is_dir():
+        raise FileNotFoundError(f"no such build directory: {root}")
+    return [(rel, path.stat().st_size) for rel, path in iter_runtime_files(root)]
+
+
 def compute_runtime_id(dist_dir: Path) -> str:
     """A short identity for the runtime layer, measured from the build.
 
@@ -92,19 +106,15 @@ def compute_runtime_id(dist_dir: Path) -> str:
     holds no runtime-layer files at all -- both mean the caller pointed at
     the wrong directory, and a hash of nothing would look authoritative.
     """
-    root = Path(dist_dir)
-    if not root.is_dir():
-        raise FileNotFoundError(f"no such build directory: {root}")
+    manifest = runtime_manifest(dist_dir)
+    if not manifest:
+        raise ValueError(f"no runtime-layer files under {dist_dir}")
     digest = hashlib.sha256()
-    count = 0
-    for rel, path in iter_runtime_files(root):
+    for rel, size in manifest:
         digest.update(rel.encode("utf-8"))
         digest.update(b"\0")
-        digest.update(str(path.stat().st_size).encode("ascii"))
+        digest.update(str(size).encode("ascii"))
         digest.update(b"\0")
-        count += 1
-    if count == 0:
-        raise ValueError(f"no runtime-layer files under {root}")
     return "r" + digest.hexdigest()[:8]
 
 
@@ -141,12 +151,17 @@ def main(argv: list[str] | None = None) -> int:
     if len(args) == 2 and args[0] == "runtime-id":
         print(compute_runtime_id(Path(args[1])))
         return 0
+    if len(args) == 2 and args[0] == "manifest":
+        for rel, size in runtime_manifest(Path(args[1])):
+            print(f"{size}\t{rel}")
+        return 0
     if len(args) == 3 and args[0] == "stage":
         app, whole = stage_app_layer(Path(args[1]), Path(args[2]))
         print(f"app layer: {app / 1024 / 1024:.1f} MB of "
               f"{whole / 1024 / 1024:.1f} MB")
         return 0
     print("usage: layers.py runtime-id <dist>\n"
+          "       layers.py manifest <dist>\n"
           "       layers.py stage <dist> <out>", file=sys.stderr)
     return 2
 

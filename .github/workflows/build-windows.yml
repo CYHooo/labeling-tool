@@ -102,6 +102,11 @@ jobs:
           if ($rt -ne $rt2) { throw "runtime id is not deterministic: $rt vs $rt2" }
           "LT_RUNTIME=$rt" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "runtime id: $rt"
+          # What the id hashes, file by file. When two builds of the same
+          # code disagree on the id, diffing these says which files moved.
+          New-Item -ItemType Directory -Force diag | Out-Null
+          python packaging/layers.py manifest dist/LM_LabelingTool | Set-Content -Path diag\runtime-manifest.txt -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw "could not write the runtime manifest" }
           $ver = $env:LT_VERSION -replace '^v', ''
           $info = @{ version = $ver; variant = 'full'; runtime = $rt; commit = $env:GITHUB_SHA.Substring(0,7) }
           $info | ConvertTo-Json -Compress | Set-Content -Path dist\LM_LabelingTool\build-info.json -Encoding utf8
@@ -293,6 +298,13 @@ jobs:
           path: out/*
           compression-level: 0
 
+      # Diagnostics only. Kept out of the artifact above because the release
+      # job publishes everything named LM_LabelingTool-*.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-manifest-${{ env.LT_VERSION }}
+          path: diag/runtime-manifest.txt
+
   release:
     needs: build
     if: github.ref_type == 'tag'
@@ -302,6 +314,9 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          # Only the installers: the runtime manifest is a diagnostic, not
+          # something to publish.
+          pattern: LM_LabelingTool-*
           merge-multiple: true
           path: out
 

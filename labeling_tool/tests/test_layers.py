@@ -256,43 +256,34 @@ def test_cli_rejects_bad_usage(capsys):
     assert "usage:" in capsys.readouterr().err
 
 
-def test_stage_app_layer_copies_only_the_app_layer(tmp_path):
-    dist = _make_dist(tmp_path / "dist", {
-        "LM_LabelingTool.exe": b"x" * 10,
-        "build-info.json": b"{}",
-        "_internal/labeling_tool/core.pyc": b"y" * 20,
-        "_internal/torch/big.dll": b"z" * 100,
+def test_manifest_lists_runtime_files_with_sizes_sorted(tmp_path):
+    d = _make_dist(tmp_path / "d", {
+        "LM_LabelingTool.exe": b"x",
+        "_internal/torch/b.dll": b"bb",
+        "_internal/abc.pyc": b"aaa",
+        "_internal/labeling_tool/core.pyc": b"y",
     })
-    out = tmp_path / "app"
-    app_bytes, all_bytes = layers.stage_app_layer(dist, out)
-    copied = sorted(p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_file())
-    assert copied == ["LM_LabelingTool.exe", "_internal/labeling_tool/core.pyc",
-                      "build-info.json"]
-    assert app_bytes == 32
-    assert all_bytes == 132
+    assert layers.runtime_manifest(d) == [("_internal/abc.pyc", 3),
+                                          ("_internal/torch/b.dll", 2)]
 
 
-def test_cli_runtime_id(tmp_path, capsys):
-    d = _make_dist(tmp_path / "d", {"_internal/torch/a.dll": b"x" * 10})
-    assert layers.main(["runtime-id", str(d)]) == 0
-    assert capsys.readouterr().out.strip() == layers.compute_runtime_id(d)
+def test_manifest_is_what_the_runtime_id_hashes(tmp_path):
+    # Diffing two manifests is only a valid diagnosis of a moved id if the
+    # manifest carries everything the id depends on.
+    a = _make_dist(tmp_path / "a", {"_internal/torch/a.dll": b"x" * 10})
+    b = _make_dist(tmp_path / "b", {"_internal/torch/a.dll": b"y" * 10})
+    assert layers.runtime_manifest(a) == layers.runtime_manifest(b)
+    assert layers.compute_runtime_id(a) == layers.compute_runtime_id(b)
 
 
-def test_cli_runtime_id_reports_a_bad_path(tmp_path):
+def test_cli_manifest(tmp_path, capsys):
+    d = _make_dist(tmp_path / "d", {"_internal/torch/a.dll": b"x" * 10,
+                                    "LM_LabelingTool.exe": b"x"})
+    assert layers.main(["manifest", str(d)]) == 0
+    assert capsys.readouterr().out == "10\t_internal/torch/a.dll\n"
+
+
+def test_cli_manifest_reports_a_bad_path(tmp_path):
     import pytest
     with pytest.raises(FileNotFoundError):
-        layers.main(["runtime-id", str(tmp_path / "missing")])
-
-
-def test_cli_stage(tmp_path, capsys):
-    d = _make_dist(tmp_path / "d", {"LM_LabelingTool.exe": b"x",
-                                    "_internal/torch/a.dll": b"aaa"})
-    assert layers.main(["stage", str(d), str(tmp_path / "out")]) == 0
-    assert "app layer:" in capsys.readouterr().out
-    assert (tmp_path / "out" / "LM_LabelingTool.exe").exists()
-    assert not (tmp_path / "out" / "_internal" / "torch").exists()
-
-
-def test_cli_rejects_bad_usage(capsys):
-    assert layers.main(["nonsense"]) == 2
-    assert "usage:" in capsys.readouterr().err
+        layers.main(["manifest", str(tmp_path / "missing")])
