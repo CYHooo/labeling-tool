@@ -40,6 +40,15 @@ jobs:
         with:
           # Exact: the interpreter and its DLLs are part of the runtime layer.
           python-version: "3.12.10"
+          # Keep pip's download cache (torch alone is 2.5 GB) between
+          # releases. Keyed on the lock, so a dependency change starts clean;
+          # the venv itself is still created fresh every time.
+          cache: pip
+          cache-dependency-path: |
+            packaging/build-lock.txt
+            packaging/build-constraints.txt
+            requirements.txt
+            requirements-dev.txt
 
       - name: Version
         run: |
@@ -140,6 +149,32 @@ jobs:
           # runtime layer.
           if ($app.Sum -gt 20MB) { throw ("app layer unexpectedly large: {0:N1} MB" -f ($app.Sum/1MB)) }
 
+      - name: Reuse the previous full installer if the runtime is unchanged
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Compressing the full installer is ~11 of ~18 minutes, and on a
+          # code-only release its runtime layer is byte-identical to the
+          # previous release's. Ship that installer again under this
+          # version's name; new users get the app package on first launch.
+          # See packaging/reuse_full.py for why the name must be ours.
+          New-Item -ItemType Directory -Force diag, prev | Out-Null
+          $ErrorActionPreference = "Continue"
+          gh release view --repo $env:GITHUB_REPOSITORY --json tagName,assets | Set-Content -Path diag\prev-release.json -Encoding utf8
+          $found = $LASTEXITCODE -eq 0
+          $ErrorActionPreference = "Stop"
+          if (-not $found) { Write-Host "no previous release: full build"; exit 0 }
+          $plan = python packaging/reuse_full.py plan diag\prev-release.json $env:LT_RUNTIME
+          if ($LASTEXITCODE -ne 0) { throw "reuse_full.py plan failed" }
+          if (-not $plan) { Write-Host "runtime $env:LT_RUNTIME is new: full build"; exit 0 }
+          $prevTag, $prevName = $plan -split "`t"
+          gh release download $prevTag --repo $env:GITHUB_REPOSITORY --dir prev --pattern $prevName --pattern SHA256SUMS.txt
+          if ($LASTEXITCODE -ne 0) { throw "could not download $prevName from $prevTag" }
+          python packaging/reuse_full.py verify prev\SHA256SUMS.txt "prev\$prevName"
+          if ($LASTEXITCODE -ne 0) { throw "$prevName from $prevTag does not match its published checksum" }
+          "LT_REUSE_FULL=$PWD\prev\$prevName" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "runtime $env:LT_RUNTIME unchanged since ${prevTag}, reusing $prevName"
+
       - name: Build installers
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
@@ -163,10 +198,17 @@ jobs:
           }
           # MySource/MyOutDir must be absolute: Inno resolves relative paths
           # against the .iss file's own directory (packaging\).
-          $isccArgs = @("/DMyLayer=full", "/DMySource=$PWD\dist\LM_LabelingTool",
-                        "/DMyOutDir=$PWD\out") + $common + @("packaging\installer.iss")
-          & $iscc @isccArgs
-          if ($LASTEXITCODE -ne 0) { throw "full installer failed ($LASTEXITCODE)" }
+          if ($env:LT_REUSE_FULL) {
+            # Same runtime layer as the previous release: its installer, under
+            # the name clients look for in THIS release.
+            Copy-Item $env:LT_REUSE_FULL "out\LM_LabelingTool-Setup-v$ver.exe"
+            Write-Host "full installer reused: $(Split-Path $env:LT_REUSE_FULL -Leaf)"
+          } else {
+            $isccArgs = @("/DMyLayer=full", "/DMySource=$PWD\dist\LM_LabelingTool",
+                          "/DMyOutDir=$PWD\out") + $common + @("packaging\installer.iss")
+            & $iscc @isccArgs
+            if ($LASTEXITCODE -ne 0) { throw "full installer failed ($LASTEXITCODE)" }
+          }
           $isccArgs = @("/DMyLayer=app", "/DMySource=$PWD\dist\app-layer",
                         "/DMyOutDir=$PWD\out") + $common + @("packaging\installer.iss")
           & $iscc @isccArgs
