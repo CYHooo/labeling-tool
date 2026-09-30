@@ -127,5 +127,33 @@ def test_the_size_ceiling_only_binds_on_published_builds(workflow):
 
 def test_every_iscc_invocation_honours_the_compression_mode(workflow):
     """Three packages are compiled -- full, app, and the deliberately
-    mismatched one. If any misses @fast it silently costs minutes."""
-    assert workflow.count("@fast packaging\\installer.iss") == 3
+    mismatched one. Each must be able to pick up /DMyFast=1, or it silently
+    costs minutes."""
+    assert workflow.count("/DMyFast=1") == 2, "both the common and the bad-package paths"
+    assert workflow.count("& $iscc @") == 3, "all three invocations splat a full array"
+
+
+def test_workflow_never_assigns_powershell_automatic_variables(workflow):
+    """$args is the function-arguments automatic variable; assigning to it
+    is undefined behaviour and has already dropped arguments here once --
+    including /VERYSILENT, which turned a silent install into a wizard that
+    hung for 96 minutes."""
+    import re
+    reserved = ("args", "input", "error", "host", "home", "pwd", "matches")
+    for name in reserved:
+        assert re.search(rf"^\s*\${name}\s*=", workflow, re.M) is None, (
+            f"${name} is a PowerShell automatic variable; pick another name")
+
+
+def test_iscc_splats_the_whole_argument_list(workflow):
+    """`& $iscc /A @extra script.iss` does NOT expand @extra -- splatting
+    only works as the entire argument list. The literal "@extra" then
+    reaches ISCC as a second script filename, which it rejects."""
+    import re
+    for line in workflow.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue  # the comment above them shows the broken form on purpose
+        if "& $iscc" in line and "/?" not in line:
+            assert re.search(r"& \$iscc @\w+\s*$", line.strip()), (
+                f"ISCC invocation must be `& $iscc @array`, got: {line.strip()}")

@@ -155,18 +155,25 @@ jobs:
           # Tag builds are what users download, so they get maximum
           # compression. Everything else is verification: compress fast and
           # get the answer sooner.
-          $fast = if ($env:GITHUB_REF_TYPE -eq 'tag') { @() } else { @("/DMyFast=1") }
-          if ($fast) { Write-Host "verification build: fast compression" }
+          # Splatting only expands when it IS the whole argument list --
+          # `& $iscc /A @fast script.iss` passes a literal "@fast", which
+          # ISCC reads as a second script filename and rejects.
+          $common = @("/DMyVersion=$ver", "/DMyVersionInfo=$infoVer",
+                      "/DMySourceRoot=$PWD", "/DMyRuntime=$env:LT_RUNTIME")
+          if ($env:GITHUB_REF_TYPE -ne 'tag') {
+            $common += "/DMyFast=1"
+            Write-Host "verification build: fast compression"
+          }
           # MySource/MyOutDir must be absolute: Inno resolves relative
           # [Files] Source / OutputDir against the .iss file's own directory
           # (packaging\), not this job's working directory.
-          & $iscc /DMyLayer=full /DMyVersion=$ver "/DMyVersionInfo=$infoVer" `
-            "/DMySource=$PWD\dist\LM_LabelingTool" "/DMySourceRoot=$PWD" `
-            "/DMyRuntime=$env:LT_RUNTIME" "/DMyOutDir=$PWD\out" @fast packaging\installer.iss
+          $isccArgs = @("/DMyLayer=full", "/DMySource=$PWD\dist\LM_LabelingTool",
+                    "/DMyOutDir=$PWD\out") + $common + @("packaging\installer.iss")
+          & $iscc @isccArgs
           if ($LASTEXITCODE -ne 0) { throw "full installer failed ($LASTEXITCODE)" }
-          & $iscc /DMyLayer=app /DMyVersion=$ver "/DMyVersionInfo=$infoVer" `
-            "/DMySource=$PWD\dist\app-layer" "/DMySourceRoot=$PWD" `
-            "/DMyRuntime=$env:LT_RUNTIME" "/DMyOutDir=$PWD\out" @fast packaging\installer.iss
+          $isccArgs = @("/DMyLayer=app", "/DMySource=$PWD\dist\app-layer",
+                    "/DMyOutDir=$PWD\out") + $common + @("packaging\installer.iss")
+          & $iscc @isccArgs
           if ($LASTEXITCODE -ne 0) { throw "app installer failed ($LASTEXITCODE)" }
           $full = Get-ChildItem out\LM_LabelingTool-Setup-*.exe | Select-Object -First 1
           $app  = Get-ChildItem out\LM_LabelingTool-App-*.exe   | Select-Object -First 1
@@ -178,9 +185,13 @@ jobs:
           # for the guard's refusal test further down. Built here so that
           # step only has to install, not compile.
           New-Item -ItemType Directory -Force out-bad | Out-Null
-          & $iscc /DMyLayer=app /DMyVersion=$ver "/DMyVersionInfo=$infoVer" `
-            "/DMySource=$PWD\dist\app-layer" "/DMySourceRoot=$PWD" `
-            "/DMyRuntime=rbadbad00" "/DMyOutDir=$PWD\out-bad" @fast packaging\installer.iss
+          $bad = @("/DMyLayer=app", "/DMySource=$PWD\dist\app-layer",
+                   "/DMyOutDir=$PWD\out-bad", "/DMyVersion=$ver",
+                   "/DMyVersionInfo=$infoVer", "/DMySourceRoot=$PWD",
+                   "/DMyRuntime=rbadbad00")
+          if ($env:GITHUB_REF_TYPE -ne 'tag') { $bad += "/DMyFast=1" }
+          $bad += "packaging\installer.iss"
+          & $iscc @bad
           if ($LASTEXITCODE -ne 0) { throw "could not build the mismatched app package" }
           $badApp = Get-ChildItem out-bad\LM_LabelingTool-App-*.exe | Select-Object -First 1
           "LT_BAD_SETUP=$($badApp.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
