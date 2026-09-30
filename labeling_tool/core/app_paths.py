@@ -27,6 +27,23 @@ def app_home() -> Path:
     return REPO_ROOT
 
 
+def bundled_path(*parts: str) -> Path:
+    """A read-only resource bundled BESIDE the labeling_tool package.
+
+    The app-layer installer clears _internal/labeling_tool wholesale -- that
+    is how stale .pyc from deleted modules get cleaned up -- so anything
+    shipping in the RUNTIME layer has to live outside that directory, or the
+    app package deletes a file it does not carry and cannot restore.
+
+    Frozen: _MEIPASS is _internal/ in a PyInstaller onedir build, so this
+    resolves to _internal/<parts>. From source: the repo layout is
+    unchanged, labeling_tool/<parts>.
+    """
+    if is_frozen():
+        return Path(sys._MEIPASS).joinpath(*parts)
+    return REPO_ROOT / "labeling_tool" / Path(*parts)
+
+
 def resource_path(name: str) -> Path:
     """A read-only bundled resource (the app icon, ONNX models).
 

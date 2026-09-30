@@ -15,8 +15,12 @@ def _not_tests_or_scripts(name):
 
 
 ICON = os.path.join(ROOT, "labeling_tool", "resources", "icon.ico")
+# The ONNX models go BESIDE labeling_tool/, not inside it: they ship in the
+# runtime layer, and the app-layer installer clears _internal\labeling_tool
+# wholesale to drop stale bytecode. Inside, they would be deleted by a
+# package that does not carry them (CI run 36670089766).
 datas = [(os.path.join(ROOT, "labeling_tool", "models", "sam", "*.onnx"),
-          os.path.join("labeling_tool", "models", "sam")),
+          os.path.join("models", "sam")),
          # needed at runtime as well as in the exe's resources: the title bar
          # and taskbar icon come from QApplication.setWindowIcon, not from
          # the PE resource below
@@ -35,7 +39,12 @@ for pkg in ("sam2", "hydra", "omegaconf"):
     datas += d
     binaries += b
     hiddenimports += h
-excludes = ["sam3", "triton", "timm"]
+# nccl is multi-GPU collective communication and cupti is the CUDA
+# profiler: neither is reachable from single-card inference, and together
+# they are 283 MB unpacked. Everything else under nvidia/ stays -- cudnn and
+# cublas are required, and the rest cannot be verified without a GPU, which
+# CI does not have.
+excludes = ["sam3", "triton", "timm", "nvidia.nccl", "nvidia.cuda_cupti"]
 
 a = Analysis(
     [os.path.join(ROOT, "labeling_tool", "app.py")],
@@ -44,7 +53,12 @@ a = Analysis(
     datas=datas,
     hiddenimports=hiddenimports,
     excludes=excludes,
-    noarchive=False,
+    # noarchive=True writes pure-Python modules as .pyc files under
+    # _internal/<package>/ instead of packing them into the exe's PYZ. That
+    # is what puts torch/PyQt5/numpy bytecode in the RUNTIME layer: with the
+    # PYZ, all of it rode inside the exe and every code change shipped ~38 MB
+    # of unchanged third-party bytecode.
+    noarchive=True,
 )
 pyz = PYZ(a.pure)
 exe = EXE(

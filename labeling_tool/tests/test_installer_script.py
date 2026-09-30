@@ -54,12 +54,27 @@ def test_guard_reads_the_same_appid_the_setup_section_declares(iss):
     HKCU\\...\\Uninstall\\<AppId>_is1. If that GUID drifts from [Setup]'s
     AppId the lookup silently returns nothing, the guard finds no install
     and refuses (or, before the fix, let everything through)."""
-    declared = re.search(r"^AppId=\{\{([0-9A-Fa-f-]+)\}", iss, re.M)
-    assert declared, "AppId not found in [Setup]"
-    used = re.search(r"APP_GUID\s*=\s*'\{'\s*\+\s*'([0-9A-Fa-f-]+)'", _code_section(iss))
-    assert used, "the [Code] guard does not define APP_GUID by literal parts"
-    assert declared.group(1) == used.group(1), (
-        f"AppId {declared.group(1)} != guard GUID {used.group(1)}")
+    # Two pairs, in the same order in both places: production first, then
+    # the /DMyTestInstall id used by local smoke tests.
+    declared = re.findall(r"^AppId=\{\{([0-9A-Fa-f-]+)\}", iss, re.M)
+    used = re.findall(r"APP_GUID\s*=\s*'\{'\s*\+\s*'([0-9A-Fa-f-]+)'", _code_section(iss))
+    assert len(declared) == 2, f"expected production + test AppId, got {declared}"
+    assert used == declared, f"AppIds {declared} != guard GUIDs {used}"
+    assert declared[0] == "9E1E0C6B-6E0F-4E8E-9E2F-0F7B5C1A0F02", (
+        "the production AppId changed: every existing install would stop "
+        "upgrading in place")
+
+
+def test_test_install_can_never_touch_the_real_install(iss):
+    """A local smoke test installs and UNINSTALLS. Under the production
+    AppId or Start menu name that takes the workstation's real copy with it."""
+    setup = _section(iss, "[Setup]")
+    prod = setup[setup.index("#ifndef MyTestInstall"):setup.index("#else")]
+    test = setup[setup.index("#else"):setup.index("#endif")]
+    assert "9E1E0C6B" in prod and "9E1E0C6B" not in test
+    name = re.search(r'#define MyAppName "([^"]+)"', test).group(1)
+    assert name != "LM_LabelingTool"
+    assert "DefaultGroupName={#MyAppName}" in setup
 
 
 def test_app_layer_installdelete_never_clears_internal_wholesale(iss):
@@ -93,10 +108,51 @@ def test_no_unbounded_process_wait_in_the_workflow(workflow):
     assert re.search(r"Start-Process[^\n]*\s-Wait(\s|$)", workflow) is None
 
 
+LOCAL_BUILD = WORKFLOW.parent.parent.parent / "packaging" / "ci" / "local-build.ps1"
+
+
+@pytest.fixture(scope="module", params=["workflow", "local-build"])
+def powershell_source(request) -> str:
+    """Both places that drive PowerShell against ISCC, pip and the exe."""
+    path = WORKFLOW if request.param == "workflow" else LOCAL_BUILD
+    return path.read_text(encoding="utf-8")
+
+
 def test_waits_go_through_the_shared_helper(workflow):
     helper = WORKFLOW.parent.parent.parent / "packaging" / "ci" / "bounded.ps1"
     assert helper.is_file(), "packaging/ci/bounded.ps1 is missing"
-    assert workflow.count(". packaging/ci/bounded.ps1") >= 2
+    assert ". packaging/ci/bounded.ps1" in workflow
+    assert "bounded.ps1" in LOCAL_BUILD.read_text(encoding="utf-8")
+
+
+def test_ci_only_releases(workflow):
+    """Verification runs locally (packaging/ci/local-build.ps1); a CI round
+    is too slow to iterate on. CI runs for a tag, or by hand as a dry run."""
+    on = workflow[workflow.index("\non:"):workflow.index("\npermissions:")]
+    assert "pull_request" not in on
+    assert "tags:" in on
+    assert "pytest" not in workflow
+
+
+def test_ci_builds_in_a_clean_pinned_environment(workflow):
+    """The runner's own Python carries preinstalled packages that follow the
+    runner image; bundled, they move the runtime id between identical
+    builds. CI builds in a fresh venv, with everything pinned by the lock."""
+    assert "python -m venv" in workflow
+    assert "packaging/build-lock.txt" in workflow
+    lock = (WORKFLOW.parent.parent.parent / "packaging" / "build-lock.txt").read_text(encoding="utf-8")
+    pins = [l for l in lock.splitlines() if l and not l.startswith("#")]
+    assert pins and all("==" in l for l in pins), "every lock line must pin an exact version"
+    for must in ("torch==", "numpy==", "filelock==", "PyQt5=="):
+        assert any(l.startswith(must) for l in pins), f"{must} is not pinned"
+
+
+def test_ci_resolves_git_symlinks_when_installing_sam2(workflow):
+    """sam2's repo holds symlinked yaml files. A git with core.symlinks=false
+    writes placeholders instead, and local and CI runtime ids part ways
+    (run 36682820480: r1970c21b locally vs r88c8d3f0)."""
+    assert "GIT_CONFIG_KEY_0: core.symlinks" in workflow
+    assert 'GIT_CONFIG_VALUE_0: "true"' in workflow
 
 
 def test_helper_caches_the_handle_before_waiting():
@@ -106,3 +162,62 @@ def test_helper_caches_the_handle_before_waiting():
     handle = text.index("$proc.Handle")
     wait = text.index("WaitForExit")
     assert handle < wait, "$proc.Handle must be read before WaitForExit"
+
+
+def test_release_builds_keep_maximum_compression(iss):
+    """Fast compression is a CI-time shortcut: it cuts ~10 minutes off a
+    verification run. What users download must still be squeezed as hard as
+    possible, so the fast path has to be opt-in via MyFast and the default
+    must remain lzma2/max."""
+    block = iss[iss.index("#ifdef MyFast"):iss.index("[Languages]")]
+    fast, full = block.index("lzma2/fast"), block.index("lzma2/max")
+    assert block.index("#else") < full, "lzma2/max must be the #else default"
+    assert fast < block.index("#else"), "lzma2/fast must sit under #ifdef MyFast"
+
+
+def test_the_size_ceiling_only_binds_on_published_builds(workflow):
+    """A fast-compressed verification build is legitimately larger than a
+    release one; the 2 GiB release ceiling must not fail it."""
+    assert "GITHUB_REF_TYPE -eq 'tag' -and $full.Length -ge 1.9GB" in workflow
+
+
+def test_every_iscc_invocation_honours_the_compression_mode(workflow):
+    """CI compiles two packages, full and app, from one common argument list
+    that carries /DMyFast=1 on a dry run. (The deliberately mismatched
+    package is compiled locally, for the smoke test.)"""
+    assert workflow.count("/DMyFast=1") == 1, "only via the common list"
+    assert workflow.count("& $iscc @") == 2, "both invocations splat a full array"
+
+
+def test_local_installers_never_carry_the_production_appid():
+    """The local smoke test installs and uninstalls on a workstation that may
+    have the app installed for real."""
+    text = LOCAL_BUILD.read_text(encoding="utf-8")
+    assert '"/DMyTestInstall=1"' in text
+    assert text.count("& $iscc @") == 3
+    assert "9E1E0C6B" not in text, "the local script must not name the production AppId"
+
+
+def test_scripts_never_assign_powershell_automatic_variables(powershell_source):
+    """$args is the function-arguments automatic variable; assigning to it
+    is undefined behaviour and has already dropped arguments here once --
+    including /VERYSILENT, which turned a silent install into a wizard that
+    hung for 96 minutes."""
+    reserved = ("args", "input", "error", "host", "home", "pwd", "matches")
+    for name in reserved:
+        assert re.search(rf"^\s*\${name}\s*=", powershell_source, re.M | re.I) is None, (
+            f"${name} is a PowerShell automatic variable; pick another name")
+
+
+def test_splats_are_always_the_whole_argument_list(powershell_source):
+    """`& $iscc /A @extra script.iss` does NOT expand @extra -- splatting
+    only works as the entire rest of the command. The literal "@extra" then
+    reaches ISCC as a second script filename (run 36672426334), or pip as a
+    requirement. A splat must be the last thing on its line."""
+    for line in powershell_source.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue  # comments show the broken form on purpose
+        for m in re.finditer(r"(?<=\s)@[A-Za-z_]\w*", stripped):
+            assert not stripped[m.end():].strip(), (
+                f"splat {m.group()} is not the whole argument list: {stripped}")

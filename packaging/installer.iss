@@ -37,10 +37,18 @@
 ; the existing install, not as a second program. This is the id the full
 ; variant has always used, so an existing v1.2.0 install upgrades in place
 ; and keeps config.json, data\ and checkpoint\.
+#ifndef MyTestInstall
 AppId={{9E1E0C6B-6E0F-4E8E-9E2F-0F7B5C1A0F02}
 #define MyAppName "LM_LabelingTool"
-DefaultDirName={autopf}\LM_LabelingTool
-DefaultGroupName=LM_LabelingTool
+#else
+; /DMyTestInstall: packaging/ci/local-build.ps1's smoke test only. Its own
+; AppId and Start menu entry, so installing, upgrading and uninstalling on a
+; workstation never touches the copy that is installed there for real.
+AppId={{73FDC7BA-1CC5-4842-80BD-078ED75FD1A6}
+#define MyAppName "LM_LabelingTool-test"
+#endif
+DefaultDirName={autopf}\{#MyAppName}
+DefaultGroupName={#MyAppName}
 AppName={#MyAppName}
 AppVersion={#MyVersion}
 AppPublisher=CYHooo
@@ -50,8 +58,17 @@ VersionInfoVersion={#MyVersionInfo}
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+; Compression is over half of a CI run: lzma2/max with solid compression
+; takes ~12 of ~22 minutes to squeeze 4 GB into 1.5 GB. Release builds pay
+; that for the download size users actually see; verification builds do not
+; need to, so CI passes /DMyFast=1 when it is not building a tag.
+#ifdef MyFast
+Compression=lzma2/fast
+SolidCompression=no
+#else
 Compression=lzma2/max
 SolidCompression=yes
+#endif
 CloseApplications=force
 RestartApplications=no
 DisableProgramGroupPage=yes
@@ -115,7 +132,11 @@ Filename: "{app}\LM_LabelingTool.exe"; Flags: nowait runasoriginaluser; \
 // which made this guard find nothing at all (CI run 36518723697).
 // labeling_tool/tests/test_installer_script.py asserts the two agree.
 const
+#ifndef MyTestInstall
   APP_GUID = '{' + '9E1E0C6B-6E0F-4E8E-9E2F-0F7B5C1A0F02' + '}';
+#else
+  APP_GUID = '{' + '73FDC7BA-1CC5-4842-80BD-078ED75FD1A6' + '}';
+#endif
 
 function InstalledDir(): String;
 var

@@ -32,9 +32,49 @@ APP_LAYER_PREFIXES = (
 )
 
 
+# Carved back out of the prefixes above. Nothing needs it today: the ONNX
+# models used to sit at _internal/labeling_tool/models/ and were excluded
+# here, but they now ship at _internal/models/ instead -- outside the
+# directory the app-layer installer clears, which is the only safe place
+# for a runtime-layer file (CI run 36670089766).
+#
+# An entry here MUST NOT start with "_internal/labeling_tool/": that
+# directory is wiped before an app-layer install, so anything excluded from
+# the app layer while living inside it would be deleted and never restored.
+# test_nothing_runtime_layer_lives_under_the_cleared_directory enforces it.
+APP_LAYER_EXCLUSIONS: tuple[str, ...] = ()
+
+
+# Top-level files PyInstaller copies from the BUILD MACHINE's Windows (the
+# UCRT forwarders and the VC++ runtime from System32 / the Windows SDK), not
+# from any pip package. They ship in the runtime layer as usual but stay out
+# of the runtime id: GitHub refreshes its runner image weekly, and image
+# 20260925.250.1 moved the id (r7c92a36d) while 20260922.246.2 gave
+# ra7115365 for the same commit and the same package versions. They are
+# backward compatible, so an install keeping an older copy is fine.
+# Only direct children of _internal/: copies inside a package's own
+# directory (PyQt5/Qt5/bin/MSVCP140.dll) come from its wheel and do count.
+_SYSTEM_RUNTIME_PREFIXES = ("api-ms-win-", "ucrtbase", "vcruntime140",
+                            "msvcp140", "concrt140")
+
+
+def is_build_machine_file(relpath: str) -> bool:
+    """True for a system runtime DLL that PyInstaller took from the build
+    machine rather than from a dependency."""
+    rel = relpath.replace("\\", "/")
+    if not rel.startswith("_internal/"):
+        return False
+    name = rel[len("_internal/"):]
+    if "/" in name or not name.lower().endswith(".dll"):
+        return False
+    return name.lower().startswith(_SYSTEM_RUNTIME_PREFIXES)
+
+
 def is_app_layer(relpath: str) -> bool:
     """True when this file ships in the small app-only package."""
     rel = relpath.replace("\\", "/")
+    if any(rel.startswith(x) for x in APP_LAYER_EXCLUSIONS):
+        return False
     for prefix in APP_LAYER_PREFIXES:
         if prefix.endswith("/"):
             if rel.startswith(prefix):
@@ -53,51 +93,55 @@ def iter_runtime_files(dist_dir: Path):
             yield rel, path
 
 
-# The PyInstaller spec decides WHICH packages enter the runtime layer
-# (collect_all, excludes, binaries, datas), so a change here can move the
-# runtime layer without any dependency version changing.
-RUNTIME_SPEC_FILES = ("packaging/labeling_tool.spec",)
+def runtime_manifest(dist_dir: Path) -> list[tuple[str, int]]:
+    """(relative path, size) for every runtime-layer file the id covers,
+    sorted by path -- every runtime file except the build machine's own
+    system DLLs (see is_build_machine_file).
+
+    This is exactly what compute_runtime_id hashes. CI publishes it so that
+    when the id moves unexpectedly, two builds can be diffed file by file
+    instead of guessed at.
+
+    Raises FileNotFoundError if dist_dir does not exist."""
+    root = Path(dist_dir)
+    if not root.is_dir():
+        raise FileNotFoundError(f"no such build directory: {root}")
+    return [(rel, path.stat().st_size) for rel, path in iter_runtime_files(root)
+            if not is_build_machine_file(rel)]
 
 
-def compute_runtime_id(repo_root: Path, freeze_text: str) -> str:
-    """A short identity for the runtime layer: what is installed, plus what
-    gets packed.
+def compute_runtime_id(dist_dir: Path) -> str:
+    """A short identity for the runtime layer, measured from the build.
 
-    NOT the built files. Two PyInstaller runs of the same commit emit
-    different bytes (CI runs 36421966949 and 36424404832 produced ra9adeaed
-    and r138b837f), so hashing the output would move the id on every release
-    and the app package would never match anything.
+    Hashes each runtime file's relative path and SIZE -- never its contents.
+    Two PyInstaller runs of the same commit emit different bytes (timestamps
+    go into the files; CI runs 36421966949 and 36424404832 produced
+    ra9adeaed and r138b837f), so hashing contents would move the id on every
+    release and the app package would never match anything. Paths and sizes
+    survive that.
 
-    `freeze_text` is `pip freeze` from the build environment, taken after
-    every dependency is installed. Hashing the resolved versions rather than
-    the requirement files is what makes this sound: requirements.txt pins
-    nothing (`PyQt5>=5.15`), so pip can resolve a different version with no
-    file changing. That matters because the layer split cuts through those
-    packages -- PyQt5's Python code rides inside the exe (app layer) while
-    its .pyd files are runtime layer, so shipping an app package across a
-    version change installs half an upgrade that cannot import.
+    Measuring the build directly also means nobody has to judge which config
+    affects the runtime layer: adding a dependency, upgrading torch or
+    excluding a CUDA library all change the listing, while editing an icon
+    path in the spec does not.
 
-    Line endings are normalised before hashing: git may check the spec out
-    with CRLF on Windows and LF elsewhere, and hashing raw bytes made the
-    same commit produce different ids per platform.
+    The trade-off is on record in
+    test_runtime_id_does_not_see_content_changes_at_equal_size: a dependency
+    whose contents change without any file changing name or size will not
+    move the id.
 
-    Raises ValueError on an empty freeze and FileNotFoundError on a missing
-    spec, rather than quietly hashing less than it should.
+    Raises FileNotFoundError if dist_dir does not exist, and ValueError if it
+    holds no runtime-layer files at all -- both mean the caller pointed at
+    the wrong directory, and a hash of nothing would look authoritative.
     """
-    root = Path(repo_root)
-    # pip freeze's order is not guaranteed stable between runs
-    pins = sorted(line.strip() for line in freeze_text.splitlines()
-                  if line.strip() and not line.lstrip().startswith("#"))
-    if not pins:
-        raise ValueError("empty pip freeze: the build environment was not captured")
+    manifest = runtime_manifest(dist_dir)
+    if not manifest:
+        raise ValueError(f"no runtime-layer files under {dist_dir}")
     digest = hashlib.sha256()
-    digest.update("\n".join(pins).encode("utf-8"))
-    digest.update(b"\0")
-    for rel in RUNTIME_SPEC_FILES:
+    for rel, size in manifest:
         digest.update(rel.encode("utf-8"))
         digest.update(b"\0")
-        text = (root / rel).read_bytes().replace(b"\r\n", b"\n")
-        digest.update(text)
+        digest.update(str(size).encode("ascii"))
         digest.update(b"\0")
     return "r" + digest.hexdigest()[:8]
 
@@ -132,16 +176,20 @@ def main(argv: list[str] | None = None) -> int:
     import sys
 
     args = sys.argv[1:] if argv is None else argv
-    if len(args) == 3 and args[0] == "runtime-id":
-        freeze = Path(args[2]).read_text(encoding="utf-8")
-        print(compute_runtime_id(Path(args[1]), freeze))
+    if len(args) == 2 and args[0] == "runtime-id":
+        print(compute_runtime_id(Path(args[1])))
+        return 0
+    if len(args) == 2 and args[0] == "manifest":
+        for rel, size in runtime_manifest(Path(args[1])):
+            print(f"{size}\t{rel}")
         return 0
     if len(args) == 3 and args[0] == "stage":
         app, whole = stage_app_layer(Path(args[1]), Path(args[2]))
         print(f"app layer: {app / 1024 / 1024:.1f} MB of "
               f"{whole / 1024 / 1024:.1f} MB")
         return 0
-    print("usage: layers.py runtime-id <repo-root> <pip-freeze-file>\n"
+    print("usage: layers.py runtime-id <dist>\n"
+          "       layers.py manifest <dist>\n"
           "       layers.py stage <dist> <out>", file=sys.stderr)
     return 2
 

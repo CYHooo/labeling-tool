@@ -1,20 +1,24 @@
-# Build the Windows LabelingTool exe (lite + full) with PyInstaller.
-# Triggers: manual run, version tags (v*) -> GitHub Release, and PRs that
-# touch the build so packaging breakage shows up before merging.
+# Build and publish a Windows release of LM_LabelingTool.
+#
+# This workflow only RELEASES. Verification -- the test suite, the launch
+# smoke test, the install / upgrade / uninstall smoke test and the refusal of
+# a mismatched app package -- runs locally before tagging:
+#
+#   powershell -File packaging\ci\local-build.ps1 -Venv C:\lt\venv
+#
+# A CI round used to take 18-25 minutes and every failed check cost another
+# round; see docs/RELEASING.md. What stays here is what a release cannot do
+# without, plus one 15-second selftest so a broken bundle is never published.
+#
+# Triggers: a version tag (v*) builds and publishes. A manual run builds with
+# fast compression and uploads the installers as a workflow artifact only --
+# a dry run of the release job's input.
 name: build-windows
 
 on:
   workflow_dispatch:
   push:
     tags: ["v*"]
-  pull_request:
-    paths:
-      - "packaging/**"
-      - ".github/workflows/build-windows.yml"
-      - "requirements*.txt"
-      - "labeling_tool/**"
-      - "annotation_tool/**"
-      - "tests/**"
 
 permissions:
   contents: read
@@ -22,7 +26,7 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 120
+    timeout-minutes: 90
     env:
       QT_QPA_PLATFORM: offscreen
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
@@ -34,7 +38,8 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          # Exact: the interpreter and its DLLs are part of the runtime layer.
+          python-version: "3.12.10"
 
       - name: Version
         run: |
@@ -48,27 +53,50 @@ jobs:
           }
           "LT_VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Install production dependencies
-        run: pip install -c packaging/build-constraints.txt -r requirements-dev.txt "pyinstaller==6.22.3"
+      - name: Create a clean build environment
+        run: |
+          # A fresh venv, never the runner's own Python: that one ships with
+          # preinstalled packages (filelock, packaging, argcomplete, ...)
+          # whose versions follow the runner image, and PyInstaller bundles
+          # them -- which moved the runtime id between two builds of the same
+          # commit. Everything else is pinned by packaging/build-lock.txt.
+          python -m venv "$env:RUNNER_TEMP\buildenv"
+          "$env:RUNNER_TEMP\buildenv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
-      - name: Install few-shot dependencies
+      - name: Install dependencies
         env:
           SAM2_BUILD_CUDA: "0"
+          # sam2's repo has symlinks (sam2/sam2_hiera_*.yaml). Without this,
+          # git on a machine that defaults core.symlinks=false writes 30-byte
+          # placeholder files instead, and the runtime id differs from a
+          # build that resolved them. Set explicitly on both sides.
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: core.symlinks
+          GIT_CONFIG_VALUE_0: "true"
         run: |
-          pip install -c packaging/build-constraints.txt "torch==2.5.1" "torchvision==0.20.1" --index-url https://download.pytorch.org/whl/cu124
+          # Every step below uses the venv (it is first on PATH now).
+          if (-not ((Get-Command python).Source -like "$env:RUNNER_TEMP\buildenv\*")) { throw "not running in the build venv" }
+          # Whole-array splats only: `pip install @lock -r x` would pass a
+          # literal "@lock" (see the ISCC step).
+          $lock = @("-m", "pip", "install", "-c", "packaging/build-constraints.txt", "-c", "packaging/build-lock.txt")
+          $pipArgs = $lock + @("-r", "requirements-dev.txt", "pyinstaller==6.22.3")
+          python @pipArgs
+          if ($LASTEXITCODE -ne 0) { throw "installing the production dependencies failed" }
+          $pipArgs = $lock + @("torch==2.5.1", "torchvision==0.20.1", "--index-url", "https://download.pytorch.org/whl/cu124")
+          python @pipArgs
+          if ($LASTEXITCODE -ne 0) { throw "installing torch failed" }
           # sam2's build needs the torch installed above (no CUDA extension: SAM2_BUILD_CUDA=0)
-          pip install -c packaging/build-constraints.txt --no-build-isolation "git+https://github.com/facebookresearch/sam2.git@2b90b9f5ceec907a1c18123530e92e794ad901a4"
-          python -c "import sam2.build_sam; print('few-shot imports OK')"
-
-      - name: Tests
-        run: |
-          python -m pytest tests labeling_tool/tests annotation_tool/tests -q -p no:cacheprovider
+          $pipArgs = $lock + @("--no-build-isolation", "git+https://github.com/facebookresearch/sam2.git@2b90b9f5ceec907a1c18123530e92e794ad901a4")
+          python @pipArgs
+          if ($LASTEXITCODE -ne 0) { throw "installing sam2 failed" }
 
       - name: Build exe
         run: pyinstaller --noconfirm --log-level WARN packaging/labeling_tool.spec
 
       - name: Selftest packaged exe
         run: |
+          # The one check kept in CI: 15 seconds, and it stops a bundle that
+          # cannot import torch or compose the sam2 config from being published.
           . packaging/ci/bounded.ps1
           $code = Invoke-Bounded -Path dist\LM_LabelingTool\LM_LabelingTool.exe `
             -CallArgs @("--selftest=full") -TimeoutSec 300 -What "selftest on the build output"
@@ -79,28 +107,23 @@ jobs:
             Write-Host "selftest.log not found (early crash?)"
           }
           if ($code -ne 0) { throw "selftest failed with exit code $code" }
-
-      - name: Launch smoke test (login screen stays up)
-        run: |
-          $p = Start-Process -FilePath dist\LM_LabelingTool\LM_LabelingTool.exe -PassThru
-          Start-Sleep -Seconds 20
-          if ($p.HasExited) { throw "LM_LabelingTool.exe exited early with code $($p.ExitCode)" }
-          Stop-Process -Id $p.Id -Force
           # the app may create these next to the exe; never ship them
           Remove-Item -Recurse -Force -ErrorAction SilentlyContinue dist\LM_LabelingTool\data, dist\LM_LabelingTool\config.json
 
       - name: Compute the runtime id and write build info
         run: |
-          # The runtime id hashes the RESOLVED environment (pip freeze) plus
-          # the PyInstaller spec -- not the build output, which is not
-          # reproducible (runs 36421966949 / 36424404832 differed), and not
-          # the requirement files, which pin nothing (`PyQt5>=5.15`) and so
-          # would not move when pip resolves a different version.
-          pip freeze | Out-File -FilePath runtime-freeze.txt -Encoding utf8
-          $rt = python packaging/layers.py runtime-id . runtime-freeze.txt
+          # The runtime id measures the runtime layer itself -- each file's
+          # path and size, minus the build machine's own system DLLs. It must
+          # match what local-build.ps1 printed for the same commit; if it
+          # does not, the lock or the environment has drifted.
+          $rt = python packaging/layers.py runtime-id dist/LM_LabelingTool
           if (-not ($rt -match '^r[0-9a-f]{8}$')) { throw "bad runtime id: $rt" }
           "LT_RUNTIME=$rt" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "runtime id: $rt"
+          # What the id hashes, file by file, for diffing against a local build.
+          New-Item -ItemType Directory -Force diag | Out-Null
+          python packaging/layers.py manifest dist/LM_LabelingTool | Set-Content -Path diag\runtime-manifest.txt -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw "could not write the runtime manifest" }
           $ver = $env:LT_VERSION -replace '^v', ''
           $info = @{ version = $ver; variant = 'full'; runtime = $rt; commit = $env:GITHUB_SHA.Substring(0,7) }
           $info | ConvertTo-Json -Compress | Set-Content -Path dist\LM_LabelingTool\build-info.json -Encoding utf8
@@ -108,68 +131,56 @@ jobs:
 
       - name: Stage the app layer
         run: |
-          # PowerShell is this job's shell and has no heredoc, so the layer
-          # rule lives in packaging/layers.py (where it is unit-tested).
           python packaging/layers.py stage dist/LM_LabelingTool dist/app-layer
           if ($LASTEXITCODE -ne 0) { throw "staging the app layer failed" }
+          $app = (Get-ChildItem dist/app-layer -Recurse -File | Measure-Object -Property Length -Sum)
+          Write-Host ("app layer: {0:N1} MB in {1} files" -f ($app.Sum/1MB), $app.Count)
+          # The app package is what every routine update downloads. If it
+          # climbs back into the tens of MB something leaked out of the
+          # runtime layer.
+          if ($app.Sum -gt 20MB) { throw ("app layer unexpectedly large: {0:N1} MB" -f ($app.Sum/1MB)) }
 
-      - name: Build installer
+      - name: Build installers
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
           if (-not (Test-Path $iscc)) { throw "ISCC.exe not found even after installing Inno Setup" }
-          # ArchitecturesAllowed=x64compatible needs Inno Setup >= 6.3, but
-          # ISCC.exe's VersionInfo.ProductVersion reports 0.0.0.0 on the
-          # GitHub runner image, so it cannot be asserted here. The compile
-          # below is the real gate: an Inno Setup too old for
-          # ArchitecturesAllowed=x64compatible fails ISCC with its own
-          # explicit error, which is the loud failure we want anyway. Print
-          # the banner (first lines only) so the log at least shows what
-          # ran; a non-zero exit from the bare version query must not fail
-          # this step.
-          $ErrorActionPreference = "Continue"
-          & $iscc /? 2>&1 | Select-Object -First 3 | Out-String | Write-Host
-          $ErrorActionPreference = "Stop"
           $ver = $env:LT_VERSION -replace '^v', ''
           # Windows version resources must be numeric (x.y[.z[.w]]). For dev
-          # builds ($ver like "dev-a72cd7b"), use 0.0.0; release builds use
-          # their numeric version for both AppVersion and VersionInfoVersion.
-          if ($ver -match '^\d+(\.\d+)*$') {
-            $infoVer = $ver
-          } else {
-            $infoVer = '0.0.0'
-          }
+          # builds ($ver like "dev-a72cd7b"), use 0.0.0.
+          if ($ver -match '^\d+(\.\d+)*$') { $infoVer = $ver } else { $infoVer = '0.0.0' }
           New-Item -ItemType Directory -Force out | Out-Null
-          # MySource/MyOutDir must be absolute: Inno resolves relative
-          # [Files] Source / OutputDir against the .iss file's own directory
-          # (packaging\), not this job's working directory.
-          & $iscc /DMyLayer=full /DMyVersion=$ver "/DMyVersionInfo=$infoVer" `
-            "/DMySource=$PWD\dist\LM_LabelingTool" "/DMySourceRoot=$PWD" `
-            "/DMyRuntime=$env:LT_RUNTIME" "/DMyOutDir=$PWD\out" packaging\installer.iss
+          # Splatting only expands when it IS the whole argument list --
+          # `& $iscc /A @fast script.iss` passes a literal "@fast", which
+          # ISCC reads as a second script filename and rejects.
+          $common = @("/DMyVersion=$ver", "/DMyVersionInfo=$infoVer",
+                      "/DMySourceRoot=$PWD", "/DMyRuntime=$env:LT_RUNTIME")
+          # Tags are what users download: maximum compression. A manual dry
+          # run only needs to show that the release would build.
+          if ($env:GITHUB_REF_TYPE -ne 'tag') {
+            $common += "/DMyFast=1"
+            Write-Host "dry run: fast compression"
+          }
+          # MySource/MyOutDir must be absolute: Inno resolves relative paths
+          # against the .iss file's own directory (packaging\).
+          $isccArgs = @("/DMyLayer=full", "/DMySource=$PWD\dist\LM_LabelingTool",
+                        "/DMyOutDir=$PWD\out") + $common + @("packaging\installer.iss")
+          & $iscc @isccArgs
           if ($LASTEXITCODE -ne 0) { throw "full installer failed ($LASTEXITCODE)" }
-          & $iscc /DMyLayer=app /DMyVersion=$ver "/DMyVersionInfo=$infoVer" `
-            "/DMySource=$PWD\dist\app-layer" "/DMySourceRoot=$PWD" `
-            "/DMyRuntime=$env:LT_RUNTIME" "/DMyOutDir=$PWD\out" packaging\installer.iss
+          $isccArgs = @("/DMyLayer=app", "/DMySource=$PWD\dist\app-layer",
+                        "/DMyOutDir=$PWD\out") + $common + @("packaging\installer.iss")
+          & $iscc @isccArgs
           if ($LASTEXITCODE -ne 0) { throw "app installer failed ($LASTEXITCODE)" }
           $full = Get-ChildItem out\LM_LabelingTool-Setup-*.exe | Select-Object -First 1
           $app  = Get-ChildItem out\LM_LabelingTool-App-*.exe   | Select-Object -First 1
           if (-not $full) { throw "ISCC produced no full installer" }
           if (-not $app)  { throw "ISCC produced no app installer" }
-          "LT_SETUP=$($full.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "LT_APP_SETUP=$($app.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          # A third package, stamped with a runtime id that matches nothing,
-          # for the guard's refusal test further down. Built here so that
-          # step only has to install, not compile.
-          New-Item -ItemType Directory -Force out-bad | Out-Null
-          & $iscc /DMyLayer=app /DMyVersion=$ver "/DMyVersionInfo=$infoVer" `
-            "/DMySource=$PWD\dist\app-layer" "/DMySourceRoot=$PWD" `
-            "/DMyRuntime=rbadbad00" "/DMyOutDir=$PWD\out-bad" packaging\installer.iss
-          if ($LASTEXITCODE -ne 0) { throw "could not build the mismatched app package" }
-          $badApp = Get-ChildItem out-bad\LM_LabelingTool-App-*.exe | Select-Object -First 1
-          "LT_BAD_SETUP=$($badApp.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Get-ChildItem out\*.exe | ForEach-Object { "{0}  {1:N1} MB" -f $_.Name, ($_.Length/1MB) }
-          # GitHub release assets must stay below 2 GiB
-          if ($full.Length -ge 1.9GB) { throw "installer too large for a release asset: $($full.Length) bytes" }
+          # GitHub release assets must stay below 2 GiB. Only tag builds are
+          # published, and only they use maximum compression.
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $full.Length -ge 1.9GB) {
+            throw "installer too large for a release asset: $($full.Length) bytes"
+          }
 
       - name: Assert the asset names match what the client looks for
         run: |
@@ -181,83 +192,28 @@ jobs:
           python -c "import sys; from labeling_tool.update import checker; ver, rt, names = sys.argv[1], sys.argv[2], set(sys.argv[3].split(',')); [sys.exit(f'{w!r} not in {sorted(names)}') for w in (checker.full_asset_name(ver), checker.app_asset_name(ver, rt)) if w not in names]; print('asset names agree with checker.py')" $ver $env:LT_RUNTIME $names
           if ($LASTEXITCODE -ne 0) { throw "asset names do not match checker.py" }
 
-      - name: Installer smoke test (full, then app layer on top, then uninstall)
+      - name: Checksums
         run: |
-          # Deliberately avoids Get-ChildItem -Recurse over the install: the
-          # runtime layer is tens of thousands of files, and materialising a
-          # FileInfo per file starved the runner of memory until it lost
-          # contact with the server (run 36528692844). The self-test already
-          # proves the runtime layer is intact -- it imports torch and sam2
-          # and composes the hydra config -- so sentinel files are enough to
-          # show the app package left it alone.
-          . packaging/ci/bounded.ps1
-          Write-DiskSpace
-          $target = "$env:RUNNER_TEMP\lt-install"
-          $code = Invoke-Installer -Path $env:LT_SETUP -InstallerArgs @("/DIR=$target","/LOG=$env:RUNNER_TEMP\install.log") -TimeoutSec 900
-          if ($code -ne 0) { Get-Content "$env:RUNNER_TEMP\install.log" -Tail 40; throw "install failed ($code)" }
-          if (-not (Test-Path "$target\build-info.json")) { throw "build-info.json missing from the install" }
-          $code = Invoke-Bounded -Path "$target\LM_LabelingTool.exe" -CallArgs @("--selftest=full") -TimeoutSec 300 -What "selftest after the full install"
-          if (Test-Path "$target\selftest.log") { Get-Content "$target\selftest.log" }
-          if ($code -ne 0) { throw "installed selftest failed ($code)" }
-
-          # Sentinels from the runtime layer, which the app package does not
-          # ship. If its [InstallDelete] ever clears _internal wholesale,
-          # these vanish and the self-test below stops passing.
-          $sentinels = @(
-            "$target\_internal\torch\version.py",
-            "$target\_internal\sam2\build_sam.py",
-            "$target\_internal\PyQt5\QtWidgets.pyd"
-          ) | Where-Object { Test-Path $_ }
-          if ($sentinels.Count -lt 2) { throw "expected runtime-layer sentinels are missing before the app install" }
-          Write-Host "runtime sentinels present: $($sentinels.Count)"
-
-          $code = Invoke-Installer -Path $env:LT_APP_SETUP -InstallerArgs @("/DIR=$target","/LOG=$env:RUNNER_TEMP\app-install.log") -TimeoutSec 300
-          if ($code -ne 0) { Get-Content "$env:RUNNER_TEMP\app-install.log" -Tail 40; throw "app install failed ($code)" }
-          foreach ($f in $sentinels) {
-            if (-not (Test-Path $f)) { throw "the app package deleted a runtime-layer file: $f" }
-          }
-          $code = Invoke-Bounded -Path "$target\LM_LabelingTool.exe" -CallArgs @("--selftest=full") -TimeoutSec 300 -What "selftest after the app-layer install"
-          if (Test-Path "$target\selftest.log") { Get-Content "$target\selftest.log" }
-          if ($code -ne 0) { throw "selftest after the app-layer install failed ($code)" }
-
-          # The guard's refusal path. Without this the Pos() comparison ships
-          # unexercised: the happy path returns True before reaching it.
-          $stamp = (Get-Item "$target\LM_LabelingTool.exe").LastWriteTimeUtc
-          $code = Invoke-Installer -Path $env:LT_BAD_SETUP -InstallerArgs @("/LOG=$env:RUNNER_TEMP\bad-install.log") -TimeoutSec 300
-          if ($code -eq 0) { throw "the mismatched app package installed anyway -- the runtime guard did not fire" }
-          if ((Get-Item "$target\LM_LabelingTool.exe").LastWriteTimeUtc -ne $stamp) {
-            throw "the refused package still wrote to the install"
-          }
-          Write-Host "mismatched app package refused, exit code $code, install untouched"
-
-          $u = Get-ChildItem "$target\unins*.exe" | Select-Object -First 1
-          $null = Invoke-Installer -Path $u.FullName -TimeoutSec 600
-          Start-Sleep -Seconds 10
-          # Installing the app package on top must not have truncated the
-          # uninstall log: the runtime layer has to go too.
-          foreach ($f in $sentinels) {
-            if (Test-Path $f) { throw "uninstall left a runtime-layer file behind: $f" }
-          }
-          Write-Host "uninstall removed the runtime layer"
-
-      - name: Package
-        run: |
-          Remove-Item -Recurse -Force build, out-bad -ErrorAction SilentlyContinue
-          pip cache purge
           # both installers get a published checksum: the updater refuses any
           # asset it cannot verify
           Get-ChildItem out\*.exe | ForEach-Object {
             $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
-            "$hash  $($_.Name)" | Add-Content -Path "out\SHA256SUMS-full.txt" -Encoding ascii
+            "$hash  $($_.Name)" | Add-Content -Path "out\SHA256SUMS.txt" -Encoding ascii
           }
-          Get-Content out\SHA256SUMS-full.txt
-          Get-ChildItem out | Format-Table Name, Length
+          Get-Content out\SHA256SUMS.txt
 
       - uses: actions/upload-artifact@v4
         with:
           name: LM_LabelingTool-${{ env.LT_VERSION }}
           path: out/*
           compression-level: 0
+
+      # Diagnostics only. Kept out of the artifact above because the release
+      # job publishes everything named LM_LabelingTool-*.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-manifest-${{ env.LT_VERSION }}
+          path: diag/runtime-manifest.txt
 
   release:
     needs: build
@@ -268,19 +224,11 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          # Only the installers: the runtime manifest is a diagnostic, not
+          # something to publish.
+          pattern: LM_LabelingTool-*
           merge-multiple: true
           path: out
-
-      - name: Assemble release assets
-        # release runs on ubuntu-latest (bash by default), unlike the build
-        # job's pwsh; rewritten to bash for the native shell here. Same
-        # effect: merge the per-variant checksums into one file, drop the
-        # zip/7z packaging artifacts, and publish only installers + checksums.
-        run: |
-          cat out/SHA256SUMS-*.txt > out/SHA256SUMS.txt
-          rm -f out/*.zip out/*.7z*
-          rm -f out/SHA256SUMS-*.txt
-          ls -l out
 
       - name: Publish release assets
         uses: softprops/action-gh-release@v2

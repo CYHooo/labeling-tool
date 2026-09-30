@@ -20,8 +20,10 @@ def _make_dist(tmp_path, files):
 
 def test_app_layer_covers_exe_and_own_packages():
     assert layers.is_app_layer("LM_LabelingTool.exe")
-    assert layers.is_app_layer("_internal/labeling_tool/models/sam/mobile.onnx")
+    assert layers.is_app_layer("_internal/labeling_tool/core/settings.pyc")
     assert layers.is_app_layer("_internal/annotation_tool/configs.py")
+    # models/ is deliberately NOT here any more -- see
+    # test_onnx_models_are_runtime_layer
 
 
 def test_build_info_is_app_layer_so_a_version_bump_keeps_the_runtime_id():
@@ -54,92 +56,115 @@ def test_windows_backslashes_are_understood():
     assert layers.is_app_layer("_internal\\labeling_tool\\core\\i18n\\__init__.pyc")
 
 
-def _make_repo(tmp_path, manifests):
-    """A fake repo root holding just the files the runtime id hashes."""
-    for rel, content in manifests.items():
-        p = tmp_path / rel
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_bytes(content)
-    return tmp_path
+def test_onnx_models_are_runtime_layer():
+    """42.4 MB of fixed pretrained weights -- over half of every app update
+    before this. A frozen build ships them at _internal/models/, beside the
+    package rather than inside it, so they fall outside the app-layer
+    prefixes naturally AND survive the installer clearing labeling_tool/."""
+    assert not layers.is_app_layer("_internal/models/sam/mobile_sam_encoder.onnx")
+    assert not layers.is_app_layer("_internal/models/sam/mobile_sam_decoder.onnx")
 
 
-SPEC = b'coll = COLLECT(exe, a.binaries, name="LM_LabelingTool")\n'
-FREEZE = "PyQt5==5.15.11\nnumpy==1.26.4\ntorch==2.5.1+cu124\n"
+def test_our_code_under_the_same_package_is_still_app_layer():
+    """The exclusion is narrow: only models/, not the package around it."""
+    assert layers.is_app_layer("_internal/labeling_tool/app.pyc")
+    assert layers.is_app_layer("_internal/labeling_tool/core/i18n/__init__.pyc")
+    assert layers.is_app_layer("_internal/labeling_tool/ui/login_dialog.pyc")
 
 
-def _make_repo(tmp_path, spec=SPEC):
-    """A fake repo root holding the files the runtime id reads."""
-    p = tmp_path / "packaging" / "labeling_tool.spec"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_bytes(spec)
-    return tmp_path
+def test_our_own_modules_are_never_mistaken_for_bundled_data():
+    """A module named models_helper is code, not a model directory."""
+    assert layers.is_app_layer("_internal/labeling_tool/models_helper.pyc")
 
 
-def test_runtime_id_is_stable_for_the_same_environment(tmp_path):
-    """The built files are NOT hashed: two PyInstaller runs of the same
-    commit produce different bytes (verified on CI runs 36421966949 and
-    36424404832), which would move the id on every release and make the
-    app package match nothing."""
-    one, two = _make_repo(tmp_path / "one"), _make_repo(tmp_path / "two")
-    assert layers.compute_runtime_id(one, FREEZE) == layers.compute_runtime_id(two, FREEZE)
+def test_changing_a_model_moves_the_runtime_id(tmp_path):
+    """Replacing MobileSAM is a full reinstall, consistent with the rule
+    that swapping a big file means everyone re-downloads."""
+    base = {"LM_LabelingTool.exe": b"app", "_internal/torch/a.dll": b"x" * 10}
+    one = _make_dist(tmp_path / "one", {**base, "_internal/models/sam/m.onnx": b"m" * 100})
+    two = _make_dist(tmp_path / "two", {**base, "_internal/models/sam/m.onnx": b"m" * 200})
+    assert layers.compute_runtime_id(one) != layers.compute_runtime_id(two)
 
 
-def test_runtime_id_changes_when_a_resolved_version_changes(tmp_path):
-    """requirements.txt says PyQt5>=5.15, so pip can resolve a different
-    version with no file changing. PyQt5's .py code rides in the exe (app
-    layer) while its .pyd files are runtime layer -- shipping an app
-    package across that split is a half-upgraded PyQt5 that cannot import."""
-    repo = _make_repo(tmp_path / "repo")
-    a = layers.compute_runtime_id(repo, FREEZE)
-    b = layers.compute_runtime_id(repo, FREEZE.replace("5.15.11", "5.15.13"))
-    assert a != b
+def test_runtime_id_is_stable_for_the_same_tree(tmp_path):
+    """Two PyInstaller runs of the same commit write different BYTES --
+    timestamps go into the files -- so contents cannot be hashed (proved on
+    CI runs 36421966949 / 36424404832). Paths and sizes are stable, and they
+    are what this measures."""
+    files = {"_internal/torch/a.dll": b"x" * 100, "LM_LabelingTool.exe": b"app"}
+    one = _make_dist(tmp_path / "one", files)
+    two = _make_dist(tmp_path / "two", files)
+    assert layers.compute_runtime_id(one) == layers.compute_runtime_id(two)
 
 
-def test_runtime_id_changes_when_the_pyinstaller_spec_changes(tmp_path):
-    """The spec decides what enters the runtime layer (collect_all, excludes).
-    Adding a dependency there without moving the id would ship an exe whose
-    PYZ imports a package the installed runtime layer does not have."""
-    one = _make_repo(tmp_path / "one")
-    two = _make_repo(tmp_path / "two",
-                     spec=SPEC + b'for pkg in ("scipy",): collect_all(pkg)\n')
-    assert layers.compute_runtime_id(one, FREEZE) != layers.compute_runtime_id(two, FREEZE)
+def test_runtime_id_ignores_app_layer_changes(tmp_path):
+    """The whole point: changing our own code must not force a reinstall."""
+    base = {"_internal/torch/a.dll": b"x" * 100}
+    one = _make_dist(tmp_path / "one", {**base, "_internal/labeling_tool/app.pyc": b"v1"})
+    two = _make_dist(tmp_path / "two", {**base, "_internal/labeling_tool/app.pyc": b"v2-longer"})
+    assert layers.compute_runtime_id(one) == layers.compute_runtime_id(two)
 
 
-def test_runtime_id_ignores_freeze_ordering_and_blank_lines(tmp_path):
-    """pip freeze ordering is not guaranteed stable across runs."""
-    repo = _make_repo(tmp_path / "repo")
-    shuffled = "\n\ntorch==2.5.1+cu124\nPyQt5==5.15.11\n\nnumpy==1.26.4\n"
-    assert layers.compute_runtime_id(repo, FREEZE) == layers.compute_runtime_id(repo, shuffled)
+def test_runtime_id_changes_when_a_runtime_file_changes_size(tmp_path):
+    app = {"LM_LabelingTool.exe": b"app"}
+    one = _make_dist(tmp_path / "one", {**app, "_internal/torch/a.dll": b"x" * 100})
+    two = _make_dist(tmp_path / "two", {**app, "_internal/torch/a.dll": b"x" * 101})
+    assert layers.compute_runtime_id(one) != layers.compute_runtime_id(two)
 
 
-def test_runtime_id_ignores_the_build_output(tmp_path):
-    """Whatever PyInstaller emitted does not enter the identity."""
-    repo = _make_repo(tmp_path / "repo")
-    before = layers.compute_runtime_id(repo, FREEZE)
-    _make_dist(repo / "dist" / "LM_LabelingTool", {"_internal/torch/a.dll": b"whatever"})
-    assert layers.compute_runtime_id(repo, FREEZE) == before
+def test_runtime_id_changes_when_a_runtime_file_is_added(tmp_path):
+    app = {"LM_LabelingTool.exe": b"app", "_internal/torch/a.dll": b"x" * 100}
+    one = _make_dist(tmp_path / "one", app)
+    two = _make_dist(tmp_path / "two", {**app, "_internal/nvidia/b.dll": b"y" * 50})
+    assert layers.compute_runtime_id(one) != layers.compute_runtime_id(two)
 
 
-def test_runtime_id_rejects_an_empty_freeze(tmp_path):
-    """An empty freeze means the caller did not actually capture the
-    environment; hashing it would produce a confident-looking wrong id."""
+def test_runtime_id_changes_when_a_runtime_file_is_removed(tmp_path):
+    app = {"LM_LabelingTool.exe": b"app", "_internal/torch/a.dll": b"x" * 100}
+    one = _make_dist(tmp_path / "one", {**app, "_internal/nvidia/nccl/n.dll": b"z" * 70})
+    two = _make_dist(tmp_path / "two", app)
+    assert layers.compute_runtime_id(one) != layers.compute_runtime_id(two)
+
+
+def test_runtime_id_changes_when_a_runtime_file_is_renamed(tmp_path):
+    """Path is hashed too: a rename that keeps every byte still moves it."""
+    app = {"LM_LabelingTool.exe": b"app"}
+    one = _make_dist(tmp_path / "one", {**app, "_internal/torch/a.dll": b"x" * 100})
+    two = _make_dist(tmp_path / "two", {**app, "_internal/torch/b.dll": b"x" * 100})
+    assert layers.compute_runtime_id(one) != layers.compute_runtime_id(two)
+
+
+def test_runtime_id_does_not_see_content_changes_at_equal_size(tmp_path):
+    """A DELIBERATE trade-off, not a defect: hashing contents was tried and
+    abandoned because PyInstaller's output is not reproducible. A dependency
+    that changes content without changing any file's size or path -- a
+    republished wheel under the same version -- will not move the id.
+    Do not "fix" this by hashing contents; that breaks the mechanism."""
+    app = {"LM_LabelingTool.exe": b"app"}
+    one = _make_dist(tmp_path / "one", {**app, "_internal/torch/a.dll": b"aaaa"})
+    two = _make_dist(tmp_path / "two", {**app, "_internal/torch/a.dll": b"bbbb"})
+    assert layers.compute_runtime_id(one) == layers.compute_runtime_id(two)
+
+
+def test_runtime_id_rejects_a_missing_dist(tmp_path):
     import pytest
-    repo = _make_repo(tmp_path / "repo")
-    with pytest.raises(ValueError):
-        layers.compute_runtime_id(repo, "   \n\n")
-
-
-def test_runtime_id_rejects_a_missing_spec(tmp_path):
-    import pytest
-    (tmp_path / "bare").mkdir()
     with pytest.raises(FileNotFoundError):
-        layers.compute_runtime_id(tmp_path / "bare", FREEZE)
+        layers.compute_runtime_id(tmp_path / "nope")
+
+
+def test_runtime_id_rejects_an_empty_runtime_layer(tmp_path):
+    """No runtime files means the caller pointed at the wrong directory;
+    hashing nothing would produce a confident-looking wrong id."""
+    import pytest
+    d = _make_dist(tmp_path / "d", {"LM_LabelingTool.exe": b"app"})
+    with pytest.raises(ValueError):
+        layers.compute_runtime_id(d)
 
 
 def test_runtime_id_format(tmp_path):
     import re
-    repo = _make_repo(tmp_path / "repo")
-    assert re.fullmatch(r"r[0-9a-f]{8}", layers.compute_runtime_id(repo, FREEZE))
+    d = _make_dist(tmp_path / "d", {"_internal/torch/a.dll": b"x" * 10})
+    assert re.fullmatch(r"r[0-9a-f]{8}", layers.compute_runtime_id(d))
 
 
 # ------------------------------------------------------- build-info.json
@@ -206,22 +231,15 @@ def test_stage_app_layer_copies_only_the_app_layer(tmp_path):
 
 
 def test_cli_runtime_id(tmp_path, capsys):
-    repo = _make_repo(tmp_path / "repo")
-    freeze = tmp_path / "freeze.txt"
-    freeze.write_text(FREEZE, encoding="utf-8")
-    assert layers.main(["runtime-id", str(repo), str(freeze)]) == 0
-    assert capsys.readouterr().out.strip() == layers.compute_runtime_id(repo, FREEZE)
+    d = _make_dist(tmp_path / "d", {"_internal/torch/a.dll": b"x" * 10})
+    assert layers.main(["runtime-id", str(d)]) == 0
+    assert capsys.readouterr().out.strip() == layers.compute_runtime_id(d)
 
 
-def test_cli_runtime_id_on_this_repo(tmp_path, capsys):
-    """The real spec file exists where the CLI expects it -- a rename fails
-    here rather than on the runner."""
-    import re
-    root = pathlib.Path(__file__).resolve().parents[2]
-    freeze = tmp_path / "freeze.txt"
-    freeze.write_text(FREEZE, encoding="utf-8")
-    assert layers.main(["runtime-id", str(root), str(freeze)]) == 0
-    assert re.fullmatch(r"r[0-9a-f]{8}", capsys.readouterr().out.strip())
+def test_cli_runtime_id_reports_a_bad_path(tmp_path):
+    import pytest
+    with pytest.raises(FileNotFoundError):
+        layers.main(["runtime-id", str(tmp_path / "missing")])
 
 
 def test_cli_stage(tmp_path, capsys):
@@ -238,17 +256,72 @@ def test_cli_rejects_bad_usage(capsys):
     assert "usage:" in capsys.readouterr().err
 
 
-def test_runtime_id_ignores_line_endings(tmp_path):
-    """git may check the spec out with CRLF on Windows and LF elsewhere.
-    Hashing raw bytes made the same commit produce different ids on
-    different platforms, which is the silent-drift failure this whole
-    mechanism exists to avoid."""
-    lf = _make_repo(tmp_path / "lf", spec=b"a = 1\nb = 2\n")
-    crlf = _make_repo(tmp_path / "crlf", spec=b"a = 1\r\nb = 2\r\n")
-    assert layers.compute_runtime_id(lf, FREEZE) == layers.compute_runtime_id(crlf, FREEZE)
+def test_build_machine_system_dlls_are_recognised():
+    for rel in ("_internal/api-ms-win-core-file-l1-1-0.dll",
+                "_internal/ucrtbase.dll",
+                "_internal/VCRUNTIME140_1.dll",
+                "_internal\\msvcp140.dll",
+                "_internal/concrt140.dll"):
+        assert layers.is_build_machine_file(rel), rel
 
 
-def test_runtime_id_ignores_freeze_line_endings(tmp_path):
-    repo = _make_repo(tmp_path / "repo")
-    assert (layers.compute_runtime_id(repo, "PyQt5==5.15.11\r\nnumpy==1.26.4\r\n")
-            == layers.compute_runtime_id(repo, "PyQt5==5.15.11\nnumpy==1.26.4\n"))
+def test_a_wheels_own_copy_of_a_system_dll_is_not_a_build_machine_file():
+    # PyQt5 ships its own MSVCP140.dll inside its wheel: a PyQt5 upgrade
+    # that changes it must still move the id.
+    assert not layers.is_build_machine_file("_internal/PyQt5/Qt5/bin/MSVCP140.dll")
+    assert not layers.is_build_machine_file("_internal/python312.dll")
+    assert not layers.is_build_machine_file("_internal/ucrtbase_notes.txt")
+    assert not layers.is_build_machine_file("api-ms-win-core-file-l1-1-0.dll")
+
+
+def test_runtime_id_ignores_the_build_machines_system_dlls(tmp_path):
+    # Runner images 20260922.246.2 and 20260925.250.1 built the same commit
+    # with different UCRT/VC++ DLLs and so different ids.
+    a = _make_dist(tmp_path / "a", {"_internal/torch/a.dll": b"x" * 10,
+                                    "_internal/ucrtbase.dll": b"u" * 100,
+                                    "_internal/api-ms-win-crt-math-l1-1-0.dll": b"m"})
+    b = _make_dist(tmp_path / "b", {"_internal/torch/a.dll": b"x" * 10,
+                                    "_internal/ucrtbase.dll": b"u" * 120})
+    assert layers.compute_runtime_id(a) == layers.compute_runtime_id(b)
+
+
+def test_build_machine_dlls_still_ship_in_the_runtime_layer(tmp_path):
+    # Left out of the id, not out of the install: the full package needs them.
+    assert not layers.is_app_layer("_internal/ucrtbase.dll")
+    d = _make_dist(tmp_path / "d", {"_internal/ucrtbase.dll": b"u",
+                                    "_internal/torch/a.dll": b"x"})
+    assert [rel for rel, _ in layers.iter_runtime_files(d)] == [
+        "_internal/torch/a.dll", "_internal/ucrtbase.dll"]
+
+
+def test_manifest_lists_runtime_files_with_sizes_sorted(tmp_path):
+    d = _make_dist(tmp_path / "d", {
+        "LM_LabelingTool.exe": b"x",
+        "_internal/torch/b.dll": b"bb",
+        "_internal/abc.pyc": b"aaa",
+        "_internal/labeling_tool/core.pyc": b"y",
+    })
+    assert layers.runtime_manifest(d) == [("_internal/abc.pyc", 3),
+                                          ("_internal/torch/b.dll", 2)]
+
+
+def test_manifest_is_what_the_runtime_id_hashes(tmp_path):
+    # Diffing two manifests is only a valid diagnosis of a moved id if the
+    # manifest carries everything the id depends on.
+    a = _make_dist(tmp_path / "a", {"_internal/torch/a.dll": b"x" * 10})
+    b = _make_dist(tmp_path / "b", {"_internal/torch/a.dll": b"y" * 10})
+    assert layers.runtime_manifest(a) == layers.runtime_manifest(b)
+    assert layers.compute_runtime_id(a) == layers.compute_runtime_id(b)
+
+
+def test_cli_manifest(tmp_path, capsys):
+    d = _make_dist(tmp_path / "d", {"_internal/torch/a.dll": b"x" * 10,
+                                    "LM_LabelingTool.exe": b"x"})
+    assert layers.main(["manifest", str(d)]) == 0
+    assert capsys.readouterr().out == "10\t_internal/torch/a.dll\n"
+
+
+def test_cli_manifest_reports_a_bad_path(tmp_path):
+    import pytest
+    with pytest.raises(FileNotFoundError):
+        layers.main(["manifest", str(tmp_path / "missing")])
