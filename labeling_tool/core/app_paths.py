@@ -2,17 +2,24 @@
 
 Source run: every caller keeps its historical location (passed in as
 ``source_path``), so existing checkouts and their data are untouched.
-Frozen (LabelingTool.exe): writable state lives next to the exe, so the whole
-folder is portable and survives replacing ``_internal/`` on upgrade.
+Frozen on Windows (LabelingTool.exe): writable state lives next to the exe,
+so the whole folder is portable and survives replacing ``_internal/`` on
+upgrade. This is a published, per-user install base and must never change.
+Frozen on Linux: the deb installs to ``/opt``, a root-owned, read-only
+directory, so writable state instead lives under the XDG base directories
+(``$XDG_DATA_HOME``/``$XDG_CACHE_HOME``, falling back to ``~/.local/share``
+and ``~/.cache``).
 Read-only bundled resources (ONNX models, BPE vocab) keep using ``__file__``.
 """
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+APP_DIR_NAME = "lm-labeling-tool"
 
 
 def is_frozen() -> bool:
@@ -52,6 +59,45 @@ def resource_path(name: str) -> Path:
     return Path(__file__).resolve().parent.parent / "resources" / name
 
 
+def _xdg_dir(env_var: str, default_suffix: str) -> Path:
+    """An XDG base directory, falling back when the variable is unusable.
+
+    The spec requires an absolute path; a blank or relative value -- both seen
+    in stripped login environments -- would otherwise resolve against the
+    current working directory and scatter user data. Path.home() raises when
+    HOME is unset, and this runs during startup, so that falls back too rather
+    than leaving the app unable to open a window."""
+    raw = (os.environ.get(env_var) or "").strip()
+    if raw and Path(raw).is_absolute():
+        return Path(raw)
+    try:
+        home = Path.home()
+    except (RuntimeError, OSError):
+        home = Path(os.environ.get("TMPDIR") or "/tmp")
+    return home / default_suffix
+
+
+def user_data_home() -> Path:
+    """Where the app may write. Beside the executable on Windows (the install
+    is per-user and portable); XDG on Linux, where the install lives under
+    /opt and is root-owned."""
+    if not is_frozen():
+        return REPO_ROOT
+    if sys.platform == "win32":
+        return app_home()
+    return _xdg_dir("XDG_DATA_HOME", ".local/share") / APP_DIR_NAME
+
+
+def user_cache_home() -> Path:
+    """Where downloads land: discardable, and kept out of user_data_home() so
+    a 1.5 GB update package is not swept into the user's backups."""
+    if not is_frozen():
+        return REPO_ROOT / ".cache"
+    if sys.platform == "win32":
+        return app_home()
+    return _xdg_dir("XDG_CACHE_HOME", ".cache") / APP_DIR_NAME
+
+
 def writable_path(source_path: Path, frozen_name: str) -> Path:
-    """``source_path`` from source; ``app_home() / frozen_name`` in the exe."""
-    return app_home() / frozen_name if is_frozen() else Path(source_path)
+    """``source_path`` from source; ``user_data_home() / frozen_name`` frozen."""
+    return user_data_home() / frozen_name if is_frozen() else Path(source_path)
