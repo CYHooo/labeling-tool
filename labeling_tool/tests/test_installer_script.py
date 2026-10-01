@@ -93,7 +93,7 @@ def test_app_layer_installdelete_never_clears_internal_wholesale(iss):
 # build with nothing after 47 minutes. Both surfaced only as "the hosted
 # runner lost communication with the server".
 
-WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "build-windows.yml"
+WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "release.yml"
 
 
 @pytest.fixture(scope="module")
@@ -252,3 +252,42 @@ def test_splats_are_always_the_whole_argument_list(powershell_source):
         for m in re.finditer(r"(?<=\s)@[A-Za-z_]\w*", stripped):
             assert not stripped[m.end():].strip(), (
                 f"splat {m.group()} is not the whole argument list: {stripped}")
+
+
+# ---------------------------------------------------- release.yml (Linux)
+# Task 10 expanded the single-platform build-windows.yml into release.yml,
+# which publishes both a Windows and a Linux build from one tag. These
+# checks guard the properties that would otherwise fail silently: a
+# runner-image bump that drops 22.04 users, a release missing one
+# platform's assets, and an install smoke test that papers over a missing
+# dependency instead of catching it.
+
+def test_the_linux_job_pins_2204_not_latest():
+    # glibc only works forwards: a 24.04 build cannot run on 22.04. A casual
+    # bump to ubuntu-latest would silently drop half the supported users.
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "ubuntu-22.04" in text
+    assert "runs-on: ubuntu-latest" not in [l.strip() for l in text.splitlines()
+                                            if "build-linux" in text]
+
+
+def test_release_needs_both_builds():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "needs: [build-windows, build-linux]" in text
+
+
+def test_release_asserts_all_four_assets_are_present():
+    # A build that fails on one platform must not produce a release carrying
+    # only the other: clients look for one name and find nothing, silently.
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "LM_LabelingTool-Setup-v" in text
+    assert "lm-labeling-tool-runtime_" in text
+
+
+def test_the_linux_smoke_test_forbids_apt_fix_broken():
+    # `dpkg -i` must succeed on its own; needing `apt-get install -f` means
+    # the runtime package declares a library users will not have either.
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "dpkg -i" in text
+    assert "install -f" not in text, \
+        "the smoke test must not paper over a missing dependency"

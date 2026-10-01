@@ -10,7 +10,7 @@ runtime, so a newly added third-party dependency changes the runtime id and
 forces a full reinstall, instead of riding along inside a partial app
 package that would install missing its own dependency.
 
-Imported by CI (see .github/workflows/build-windows.yml) and by the tests.
+Imported by CI (see .github/workflows/release.yml) and by the tests.
 """
 
 from __future__ import annotations

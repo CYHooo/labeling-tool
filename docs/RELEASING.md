@@ -84,7 +84,73 @@ runtime id 是对运行时层每个文件的「路径 + 大小」做哈希。以
 2. 运行 `pip freeze`，去掉 `SAM-2 @ git+...` 这一行后写回 `build-lock.txt`，保留文件开头的注释。
 3. 本地完整验证一遍。
 
+## Linux（.deb）发布
+
+Windows 和 Linux 由**同一个 tag** 从同一个工作流（`release.yml`）构建发布，产物共四个：
+两个 Windows 安装包（见上）和两个 Debian 包：
+
+| 文件 | 内容 | 大小 | 用途 |
+|---|---|---|---|
+| `lm-labeling-tool-runtime_<版本>_amd64.deb` | 运行时层（Python、PyQt5、torch、CUDA） | 约 1.4 GB | **第一次安装**时需要 |
+| `lm-labeling-tool_<版本>-r<runtime id>_amd64.deb` | 应用层（我们自己的代码） | 约 20 MB | 日常更新 |
+
+### 手动安装
+
+```bash
+sudo dpkg -i lm-labeling-tool-runtime_<版本>_amd64.deb lm-labeling-tool_<版本>-r<id>_amd64.deb
+```
+
+两个包的顺序不重要，`dpkg` 会按 `Depends` 自行处理。**正常情况下这条命令应当一次成功**——
+CI 的安装冒烟测试就是在验证这一点（见下）。如果提示缺少系统库（比如某个 `libxcb-*` 或
+`libglib2.0-*`），再补一次：
+
+```bash
+sudo apt-get install -f
+```
+
+这只应该在手动安装、且系统本身缺少常见桌面库时发生；CI 不允许这一步，出现这种情况说明
+`packaging/deb.py` 里 `RUNTIME_DEPENDS` 遗漏了某个依赖，应该作为 bug 报告。
+
+应用包的 `Depends` 锁定了精确的 runtime id（`lm-labeling-tool-runtime (= 0~<id>)`），这就是
+Linux 版本的「错配 installer 守卫」：对着不匹配的 runtime 装应用包，`dpkg -i` 会直接拒绝，不需要
+`installer.iss` 那种手写 Pascal 逻辑。
+
+### 核对 CI 日志中的 Linux runtime id
+
+`build-linux` job 的「Compute the runtime id and write build info」步骤会打印
+`runtime id: r<8位hex>`。它与 Windows 侧的 runtime id 相互独立（两个平台的运行时层文件列表本来
+就不同），不需要跨平台一致，只需要**同一平台**前后两次构建在运行时未变时保持一致。
+
+### 运行时变化时，两个平台都是全量
+
+`packaging/build-lock.txt`（Windows）和 `packaging/build-lock-linux.txt`（Linux）各自独立锁定依赖。
+升级任意一份锁都只影响对应平台的 runtime id，但发布节奏是绑在一起的——两个平台共用一个 tag。
+也就是说：
+
+- 只有 Windows 的锁变了：这次发布里，Windows 用户收到完整安装包，Linux 用户仍然只需要下载
+  app 包（约 20 MB）。
+- 只有 Linux 的锁变了：反过来，Linux 用户收到两个 deb（完整安装），Windows 用户仍然只需要
+  app 安装包。
+- 两份锁都没变（纯代码改动）：两个平台都只需要各自的小更新包。
+
+`build-linux` job 同样会在运行时未变时复用上一个 release 的 runtime deb（见
+`packaging/reuse_runtime.py`），跳过重新压缩 ~1.4 GB 的 xz，逻辑与 Windows 侧的
+`reuse_full.py` 对称。
+
+### CI 里的安装冒烟测试
+
+`build-linux` job 在构建完两个 deb 之后，会做三件 Windows 侧没有的事（Linux 没有
+`local-build.ps1` 那样的本地验证脚本，所以这些检查目前都放在 CI 里）：
+
+1. `sudo dpkg -i` 装上两个真实的 deb，然后无头（`xvfb-run`）跑一次 `--selftest`。
+2. 手工拼一个 runtime id 对不上的「错配」应用 deb，断言 `dpkg -i` 会拒绝安装。
+3. 在一个全新的 `ubuntu:24.04` 容器里重复第 1 步，证明「在 22.04 上构建、同时跑在两个版本上」
+   不只是一个假设。
+
+这三步里的 `dpkg -i` 都**不允许**跟 `apt-get install -f`：需要它就说明 `RUNTIME_DEPENDS`
+声明的库，用户的机器上大概率也没有。
+
 ## CI 的手动运行
 
-在 Actions 页面手动运行 `build-windows`，会用快速压缩构建，并且只上传构建产物、不发布。
+在 Actions 页面手动运行 `release`，两个平台都会用快速压缩构建，并且只上传构建产物、不发布。
 可以在不打 tag 的情况下演练一次发布构建。

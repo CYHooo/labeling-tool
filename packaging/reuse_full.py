@@ -16,7 +16,7 @@ install on an older runtime -- with no update offered at all.
 an app package built against a runtime id, and if that id is ours, its full
 installer holds our runtime layer byte for byte.
 
-Called by CI (.github/workflows/build-windows.yml); PowerShell has no
+Called by CI (.github/workflows/release.yml); PowerShell has no
 heredoc, so the logic lives here where it is unit-tested.
 """
 

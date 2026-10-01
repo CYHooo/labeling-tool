@@ -1,0 +1,626 @@
+# Build and publish a release of LM_LabelingTool for BOTH supported
+# platforms -- Windows and Linux (.deb) -- from a single tag.
+#
+# Windows verification -- the test suite, the launch smoke test, the
+# install / upgrade / uninstall smoke test and the refusal of a mismatched
+# app package -- runs locally before tagging:
+#
+#   powershell -File packaging\ci\local-build.ps1 -Venv C:\lt\venv
+#
+# A CI round used to take 18-25 minutes and every failed check cost another
+# round; see docs/RELEASING.md. What stays in the Windows job here is what a
+# release cannot do without, plus one 15-second selftest so a broken bundle
+# is never published.
+#
+# Linux has no equivalent local-build script yet, so its install and
+# dependency-guard smoke tests live in this CI job instead -- that is why
+# build-linux carries more verification steps than build-windows. Porting
+# them to a local script (mirroring local-build.ps1) is future work, not a
+# requirement of this change.
+#
+# The Linux job pins `ubuntu-22.04`, NOT `ubuntu-latest`. glibc only works
+# forwards: a binary linked against a newer glibc (24.04/noble ships 2.39)
+# cannot run on an older one (22.04/jammy ships 2.35), but the reverse
+# works. We support both releases, so we must build on the OLDER one. A
+# casual bump to `ubuntu-latest` (which tracks the newest LTS) would still
+# "work" in CI and would silently drop every user still on 22.04 -- the
+# 24.04 cross-validation step in build-linux exists to catch exactly that
+# class of mistake before it ships.
+#
+# Triggers: a version tag (v*) builds and publishes both platforms. A
+# manual run builds with fast compression and uploads the installers /
+# debs as workflow artifacts only -- a dry run of the release job's input.
+name: release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Exact: the interpreter and its DLLs are part of the runtime layer.
+          python-version: "3.12.10"
+          # Keep pip's download cache (torch alone is 2.5 GB) between
+          # releases. Keyed on the lock, so a dependency change starts clean;
+          # the venv itself is still created fresh every time.
+          cache: pip
+          cache-dependency-path: |
+            packaging/build-lock.txt
+            packaging/build-constraints.txt
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Version
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            if ($env:GITHUB_REF_NAME -notmatch '^v\d+(\.\d+)*$') {
+              throw "tag '$($env:GITHUB_REF_NAME)' does not match ^v\d+(\.\d+)*$ (e.g. a '-rc1' suffix breaks VersionInfoVersion and is misclassified as a dev build)"
+            }
+            $ver = $env:GITHUB_REF_NAME
+          } else {
+            $ver = "dev-" + $env:GITHUB_SHA.Substring(0, 7)
+          }
+          "LT_VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Create a clean build environment
+        run: |
+          # A fresh venv, never the runner's own Python: that one ships with
+          # preinstalled packages (filelock, packaging, argcomplete, ...)
+          # whose versions follow the runner image, and PyInstaller bundles
+          # them -- which moved the runtime id between two builds of the same
+          # commit. Everything else is pinned by packaging/build-lock.txt.
+          python -m venv "$env:RUNNER_TEMP\buildenv"
+          "$env:RUNNER_TEMP\buildenv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Install dependencies
+        env:
+          SAM2_BUILD_CUDA: "0"
+          # sam2's repo has symlinks (sam2/sam2_hiera_*.yaml). Without this,
+          # git on a machine that defaults core.symlinks=false writes 30-byte
+          # placeholder files instead, and the runtime id differs from a
+          # build that resolved them. Set explicitly on both sides.
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: core.symlinks
+          GIT_CONFIG_VALUE_0: "true"
+        run: |
+          # Every step below uses the venv (it is first on PATH now).
+          if (-not ((Get-Command python).Source -like "$env:RUNNER_TEMP\buildenv\*")) { throw "not running in the build venv" }
+          # Whole-array splats only: `pip install @lock -r x` would pass a
+          # literal "@lock" (see the ISCC step).
+          $lock = @("-m", "pip", "install", "-c", "packaging/build-constraints.txt", "-c", "packaging/build-lock.txt")
+          $pipArgs = $lock + @("-r", "requirements-dev.txt", "pyinstaller==6.22.3")
+          python @pipArgs
+          if ($LASTEXITCODE -ne 0) { throw "installing the production dependencies failed" }
+          $pipArgs = $lock + @("torch==2.5.1", "torchvision==0.20.1", "--index-url", "https://download.pytorch.org/whl/cu124")
+          python @pipArgs
+          if ($LASTEXITCODE -ne 0) { throw "installing torch failed" }
+          # sam2's build needs the torch installed above (no CUDA extension: SAM2_BUILD_CUDA=0)
+          $pipArgs = $lock + @("--no-build-isolation", "git+https://github.com/facebookresearch/sam2.git@2b90b9f5ceec907a1c18123530e92e794ad901a4")
+          python @pipArgs
+          if ($LASTEXITCODE -ne 0) { throw "installing sam2 failed" }
+
+      - name: Build exe
+        run: pyinstaller --noconfirm --log-level WARN packaging/labeling_tool.spec
+
+      - name: Selftest packaged exe
+        run: |
+          # The one check kept in CI: 15 seconds, and it stops a bundle that
+          # cannot import torch or compose the sam2 config from being published.
+          . packaging/ci/bounded.ps1
+          $code = Invoke-Bounded -Path dist\LM_LabelingTool\LM_LabelingTool.exe `
+            -CallArgs @("--selftest=full") -TimeoutSec 300 -What "selftest on the build output"
+          if (Test-Path dist\LM_LabelingTool\selftest.log) {
+            Get-Content dist\LM_LabelingTool\selftest.log
+            Remove-Item dist\LM_LabelingTool\selftest.log
+          } else {
+            Write-Host "selftest.log not found (early crash?)"
+          }
+          if ($code -ne 0) { throw "selftest failed with exit code $code" }
+          # the app may create these next to the exe; never ship them
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue dist\LM_LabelingTool\data, dist\LM_LabelingTool\config.json
+
+      - name: Compute the runtime id and write build info
+        run: |
+          # The runtime id measures the runtime layer itself -- each file's
+          # path and size, minus the build machine's own system DLLs. It must
+          # match what local-build.ps1 printed for the same commit; if it
+          # does not, the lock or the environment has drifted.
+          $rt = python packaging/layers.py runtime-id dist/LM_LabelingTool
+          if (-not ($rt -match '^r[0-9a-f]{8}$')) { throw "bad runtime id: $rt" }
+          "LT_RUNTIME=$rt" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "runtime id: $rt"
+          # What the id hashes, file by file, for diffing against a local build.
+          New-Item -ItemType Directory -Force diag | Out-Null
+          python packaging/layers.py manifest dist/LM_LabelingTool | Set-Content -Path diag\runtime-manifest.txt -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw "could not write the runtime manifest" }
+          $ver = $env:LT_VERSION -replace '^v', ''
+          $info = @{ version = $ver; variant = 'full'; runtime = $rt; commit = $env:GITHUB_SHA.Substring(0,7) }
+          $info | ConvertTo-Json -Compress | Set-Content -Path dist\LM_LabelingTool\build-info.json -Encoding utf8
+          Get-Content dist\LM_LabelingTool\build-info.json
+
+      - name: Stage the app layer
+        run: |
+          python packaging/layers.py stage dist/LM_LabelingTool dist/app-layer
+          if ($LASTEXITCODE -ne 0) { throw "staging the app layer failed" }
+          $app = (Get-ChildItem dist/app-layer -Recurse -File | Measure-Object -Property Length -Sum)
+          Write-Host ("app layer: {0:N1} MB in {1} files" -f ($app.Sum/1MB), $app.Count)
+          # The app package is what every routine update downloads. If it
+          # climbs back into the tens of MB something leaked out of the
+          # runtime layer.
+          if ($app.Sum -gt 20MB) { throw ("app layer unexpectedly large: {0:N1} MB" -f ($app.Sum/1MB)) }
+
+      - name: Reuse the previous full installer if the runtime is unchanged
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Compressing the full installer is ~11 of ~18 minutes, and on a
+          # code-only release its runtime layer is byte-identical to the
+          # previous release's. Ship that installer again under this
+          # version's name; new users get the app package on first launch.
+          # See packaging/reuse_full.py for why the name must be ours.
+          New-Item -ItemType Directory -Force diag, prev | Out-Null
+          $ErrorActionPreference = "Continue"
+          gh release view --repo $env:GITHUB_REPOSITORY --json tagName,assets | Set-Content -Path diag\prev-release.json -Encoding utf8
+          $found = $LASTEXITCODE -eq 0
+          $ErrorActionPreference = "Stop"
+          if (-not $found) { Write-Host "no previous release: full build"; exit 0 }
+          $plan = python packaging/reuse_full.py plan diag\prev-release.json $env:LT_RUNTIME
+          if ($LASTEXITCODE -ne 0) { throw "reuse_full.py plan failed" }
+          if (-not $plan) { Write-Host "runtime $env:LT_RUNTIME is new: full build"; exit 0 }
+          $prevTag, $prevName = $plan -split "`t"
+          gh release download $prevTag --repo $env:GITHUB_REPOSITORY --dir prev --pattern $prevName --pattern SHA256SUMS.txt
+          if ($LASTEXITCODE -ne 0) { throw "could not download $prevName from $prevTag" }
+          python packaging/reuse_full.py verify prev\SHA256SUMS.txt "prev\$prevName"
+          if ($LASTEXITCODE -ne 0) { throw "$prevName from $prevTag does not match its published checksum" }
+          "LT_REUSE_FULL=$PWD\prev\$prevName" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "runtime $env:LT_RUNTIME unchanged since ${prevTag}, reusing $prevName"
+
+      - name: Build installers
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found even after installing Inno Setup" }
+          $ver = $env:LT_VERSION -replace '^v', ''
+          # Windows version resources must be numeric (x.y[.z[.w]]). For dev
+          # builds ($ver like "dev-a72cd7b"), use 0.0.0.
+          if ($ver -match '^\d+(\.\d+)*$') { $infoVer = $ver } else { $infoVer = '0.0.0' }
+          New-Item -ItemType Directory -Force out | Out-Null
+          # Splatting only expands when it IS the whole argument list --
+          # `& $iscc /A @fast script.iss` passes a literal "@fast", which
+          # ISCC reads as a second script filename and rejects.
+          $common = @("/DMyVersion=$ver", "/DMyVersionInfo=$infoVer",
+                      "/DMySourceRoot=$PWD", "/DMyRuntime=$env:LT_RUNTIME")
+          # Tags are what users download: maximum compression. A manual dry
+          # run only needs to show that the release would build.
+          if ($env:GITHUB_REF_TYPE -ne 'tag') {
+            $common += "/DMyFast=1"
+            Write-Host "dry run: fast compression"
+          }
+          # MySource/MyOutDir must be absolute: Inno resolves relative paths
+          # against the .iss file's own directory (packaging\).
+          if ($env:LT_REUSE_FULL) {
+            # Same runtime layer as the previous release: its installer, under
+            # the name clients look for in THIS release.
+            Copy-Item $env:LT_REUSE_FULL "out\LM_LabelingTool-Setup-v$ver.exe"
+            Write-Host "full installer reused: $(Split-Path $env:LT_REUSE_FULL -Leaf)"
+          } else {
+            $isccArgs = @("/DMyLayer=full", "/DMySource=$PWD\dist\LM_LabelingTool",
+                          "/DMyOutDir=$PWD\out") + $common + @("packaging\installer.iss")
+            & $iscc @isccArgs
+            if ($LASTEXITCODE -ne 0) { throw "full installer failed ($LASTEXITCODE)" }
+          }
+          $isccArgs = @("/DMyLayer=app", "/DMySource=$PWD\dist\app-layer",
+                        "/DMyOutDir=$PWD\out") + $common + @("packaging\installer.iss")
+          & $iscc @isccArgs
+          if ($LASTEXITCODE -ne 0) { throw "app installer failed ($LASTEXITCODE)" }
+          $full = Get-ChildItem out\LM_LabelingTool-Setup-*.exe | Select-Object -First 1
+          $app  = Get-ChildItem out\LM_LabelingTool-App-*.exe   | Select-Object -First 1
+          if (-not $full) { throw "ISCC produced no full installer" }
+          if (-not $app)  { throw "ISCC produced no app installer" }
+          Get-ChildItem out\*.exe | ForEach-Object { "{0}  {1:N1} MB" -f $_.Name, ($_.Length/1MB) }
+          # GitHub release assets must stay below 2 GiB. Only tag builds are
+          # published, and only they use maximum compression.
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $full.Length -ge 1.9GB) {
+            throw "installer too large for a release asset: $($full.Length) bytes"
+          }
+
+      - name: Assert the asset names match what the client looks for
+        run: |
+          # installer.iss's OutputBaseFilename and checker.py's templates are
+          # one contract; change either alone and the client silently stops
+          # finding updates.
+          $ver = $env:LT_VERSION -replace '^v', ''
+          $names = (Get-ChildItem out\*.exe | ForEach-Object { $_.Name }) -join ","
+          python -c "import sys; from labeling_tool.update import checker; ver, rt, names = sys.argv[1], sys.argv[2], set(sys.argv[3].split(',')); [sys.exit(f'{w!r} not in {sorted(names)}') for w in (checker.full_asset_name(ver), checker.app_asset_name(ver, rt)) if w not in names]; print('asset names agree with checker.py')" $ver $env:LT_RUNTIME $names
+          if ($LASTEXITCODE -ne 0) { throw "asset names do not match checker.py" }
+
+      - name: Checksums
+        run: |
+          # both installers get a published checksum: the updater refuses any
+          # asset it cannot verify
+          Get-ChildItem out\*.exe | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)" | Add-Content -Path "out\SHA256SUMS.txt" -Encoding ascii
+          }
+          Get-Content out\SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LM_LabelingTool-${{ env.LT_VERSION }}
+          path: out/*
+          compression-level: 0
+
+      # Diagnostics only. Kept out of the artifact above because the release
+      # job publishes everything named LM_LabelingTool-*.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-manifest-${{ env.LT_VERSION }}
+          path: diag/runtime-manifest.txt
+
+  build-linux:
+    # See the top-of-file comment: pinned to the OLDER of our two supported
+    # Ubuntu releases on purpose, never ubuntu-latest.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Exact: the interpreter and its DLLs are part of the runtime layer.
+          python-version: "3.12.10"
+          cache: pip
+          cache-dependency-path: |
+            packaging/build-lock-linux.txt
+            packaging/build-constraints.txt
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install system dependencies
+        run: |
+          # dpkg-dev: dpkg-deb, used to build the two .deb packages.
+          # xvfb: runs the Qt GUI headless for the selftest and the install
+          #   smoke test below.
+          # build-essential: a C compiler, for any pinned package that has
+          #   no prebuilt manylinux wheel.
+          # The remaining packages are exactly RUNTIME_DEPENDS from
+          # packaging/deb.py (jammy spelling of the glib package) -- the
+          # install smoke test below must see `dpkg -i` succeed on its own,
+          # which only holds if this machine already has what the package
+          # declares, the same way a real desktop would.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            dpkg-dev xvfb build-essential \
+            libgl1 libglib2.0-0 libxkbcommon-x11-0 libxcb-xinerama0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 libdbus-1-3
+
+      - name: Version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            if ! [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+(\.[0-9]+)*$ ]]; then
+              echo "tag '$GITHUB_REF_NAME' does not match ^v[0-9]+(\.[0-9]+)*\$ (e.g. a '-rc1' suffix breaks the deb Version field)" >&2
+              exit 1
+            fi
+            ver="$GITHUB_REF_NAME"
+          else
+            ver="dev-${GITHUB_SHA:0:7}"
+          fi
+          echo "LT_VERSION=$ver" >> "$GITHUB_ENV"
+
+      - name: Create a clean build environment
+        run: |
+          # A fresh venv, never the runner's own Python: preinstalled
+          # packages on the runner image would get bundled by PyInstaller
+          # and move the runtime id between two builds of the same commit.
+          # Everything else is pinned by packaging/build-lock-linux.txt.
+          python -m venv "$RUNNER_TEMP/buildenv"
+          echo "$RUNNER_TEMP/buildenv/bin" >> "$GITHUB_PATH"
+
+      - name: Install dependencies
+        env:
+          SAM2_BUILD_CUDA: "0"
+          # sam2's repo has symlinks (sam2/sam2_hiera_*.yaml). Without this,
+          # git on a machine that defaults core.symlinks=false writes 30-byte
+          # placeholder files instead, and the runtime id differs from a
+          # build that resolved them. Set explicitly on both sides.
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: core.symlinks
+          GIT_CONFIG_VALUE_0: "true"
+        run: |
+          set -euo pipefail
+          # Every step below uses the venv (it is first on PATH now).
+          case "$(command -v python)" in
+            "$RUNNER_TEMP"/buildenv/*) ;;
+            *) echo "not running in the build venv" >&2; exit 1 ;;
+          esac
+          lock=(-c packaging/build-constraints.txt -c packaging/build-lock-linux.txt)
+          python -m pip install "${lock[@]}" -r requirements-dev.txt pyinstaller==6.22.3 pyinstaller-hooks-contrib==2026.7
+          python -m pip install "${lock[@]}" torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu124
+          # sam2's build needs the torch installed above (no CUDA extension: SAM2_BUILD_CUDA=0)
+          python -m pip install "${lock[@]}" --no-build-isolation "git+https://github.com/facebookresearch/sam2.git@2b90b9f5ceec907a1c18123530e92e794ad901a4"
+
+      - name: Build exe
+        run: pyinstaller --noconfirm --log-level WARN packaging/labeling_tool.spec
+
+      - name: Selftest packaged exe
+        run: |
+          set -euo pipefail
+          set +e
+          timeout 300 xvfb-run -a dist/LM_LabelingTool/LM_LabelingTool --selftest
+          code=$?
+          set -e
+          if [ -f dist/LM_LabelingTool/selftest.log ]; then
+            cat dist/LM_LabelingTool/selftest.log
+            rm -f dist/LM_LabelingTool/selftest.log
+          else
+            echo "selftest.log not found (early crash?)"
+          fi
+          if [ "$code" -ne 0 ]; then
+            echo "selftest failed with exit code $code" >&2
+            exit 1
+          fi
+          # the app may create these next to the exe; never ship them
+          rm -rf dist/LM_LabelingTool/data dist/LM_LabelingTool/config.json
+
+      - name: Compute the runtime id and write build info
+        run: |
+          set -euo pipefail
+          # The runtime id measures the runtime layer itself -- each file's
+          # path and size -- the Linux counterpart of the Windows step of
+          # the same name. It must match what a build of the same commit
+          # prints anywhere else; if it does not, the lock has drifted.
+          rt=$(python packaging/layers.py runtime-id dist/LM_LabelingTool)
+          if ! [[ "$rt" =~ ^r[0-9a-f]{8}$ ]]; then
+            echo "bad runtime id: $rt" >&2
+            exit 1
+          fi
+          echo "LT_RUNTIME=$rt" >> "$GITHUB_ENV"
+          echo "runtime id: $rt"
+          mkdir -p diag
+          python packaging/layers.py manifest dist/LM_LabelingTool > diag/runtime-manifest-linux.txt
+          ver="${LT_VERSION#v}"
+          printf '{"version": "%s", "variant": "full", "runtime": "%s", "commit": "%s"}' \
+            "$ver" "$rt" "${GITHUB_SHA:0:7}" > dist/LM_LabelingTool/build-info.json
+          cat dist/LM_LabelingTool/build-info.json
+
+      - name: Stage the app layer
+        run: |
+          set -euo pipefail
+          python packaging/layers.py stage dist/LM_LabelingTool dist/app-layer
+          app_bytes=$(find dist/app-layer -type f -printf '%s\n' | awk '{sum += $1} END {print sum + 0}')
+          printf 'app layer: %.1f MB\n' "$(awk -v b="$app_bytes" 'BEGIN{print b/1024/1024}')"
+          # The app package is what every routine update downloads. If it
+          # climbs back into the tens of MB something leaked out of the
+          # runtime layer.
+          if [ "$app_bytes" -gt $((20 * 1024 * 1024)) ]; then
+            echo "app layer unexpectedly large: $app_bytes bytes" >&2
+            exit 1
+          fi
+
+      - name: Reuse the previous runtime deb if the runtime is unchanged
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Mirrors the Windows job's "Reuse the previous full installer"
+          # step: see packaging/reuse_runtime.py for why the runtime deb
+          # must exist in every release even when its bytes are unchanged.
+          mkdir -p diag prev
+          plan=""
+          if gh release view --repo "$GITHUB_REPOSITORY" --json tagName,assets > diag/prev-release.json; then
+            plan=$(python packaging/reuse_runtime.py plan diag/prev-release.json "$LT_RUNTIME")
+          else
+            echo "no previous release: full build"
+          fi
+          if [ -z "$plan" ]; then
+            echo "runtime $LT_RUNTIME is new (or no reusable previous release): full build"
+            exit 0
+          fi
+          prev_tag="${plan%%$'\t'*}"
+          prev_name="${plan#*$'\t'}"
+          gh release download "$prev_tag" --repo "$GITHUB_REPOSITORY" --dir prev --pattern "$prev_name" --pattern SHA256SUMS.txt
+          python packaging/reuse_runtime.py verify prev/SHA256SUMS.txt "prev/$prev_name"
+          echo "LT_REUSE_RUNTIME=$PWD/prev/$prev_name" >> "$GITHUB_ENV"
+          echo "runtime $LT_RUNTIME unchanged since $prev_tag, reusing $prev_name"
+
+      - name: Build debs
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          ver="${LT_VERSION#v}"
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            export LT_FAST=1
+            echo "dry run: fast compression"
+          fi
+          if [ -n "${LT_REUSE_RUNTIME:-}" ]; then
+            # Same runtime as the previous release: skip recompressing the
+            # ~1.4 GB runtime layer and build only the app deb -- see
+            # packaging/reuse_runtime.py's module docstring for why redoing
+            # that xz pass to reproduce identical bytes would be waste.
+            stage=$(mktemp -d)
+            python -c "import os, sys; from pathlib import Path; sys.path.insert(0, 'packaging'); import deb, layers; version, stage = sys.argv[1], Path(sys.argv[2]); dist_dir = Path('dist/LM_LabelingTool'); out_dir = Path('out'); out_dir.mkdir(parents=True, exist_ok=True); runtime_id = layers.compute_runtime_id(dist_dir, layers.LINUX); app_root = stage / 'app'; app_bytes, _ = layers.stage_app_layer(dist_dir, app_root / deb.INSTALL_PREFIX.lstrip('/'), layers.LINUX); deb._stage_app_extras(dist_dir, app_root, version); app_kb = max(1, app_bytes // 1024); deb._write_control_dir(app_root, deb.app_control(version, runtime_id, app_kb), deb.POSTINST); app_out = out_dir / deb.app_deb_filename(version, runtime_id); deb._dpkg_deb_build(app_root, app_out, bool(os.environ.get('LT_FAST'))); print(f'app: {app_out}')" "$ver" "$stage"
+            rm -rf "$stage"
+            runtime_name="lm-labeling-tool-runtime_${ver}_amd64.deb"
+            cp "$LT_REUSE_RUNTIME" "out/$runtime_name"
+            echo "runtime deb reused: $(basename "$LT_REUSE_RUNTIME")"
+          else
+            XZ_OPT=-T4 python packaging/deb.py build dist/LM_LabelingTool out "$ver"
+          fi
+          ls -la out/
+
+      - name: Assert the asset names match what the client looks for
+        run: |
+          set -euo pipefail
+          # installer.iss / deb.py's filenames and checker.py's templates
+          # are one contract; change either alone and the client silently
+          # stops finding updates.
+          ver="${LT_VERSION#v}"
+          names=$(cd out && ls -- *.deb | paste -sd, -)
+          python -c "import sys; from labeling_tool.update import checker; ver, rt, names = sys.argv[1], sys.argv[2], set(sys.argv[3].split(',')); wanted = [checker.full_asset_names(ver, checker.LINUX)[0], checker.app_asset_name(ver, rt, checker.LINUX)]; missing = [w for w in wanted if w not in names]; sys.exit(f'{missing!r} not in {sorted(names)}') if missing else print('asset names agree with checker.py')" "$ver" "$LT_RUNTIME" "$names"
+
+      - name: Install smoke test
+        run: |
+          set -euo pipefail
+          # dpkg -i must succeed on its own. Needing apt's dependency-fixup
+          # pass afterwards would mean the runtime package declares a
+          # library real users will not have either -- see
+          # packaging/deb.py's RUNTIME_DEPENDS comment.
+          sudo dpkg -i out/lm-labeling-tool-runtime_*.deb out/lm-labeling-tool_*.deb
+          set +e
+          timeout 300 xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest
+          code=$?
+          set -e
+          if [ -f "$HOME/.local/share/lm-labeling-tool/selftest.log" ]; then
+            cat "$HOME/.local/share/lm-labeling-tool/selftest.log"
+          fi
+          if [ "$code" -ne 0 ]; then
+            echo "installed-app selftest failed with exit code $code" >&2
+            exit 1
+          fi
+          echo "installed app selftest passed"
+
+      - name: Dependency guard -- a mismatched app deb must be rejected
+        run: |
+          set -euo pipefail
+          # The real runtime deb installed above carries this build's own
+          # id. An app deb built against a DIFFERENT id must be refused by
+          # dpkg on its own -- this one Depends line is the Linux
+          # counterpart of installer.iss's hand-written guard.
+          ver="${LT_VERSION#v}"
+          bad_stage=$(mktemp -d)
+          python -c "import sys; from pathlib import Path; sys.path.insert(0, 'packaging'); import deb; version, stage = sys.argv[1], Path(sys.argv[2]); bogus_runtime = 'rdeadbeef'; app_root = stage / 'app'; (app_root / 'usr' / 'bin').mkdir(parents=True, exist_ok=True); deb._write_control_dir(app_root, deb.app_control(version, bogus_runtime, installed_kb=1), deb.POSTINST); out = stage / deb.app_deb_filename(version, bogus_runtime); deb._dpkg_deb_build(app_root, out, fast=True); print(out)" "$ver" "$bad_stage"
+          bad_deb=$(ls "$bad_stage"/lm-labeling-tool_*.deb)
+          if sudo dpkg -i "$bad_deb"; then
+            echo "a mismatched-runtime app deb installed; it must be rejected" >&2
+            exit 1
+          fi
+          echo "mismatched-runtime app deb correctly rejected by dpkg"
+          sudo dpkg --remove --force-remove-reinstreq lm-labeling-tool >/dev/null 2>&1 || true
+          rm -rf "$bad_stage"
+
+      - name: Cross-validate the install on Ubuntu 24.04
+        run: |
+          set -euo pipefail
+          # "built on 22.04, runs on both" is otherwise only an assumption.
+          # noble renamed libglib2.0-0 to libglib2.0-0t64 (64-bit time_t);
+          # RUNTIME_DEPENDS covers both names, so the same two debs built
+          # above must install cleanly here too, with no dependency-fixup pass.
+          docker run --rm -v "$PWD/out:/out:ro" ubuntu:24.04 bash -euo pipefail -c '
+            apt-get update
+            apt-get install -y --no-install-recommends xvfb libgl1 libglib2.0-0t64 \
+              libxkbcommon-x11-0 libxcb-xinerama0 libxcb-icccm4 libxcb-image0 \
+              libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libdbus-1-3
+            dpkg -i /out/lm-labeling-tool-runtime_*.deb /out/lm-labeling-tool_*.deb
+            xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest
+          '
+
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          # Both debs get a published checksum: the updater refuses any
+          # asset it cannot verify.
+          cd out
+          for f in *.deb; do
+            hash=$(sha256sum "$f" | cut -d' ' -f1)
+            echo "$hash  $f" >> SHA256SUMS.txt
+          done
+          cat SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LM_LabelingTool-Linux-${{ env.LT_VERSION }}
+          path: out/*
+          compression-level: 0
+
+      # Diagnostics only. Kept out of the artifact above because the release
+      # job publishes everything named LM_LabelingTool-*.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-manifest-linux-${{ env.LT_VERSION }}
+          path: diag/runtime-manifest-linux.txt
+
+  release:
+    needs: [build-windows, build-linux]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          # Only the installers/debs: the runtime manifests are diagnostics,
+          # not something to publish. No merge-multiple here on purpose --
+          # each platform's artifact lands in its own
+          # artifacts/<artifact-name>/ subdirectory, so the two platforms'
+          # same-named SHA256SUMS.txt files do not collide before they are
+          # merged below.
+          pattern: LM_LabelingTool-*
+          path: artifacts
+
+      - name: Merge the two platforms' assets and checksums into one release
+        run: |
+          set -euo pipefail
+          # The client only ever reads ONE SHA256SUMS.txt (see
+          # labeling_tool/update/checker.py's SUMS_ASSET), but build-windows
+          # and build-linux each produced their own. Skipping this merge
+          # would leave half the assets with no published checksum, and the
+          # updater would silently never offer them.
+          mkdir -p out
+          find artifacts -mindepth 2 -maxdepth 2 -type f ! -name 'SHA256SUMS.txt' -exec cp {} out/ \;
+          cat artifacts/*/SHA256SUMS.txt > out/SHA256SUMS.txt
+          ls -la out/
+
+      - name: Assert all four release assets are present
+        run: |
+          set -euo pipefail
+          # A build failing on one platform must never publish a release
+          # carrying only the other's assets -- the client looks for one
+          # exact name per platform and finds nothing, silently.
+          ver="${GITHUB_REF_NAME#v}"
+          declare -A expected=(
+            ["Windows full installer"]="out/LM_LabelingTool-Setup-v${ver}.exe"
+            ["Windows app installer"]="out/LM_LabelingTool-App-v${ver}-r*.exe"
+            ["Linux runtime deb"]="out/lm-labeling-tool-runtime_${ver}_amd64.deb"
+            ["Linux app deb"]="out/lm-labeling-tool_${ver}-r*_amd64.deb"
+          )
+          missing=0
+          for label in "${!expected[@]}"; do
+            pattern="${expected[$label]}"
+            if ! compgen -G "$pattern" > /dev/null; then
+              echo "::error::missing release asset ($label): $pattern"
+              missing=1
+            fi
+          done
+          if [ ! -f out/SHA256SUMS.txt ]; then
+            echo "::error::missing merged SHA256SUMS.txt"
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+          echo "all four release assets and the merged checksum file are present"
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
