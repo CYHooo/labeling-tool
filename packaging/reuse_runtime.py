@@ -56,8 +56,8 @@ def plan(release_json: dict, runtime_id: str) -> tuple[str, str] | None:
     if checker.app_asset_name(version, runtime_id, checker.LINUX) not in names:
         return None   # no app deb for this version, or the runtime moved
     runtime_deb = checker.full_asset_names(version, checker.LINUX)[0]
-    if runtime_deb not in names:
-        return None   # that release has no runtime deb to copy
+    if runtime_deb not in names or checker.SUMS_ASSET not in names:
+        return None   # no runtime deb to copy, or nothing to verify it against
     return tag, runtime_deb
 
 

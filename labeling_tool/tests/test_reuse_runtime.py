@@ -12,7 +12,8 @@ import reuse_runtime  # noqa: E402
 def test_reuses_when_the_previous_release_carries_our_runtime_id():
     release = {"tagName": "v1.4.0", "assets": [
         {"name": "lm-labeling-tool_1.4.0-r3f8a1c92_amd64.deb"},
-        {"name": "lm-labeling-tool-runtime_1.4.0_amd64.deb"}]}
+        {"name": "lm-labeling-tool-runtime_1.4.0_amd64.deb"},
+        {"name": "SHA256SUMS.txt"}]}
     assert reuse_runtime.plan(release, "r3f8a1c92") == \
         ("v1.4.0", "lm-labeling-tool-runtime_1.4.0_amd64.deb")
 
@@ -20,7 +21,8 @@ def test_reuses_when_the_previous_release_carries_our_runtime_id():
 def test_rebuilds_when_the_runtime_id_moved():
     release = {"tagName": "v1.4.0", "assets": [
         {"name": "lm-labeling-tool_1.4.0-r00000000_amd64.deb"},
-        {"name": "lm-labeling-tool-runtime_1.4.0_amd64.deb"}]}
+        {"name": "lm-labeling-tool-runtime_1.4.0_amd64.deb"},
+        {"name": "SHA256SUMS.txt"}]}
     assert reuse_runtime.plan(release, "r3f8a1c92") is None
 
 
@@ -28,6 +30,15 @@ def test_rebuilds_when_the_previous_release_has_no_runtime_deb():
     # Nothing to copy. Also the exact hole spec 7.2.1 exists to close.
     release = {"tagName": "v1.4.0", "assets": [
         {"name": "lm-labeling-tool_1.4.0-r3f8a1c92_amd64.deb"}]}
+    assert reuse_runtime.plan(release, "r3f8a1c92") is None
+
+
+def test_rebuilds_when_the_previous_release_has_no_checksums():
+    # Without SHA256SUMS.txt there is nothing to verify the reused file
+    # against, so a download-and-reattach plan must never be offered.
+    release = {"tagName": "v1.4.0", "assets": [
+        {"name": "lm-labeling-tool_1.4.0-r3f8a1c92_amd64.deb"},
+        {"name": "lm-labeling-tool-runtime_1.4.0_amd64.deb"}]}
     assert reuse_runtime.plan(release, "r3f8a1c92") is None
 
 
@@ -63,7 +74,8 @@ def test_verify_rejects_a_file_with_no_published_checksum(tmp_path):
 def test_cli_plan_prints_tag_and_name(tmp_path, capsys):
     release = {"tagName": "v1.4.0", "assets": [
         {"name": "lm-labeling-tool_1.4.0-r3f8a1c92_amd64.deb"},
-        {"name": "lm-labeling-tool-runtime_1.4.0_amd64.deb"}]}
+        {"name": "lm-labeling-tool-runtime_1.4.0_amd64.deb"},
+        {"name": "SHA256SUMS.txt"}]}
     p = tmp_path / "rel.json"
     p.write_text(json.dumps(release), encoding="utf-8")
     assert reuse_runtime.main(["plan", str(p), "r3f8a1c92"]) == 0
@@ -74,7 +86,8 @@ def test_cli_plan_prints_tag_and_name(tmp_path, capsys):
 def test_cli_plan_prints_nothing_when_a_rebuild_is_needed(tmp_path, capsys):
     release = {"tagName": "v1.4.0", "assets": [
         {"name": "lm-labeling-tool_1.4.0-r3f8a1c92_amd64.deb"},
-        {"name": "lm-labeling-tool-runtime_1.4.0_amd64.deb"}]}
+        {"name": "lm-labeling-tool-runtime_1.4.0_amd64.deb"},
+        {"name": "SHA256SUMS.txt"}]}
     p = tmp_path / "rel.json"
     p.write_text(json.dumps(release), encoding="utf-8")
     assert reuse_runtime.main(["plan", str(p), "rOTHEROTHER"]) == 0
