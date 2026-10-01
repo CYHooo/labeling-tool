@@ -8,6 +8,7 @@ written to ``<user_data_home>/selftest.log``.
 
 from __future__ import annotations
 
+import faulthandler
 import importlib
 import importlib.util
 import os
@@ -30,6 +31,12 @@ FULL_MODULES = (
 )
 
 _qt_app = None  # keep the QApplication alive for the whole run
+
+# A healthy full run takes well under a minute. Past this, faulthandler
+# writes every thread's traceback to selftest-hang.txt and exits, so a hang
+# names its own cause instead of silently running into the CI job's limit
+# (CI run 36856399327 hung 23 minutes without a single line of output).
+HANG_SECONDS = 240
 
 
 def _check_onnx() -> None:
@@ -96,16 +103,25 @@ def run_selftest(variant: str) -> int:
         print(message, end="")
         (home / "selftest.log").write_text(message, encoding="utf-8")
         return 2
+    log = home / "selftest.log"
     lines, failed = [f"selftest variant={variant} home={home}"], 0
-    for name, check in _checks(variant):
+    with open(home / "selftest-hang.txt", "w", encoding="utf-8") as hang_file:
+        faulthandler.dump_traceback_later(HANG_SECONDS, exit=True, file=hang_file)
         try:
-            check()
-            lines.append(f"OK   {name}")
-        except Exception as exc:  # noqa: BLE001 - report every failure, keep going
-            failed += 1
-            lines.append(f"FAIL {name}: {type(exc).__name__}: {exc}")
+            for name, check in _checks(variant):
+                # Name the check BEFORE running it: a check that hangs never
+                # returns, so only this line says which one it was.
+                log.write_text("\n".join(lines + [f"RUN  {name}"]) + "\n", encoding="utf-8")
+                try:
+                    check()
+                    lines.append(f"OK   {name}")
+                except Exception as exc:  # noqa: BLE001 - report every failure, keep going
+                    failed += 1
+                    lines.append(f"FAIL {name}: {type(exc).__name__}: {exc}")
+        finally:
+            faulthandler.cancel_dump_traceback_later()
     lines.append("RESULT: " + ("PASS" if not failed else f"FAIL ({failed})"))
     report = "\n".join(lines) + "\n"
     print(report, end="")
-    (home / "selftest.log").write_text(report, encoding="utf-8")
+    log.write_text(report, encoding="utf-8")
     return 0 if not failed else 1

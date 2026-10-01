@@ -75,3 +75,37 @@ def test_app_main_dispatches_selftest(monkeypatch):
     monkeypatch.setattr(selftest, "run_selftest", lambda variant: {"full": 7}.get(variant, 3))
     assert app.main(["--selftest=full"]) == 7
     assert app.main(["--selftest"]) == 7          # bare flag -> full, the only variant
+
+
+def test_log_names_the_check_in_progress(monkeypatch, tmp_path):
+    """A check that hangs never returns, so the end-of-run report is never
+    written. The log must already name the running check while it runs --
+    CI run 36856399327 hung 23 minutes leaving no trace of which one."""
+    monkeypatch.setattr(selftest, "user_data_home", lambda: tmp_path)
+    seen = []
+
+    def _peek():
+        seen.append((tmp_path / "selftest.log").read_text(encoding="utf-8"))
+
+    monkeypatch.setattr(selftest, "_checks", lambda variant: iter([("peeks at the log", _peek)]))
+    assert selftest.run_selftest("full") == 0
+    assert "RUN  peeks at the log" in seen[0]
+
+
+def test_a_hung_run_dumps_every_thread_and_exits(monkeypatch, tmp_path):
+    """faulthandler is armed for the whole run, so a hang ends with every
+    thread's traceback in selftest-hang.txt instead of running into the CI
+    job's six-hour limit; a run that finishes disarms it."""
+    monkeypatch.setattr(selftest, "user_data_home", lambda: tmp_path)
+    monkeypatch.setattr(selftest, "_checks", lambda variant: iter(()))
+    calls = []
+    monkeypatch.setattr(selftest.faulthandler, "dump_traceback_later",
+                        lambda timeout, **kw: calls.append(("arm", timeout, kw)))
+    monkeypatch.setattr(selftest.faulthandler, "cancel_dump_traceback_later",
+                        lambda: calls.append(("disarm",)))
+    assert selftest.run_selftest("full") == 0
+    (arm, timeout, kw), (disarm,) = calls
+    assert arm == "arm" and disarm == "disarm"
+    assert timeout == selftest.HANG_SECONDS
+    assert kw["exit"] is True
+    assert kw["file"].name == str(tmp_path / "selftest-hang.txt")

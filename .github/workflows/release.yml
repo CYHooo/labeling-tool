@@ -637,7 +637,20 @@ jobs:
             apt-get install -y ubuntu-desktop-minimal
             apt-get install -y --no-install-recommends xvfb
             dpkg -i /out/lm-labeling-tool-runtime_*.deb /out/lm-labeling-tool_*.deb
-            xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest=full
+            # Bounded: unbounded, this selftest once hung 23 minutes with no
+            # output (CI run 36856399327). The selftest arms its own
+            # faulthandler dump well inside this limit, so print both of
+            # its files -- selftest.log names the check that was running,
+            # selftest-hang.txt holds every thread traceback of a hang.
+            set +e
+            timeout --kill-after=10 300 xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest=full
+            code=$?
+            set -e
+            for f in selftest.log selftest-hang.txt; do
+              p="$HOME/.local/share/lm-labeling-tool/$f"
+              if [ -s "$p" ]; then echo "--- $f"; cat "$p"; fi
+            done
+            exit "$code"
           '
 
       - name: Checksums
