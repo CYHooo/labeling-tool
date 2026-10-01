@@ -18,7 +18,7 @@ import sys
 # original labeling GUI uses).
 os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = ""
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QSize, Qt
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QApplication
 
@@ -104,7 +104,18 @@ def main(argv: list[str] | None = None) -> int:
     # Qt, so without this the running app shows Qt's default icon. Set on
     # the QApplication so every window inherits it.
     from labeling_tool.core.app_paths import resource_path
-    app.setWindowIcon(QIcon(str(resource_path("icon.ico"))))
+    # PNG rather than ICO: Qt's ICO plugin is not guaranteed to be collected
+    # into the Linux build, and the .desktop entry needs a bitmap anyway.
+    # One addFile() per size -- NOT a single file -- because
+    # packaging/make_icon.py hand-tunes the <=32px renders (heavier stroke,
+    # bigger glyph, no underline) so the taskbar/title bar stay legible;
+    # QIcon(<one file>) would instead generically rescale that one bitmap,
+    # losing that tuning exactly the way a single 256px source would. Sizes
+    # here must match packaging/make_icon.py's PNG_SIZES.
+    icon = QIcon()
+    for px in (16, 32, 48, 256):
+        icon.addFile(str(resource_path(f"icon-{px}.png")), QSize(px, px))
+    app.setWindowIcon(icon)
     # Apply the dark theme app-wide so the login/fetch dialogs and every
     # QMessageBox match the main window (set before the first dialog shows).
     from labeling_tool.core.window.styles import STYLESHEET

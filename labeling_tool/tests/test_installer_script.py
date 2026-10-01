@@ -8,6 +8,7 @@ never found the install it was meant to protect.
 """
 
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -93,7 +94,7 @@ def test_app_layer_installdelete_never_clears_internal_wholesale(iss):
 # build with nothing after 47 minutes. Both surfaced only as "the hosted
 # runner lost communication with the server".
 
-WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "build-windows.yml"
+WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "release.yml"
 
 
 @pytest.fixture(scope="module")
@@ -252,3 +253,152 @@ def test_splats_are_always_the_whole_argument_list(powershell_source):
         for m in re.finditer(r"(?<=\s)@[A-Za-z_]\w*", stripped):
             assert not stripped[m.end():].strip(), (
                 f"splat {m.group()} is not the whole argument list: {stripped}")
+
+
+# ---------------------------------------------------- release.yml (Linux)
+# Task 10 expanded the single-platform build-windows.yml into release.yml,
+# which publishes both a Windows and a Linux build from one tag. These
+# checks guard the properties that would otherwise fail silently: a
+# runner-image bump that drops 22.04 users, a release missing one
+# platform's assets, and an install smoke test that papers over a missing
+# dependency instead of catching it.
+
+def test_the_linux_job_pins_2204_not_latest():
+    # glibc only works forwards: a 24.04 build cannot run on 22.04. A casual
+    # bump to ubuntu-latest would silently drop half the supported users.
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "ubuntu-22.04" in text
+    assert "runs-on: ubuntu-latest" not in [l.strip() for l in text.splitlines()
+                                            if "build-linux" in l]
+
+
+def test_release_needs_both_builds():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "needs: [build-windows, build-linux]" in text
+
+
+def test_release_asserts_all_four_assets_are_present():
+    # A build that fails on one platform must not produce a release carrying
+    # only the other: clients look for one name and find nothing, silently.
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "LM_LabelingTool-Setup-v" in text
+    assert "lm-labeling-tool-runtime_" in text
+
+
+def test_the_linux_dev_version_starts_with_a_digit():
+    # dpkg-deb refuses a Version field that does not start with a digit
+    # ("version number does not start with digit"). Every later step strips
+    # a leading "v" off LT_VERSION (`ver="${LT_VERSION#v}"`) before it reaches
+    # deb.py's Version field, so a tag like "v1.2.3" is fine (becomes
+    # "1.2.3"), but the non-tag ("dev") branch's literal value goes through
+    # that same strip UNCHANGED since it never had a leading "v" -- so IT
+    # must already be digit-first. Regression: this step once used the
+    # Windows-shaped "dev-<sha>" (becomes "dev-<sha>", not digit-first),
+    # which makes every non-tag (manual dry-run) Linux build fail at
+    # `dpkg-deb --build`. local-build.sh's own "0.0.0-dev-local" default
+    # mirrors the fixed shape.
+    yaml = pytest.importorskip("yaml")
+    text = WORKFLOW.read_text(encoding="utf-8")
+    data = yaml.safe_load(text)
+    job = data["jobs"]["build-linux"]
+    version_steps = [s for s in job["steps"] if s.get("name") == "Version"]
+    assert version_steps, "expected a 'Version' step in build-linux"
+    run = version_steps[0]["run"]
+    m = re.search(r'else\s*\n\s*ver="([^"]*)"', run)
+    assert m, "expected an else-branch literal ver=\"...\" assignment"
+    dev_value = m.group(1)
+    stripped = re.sub(r'^v', '', dev_value)  # mirrors `${LT_VERSION#v}` downstream
+    assert re.match(r'^[0-9]', stripped), (
+        f"build-linux's non-tag Version branch assigns ver={dev_value!r}, which "
+        "does not start with a digit after the leading-'v' strip every later "
+        "step applies, and would make dpkg-deb reject the app deb's Version field"
+    )
+
+
+def test_the_linux_smoke_test_forbids_apt_fix_broken():
+    # `dpkg -i` must succeed on its own; needing `apt-get install -f` means
+    # the runtime package declares a library users will not have either.
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "dpkg -i" in text
+    assert "install -f" not in text, \
+        "the smoke test must not paper over a missing dependency"
+
+
+# -------------------------------------- inline `python -c` in release.yml
+# A function renamed on one side of an inline `python -c` string is a
+# SyntaxError or AttributeError only CI (or a human) discovers -- exactly
+# what happened when checker.full_asset_name() (singular, never existed)
+# sat unnoticed in this workflow until a full review caught it: every
+# previous test here only did substring assertions on the raw YAML text,
+# so a release-breaking typo passed 593 green tests. These two tests
+# extract every inline `python -c "..."` string THE WAY THE SHELL WOULD
+# RECEIVE IT (via yaml.safe_load, not a regex over the raw file -- the YAML
+# block-scalar indentation strip matters) and check it for real.
+
+_PYTHON_C_RE = re.compile(r'python(?:3)?\s+-c\s+"((?:[^"\\]|\\.)*)"', re.DOTALL)
+
+
+def _iter_run_steps(workflow: dict):
+    """(job name, step name, run script) for every step with a `run:` key,
+    across every job -- not just build-linux."""
+    for job_name, job in (workflow.get("jobs") or {}).items():
+        for i, step in enumerate(job.get("steps") or []):
+            run = step.get("run")
+            if isinstance(run, str):
+                yield job_name, step.get("name", f"step #{i}"), run
+
+
+def _iter_inline_python(yaml_module, workflow_text: str):
+    """(job name, step name, python source) for every `python -c "..."`
+    invocation anywhere in the workflow. Parsed via yaml.safe_load so the
+    source is exactly what the shell sees -- a raw-text regex would still
+    carry the YAML block's own leading indentation."""
+    data = yaml_module.safe_load(workflow_text)
+    for job_name, step_name, run in _iter_run_steps(data):
+        for m in _PYTHON_C_RE.finditer(run):
+            yield job_name, step_name, m.group(1)
+
+
+def test_inline_python_in_the_workflow_actually_compiles():
+    yaml = pytest.importorskip("yaml")
+    text = WORKFLOW.read_text(encoding="utf-8")
+    snippets = list(_iter_inline_python(yaml, text))
+    assert snippets, "expected at least one inline `python -c` in release.yml"
+    problems = []
+    for job_name, step_name, snippet in snippets:
+        try:
+            compile(snippet, f"<{job_name}: {step_name}>", "exec")
+        except SyntaxError as exc:
+            problems.append(f"{job_name} / {step_name!r}: {exc.__class__.__name__}: {exc}")
+    assert not problems, "\n".join(problems)
+
+
+def test_inline_python_only_references_real_checker_layers_deb_names():
+    # compile() alone would NOT have caught checker.full_asset_name()
+    # (singular): calling a nonexistent attribute is syntactically valid
+    # Python, and only fails at runtime with an AttributeError. This walks
+    # every real `checker.X` / `layers.X` / `deb.X` ATTRIBUTE ACCESS (via
+    # the AST, not a text regex -- a regex would also match "checker.py"
+    # inside an unrelated string literal like a log message) and checks X
+    # is a real attribute of the real module.
+    import ast
+
+    yaml = pytest.importorskip("yaml")
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "packaging"))
+    import deb as deb_module  # noqa: E402
+    import layers as layers_module  # noqa: E402
+    from labeling_tool.update import checker as checker_module
+
+    modules = {"checker": checker_module, "layers": layers_module, "deb": deb_module}
+
+    text = WORKFLOW.read_text(encoding="utf-8")
+    problems = []
+    for job_name, step_name, snippet in _iter_inline_python(yaml, text):
+        tree = ast.parse(snippet)
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+                    and node.value.id in modules
+                    and not hasattr(modules[node.value.id], node.attr)):
+                problems.append(f"{job_name} / {step_name!r}: "
+                                 f"{node.value.id}.{node.attr} does not exist")
+    assert not problems, "\n".join(problems)

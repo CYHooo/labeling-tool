@@ -19,7 +19,9 @@ def _make_dist(tmp_path, files):
 
 
 def test_app_layer_covers_exe_and_own_packages():
-    assert layers.is_app_layer("LM_LabelingTool.exe")
+    # Explicit WINDOWS: this test locks the Windows entry-name rule and must
+    # hold the same on any host, not just when run on a Windows machine.
+    assert layers.is_app_layer("LM_LabelingTool.exe", layers.WINDOWS)
     assert layers.is_app_layer("_internal/labeling_tool/core/settings.pyc")
     assert layers.is_app_layer("_internal/annotation_tool/configs.py")
     # models/ is deliberately NOT here any more -- see
@@ -158,7 +160,7 @@ def test_runtime_id_rejects_an_empty_runtime_layer(tmp_path):
     import pytest
     d = _make_dist(tmp_path / "d", {"LM_LabelingTool.exe": b"app"})
     with pytest.raises(ValueError):
-        layers.compute_runtime_id(d)
+        layers.compute_runtime_id(d, layers.WINDOWS)
 
 
 def test_runtime_id_format(tmp_path):
@@ -222,7 +224,7 @@ def test_stage_app_layer_copies_only_the_app_layer(tmp_path):
         "_internal/torch/big.dll": b"z" * 100,
     })
     out = tmp_path / "app"
-    app_bytes, all_bytes = layers.stage_app_layer(dist, out)
+    app_bytes, all_bytes = layers.stage_app_layer(dist, out, layers.WINDOWS)
     copied = sorted(p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_file())
     assert copied == ["LM_LabelingTool.exe", "_internal/labeling_tool/core.pyc",
                       "build-info.json"]
@@ -242,7 +244,11 @@ def test_cli_runtime_id_reports_a_bad_path(tmp_path):
         layers.main(["runtime-id", str(tmp_path / "missing")])
 
 
-def test_cli_stage(tmp_path, capsys):
+def test_cli_stage(tmp_path, capsys, monkeypatch):
+    # The CLI has no platform flag by design (CI always builds the runner's
+    # own platform); pin it to WINDOWS here so this fixture, which hardcodes
+    # the .exe entry name, is not at the mercy of the host running the tests.
+    monkeypatch.setattr(layers, "current_platform", lambda: layers.WINDOWS)
     d = _make_dist(tmp_path / "d", {"LM_LabelingTool.exe": b"x",
                                     "_internal/torch/a.dll": b"aaa"})
     assert layers.main(["stage", str(d), str(tmp_path / "out")]) == 0
@@ -262,7 +268,7 @@ def test_build_machine_system_dlls_are_recognised():
                 "_internal/VCRUNTIME140_1.dll",
                 "_internal\\msvcp140.dll",
                 "_internal/concrt140.dll"):
-        assert layers.is_build_machine_file(rel), rel
+        assert layers.is_build_machine_file(rel, layers.WINDOWS), rel
 
 
 def test_a_wheels_own_copy_of_a_system_dll_is_not_a_build_machine_file():
@@ -282,7 +288,7 @@ def test_runtime_id_ignores_the_build_machines_system_dlls(tmp_path):
                                     "_internal/api-ms-win-crt-math-l1-1-0.dll": b"m"})
     b = _make_dist(tmp_path / "b", {"_internal/torch/a.dll": b"x" * 10,
                                     "_internal/ucrtbase.dll": b"u" * 120})
-    assert layers.compute_runtime_id(a) == layers.compute_runtime_id(b)
+    assert layers.compute_runtime_id(a, layers.WINDOWS) == layers.compute_runtime_id(b, layers.WINDOWS)
 
 
 def test_build_machine_dlls_still_ship_in_the_runtime_layer(tmp_path):
@@ -301,7 +307,7 @@ def test_manifest_lists_runtime_files_with_sizes_sorted(tmp_path):
         "_internal/abc.pyc": b"aaa",
         "_internal/labeling_tool/core.pyc": b"y",
     })
-    assert layers.runtime_manifest(d) == [("_internal/abc.pyc", 3),
+    assert layers.runtime_manifest(d, layers.WINDOWS) == [("_internal/abc.pyc", 3),
                                           ("_internal/torch/b.dll", 2)]
 
 
@@ -314,7 +320,10 @@ def test_manifest_is_what_the_runtime_id_hashes(tmp_path):
     assert layers.compute_runtime_id(a) == layers.compute_runtime_id(b)
 
 
-def test_cli_manifest(tmp_path, capsys):
+def test_cli_manifest(tmp_path, capsys, monkeypatch):
+    # See test_cli_stage: pin the host platform so this .exe fixture behaves
+    # the same regardless of which OS runs the test suite.
+    monkeypatch.setattr(layers, "current_platform", lambda: layers.WINDOWS)
     d = _make_dist(tmp_path / "d", {"_internal/torch/a.dll": b"x" * 10,
                                     "LM_LabelingTool.exe": b"x"})
     assert layers.main(["manifest", str(d)]) == 0
@@ -325,3 +334,45 @@ def test_cli_manifest_reports_a_bad_path(tmp_path):
     import pytest
     with pytest.raises(FileNotFoundError):
         layers.main(["manifest", str(tmp_path / "missing")])
+
+
+def test_app_entry_name_is_platform_specific():
+    assert layers.app_entry_name(layers.WINDOWS) == "LM_LabelingTool.exe"
+    assert layers.app_entry_name(layers.LINUX) == "LM_LabelingTool"
+
+
+def test_linux_entry_is_app_layer_and_windows_entry_is_not():
+    # The Linux build has no .exe; classifying the other platform's entry
+    # as app layer would silently ship it in the wrong package.
+    assert layers.is_app_layer("LM_LabelingTool", layers.LINUX) is True
+    assert layers.is_app_layer("LM_LabelingTool.exe", layers.LINUX) is False
+    assert layers.is_app_layer("LM_LabelingTool.exe", layers.WINDOWS) is True
+    assert layers.is_app_layer("LM_LabelingTool", layers.WINDOWS) is False
+
+
+def test_shared_app_layer_prefixes_hold_on_both_platforms():
+    for platform in (layers.WINDOWS, layers.LINUX):
+        assert layers.is_app_layer("build-info.json", platform) is True
+        assert layers.is_app_layer("_internal/labeling_tool/app.py", platform) is True
+        assert layers.is_app_layer("_internal/annotation_tool/x.py", platform) is True
+        assert layers.is_app_layer("_internal/torch/lib/c10.so", platform) is False
+        assert layers.is_app_layer("_internal/models/sam/mobile_sam.onnx", platform) is False
+
+
+def test_build_machine_files_are_a_windows_only_concept():
+    # The exclusion exists because PyInstaller copies UCRT/VC++ DLLs from the
+    # build machine's Windows. Nothing analogous is taken from the Linux host.
+    assert layers.is_build_machine_file("_internal/vcruntime140.dll", layers.WINDOWS) is True
+    assert layers.is_build_machine_file("_internal/vcruntime140.dll", layers.LINUX) is False
+    assert layers.is_build_machine_file("_internal/libstdc++.so.6", layers.LINUX) is False
+
+
+def test_runtime_id_differs_between_platforms_for_the_same_tree(tmp_path):
+    # Same relative paths, different entry-name rule: the Windows run counts
+    # LM_LabelingTool as a runtime file, the Linux run does not.
+    (tmp_path / "_internal").mkdir()
+    (tmp_path / "LM_LabelingTool").write_bytes(b"x" * 10)
+    (tmp_path / "_internal" / "libtorch.so").write_bytes(b"y" * 20)
+    win = layers.compute_runtime_id(tmp_path, layers.WINDOWS)
+    linux = layers.compute_runtime_id(tmp_path, layers.LINUX)
+    assert win != linux

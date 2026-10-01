@@ -1,14 +1,17 @@
-"""Render labeling_tool/resources/icon.ico from the LM letter mark.
+"""Render labeling_tool/resources/icon.ico and icon-16/32/48/256.png from
+the LM letter mark.
 
-Kept as a script rather than a one-off command so the icon can be rebuilt
+Kept as a script rather than a one-off command so the icons can be rebuilt
 identically later. Drawn directly with Pillow: no SVG rasteriser is
 installed in this project's environment, and adding one (cairosvg,
 librsvg) for a mark this simple is not worth the dependency.
 labeling_tool/resources/icon.svg is the vector reference for a designer;
-THIS file is what actually produces the shipped .ico. The .ico lives in the
-package rather than in packaging/ because it is needed at RUNTIME too:
-PyInstaller's EXE(icon=) only writes the exe's PE resource, while the title
-bar and taskbar come from QApplication.setWindowIcon.
+THIS file is what actually produces the shipped .ico and .png. Both live in
+the package rather than in packaging/ because they are needed at RUNTIME
+too: PyInstaller's EXE(icon=) only writes the exe's PE resource, while the
+title bar, taskbar and the Linux .desktop entry come from
+QApplication.setWindowIcon / the desktop file's Icon= key, both of which use
+the PNG.
 
 Small sizes get a heavier stroke, a larger glyph and a thicker underline:
 at 16px the 64px proportions turn into mush in the taskbar.
@@ -73,18 +76,39 @@ def render(px: int) -> Image.Image:
     return img.resize((px, px), Image.LANCZOS)
 
 
+# One PNG per size Qt/the desktop environment actually asks for, rather
+# than a single 256px file: QIcon would otherwise generically rescale that
+# one bitmap for the taskbar/title bar, throwing away the SMALL-branch
+# hand-tuning below (a 16px downscale of the 256px glyph turns to mush --
+# the same problem the .ico's multi-size resource exists to avoid). These
+# also map directly onto the hicolor icon theme's 16x16/32x32/256x256
+# directories, and 48 covers hicolor's common 48x48 plus Windows' medium
+# taskbar icon size.
+PNG_SIZES = (16, 32, 48, 256)
+
+
 def main() -> None:
-    out = Path(__file__).resolve().parents[1] / "labeling_tool" / "resources" / "icon.ico"
+    resources = Path(__file__).resolve().parents[1] / "labeling_tool" / "resources"
+    ico_out = resources / "icon.ico"
     imgs = [render(px) for px in SIZES]
     # The base image caps the sizes Pillow will write: anything larger than
     # it is silently skipped (IcoImagePlugin._save). Hand it the largest and
     # append the rest, so every size keeps the drawing made for it rather
     # than a downscale of the 256px one.
     largest = imgs[-1]
-    largest.save(out, format="ICO",
+    largest.save(ico_out, format="ICO",
                  sizes=[(i.width, i.height) for i in imgs],
                  append_images=imgs[:-1])
-    print(f"wrote {out} with sizes {list(SIZES)}")
+    print(f"wrote {ico_out} with sizes {list(SIZES)}")
+
+    # PNGs for Qt's setWindowIcon and the .desktop entry: each rendered at
+    # its own size via render(), NOT sliced from `imgs` above and NOT
+    # downscaled from the 256px file -- either would skip the SMALL-branch
+    # tuning that keeps 16/32px legible.
+    for px in PNG_SIZES:
+        png_out = resources / f"icon-{px}.png"
+        render(px).save(png_out, format="PNG")
+        print(f"wrote {png_out} at {px}px")
 
 
 if __name__ == "__main__":

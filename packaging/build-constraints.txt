@@ -1,4 +1,4 @@
-# pip constraints for the Windows exe build only (see .github/workflows/build-windows.yml).
+# pip constraints for the Windows exe build only (see .github/workflows/release.yml).
 # Not applied to requirements.txt: these pins are a CI/build workaround, not a
 # change to what production users install from source.
 #

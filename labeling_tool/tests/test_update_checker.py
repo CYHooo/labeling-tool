@@ -1,4 +1,5 @@
 """GitHub Releases lookup: version compare, asset pick, checksum parse."""
+import hashlib
 import io
 import json
 
@@ -8,8 +9,9 @@ from labeling_tool.update import checker
 
 
 def test_asset_name_and_version_parsing():
-    assert checker.full_asset_name("1.2.3") == "LM_LabelingTool-Setup-v1.2.3.exe"
-    assert (checker.app_asset_name("1.2.3", "r3f8a1c92")
+    assert (checker.full_asset_names("1.2.3", checker.WINDOWS)
+            == ("LM_LabelingTool-Setup-v1.2.3.exe",))
+    assert (checker.app_asset_name("1.2.3", "r3f8a1c92", checker.WINDOWS)
             == "LM_LabelingTool-App-v1.2.3-r3f8a1c92.exe")
     assert checker.parse_version("v1.2.3") == (1, 2, 3)
     assert checker.parse_version("1.0.10") == (1, 0, 10)
@@ -47,8 +49,21 @@ def _release(tag="v1.0.1", names=("LM_LabelingTool-Setup-v1.0.1.exe",
                        for n in names]}
 
 
-def _opener(release, sums_text):
-    """Fake urlopen: returns the release JSON, then the SHA256SUMS body."""
+def _opener(release, sums_text=None, omit_sum=None):
+    """Fake urlopen: returns the release JSON, then the SHA256SUMS body.
+
+    When `sums_text` is not given, a checksum line is synthesized for every
+    asset in `release` except SHA256SUMS.txt itself and `omit_sum` (used to
+    simulate a release that lost the published checksum for one asset)."""
+    if sums_text is None:
+        lines = []
+        for asset in release["assets"]:
+            name = asset["name"]
+            if name in (checker.SUMS_ASSET, omit_sum):
+                continue
+            lines.append(f"{hashlib.sha256(name.encode()).hexdigest()}  {name}\n")
+        sums_text = "".join(lines)
+
     def open_url(url, timeout=None):
         payload = sums_text if url.endswith("SHA256SUMS.txt") else json.dumps(release)
         return io.BytesIO(payload.encode())
@@ -57,17 +72,20 @@ def _opener(release, sums_text):
 
 def test_find_update_returns_matching_asset():
     sums = "c" * 64 + "  LM_LabelingTool-Setup-v1.0.1.exe\n"
-    info = checker.find_update("1.0.0", "full", opener=_opener(_release(), sums))
+    info = checker.find_update("1.0.0", "full", opener=_opener(_release(), sums),
+                               platform=checker.WINDOWS)
     assert info.version == "1.0.1"
-    assert info.asset_name == "LM_LabelingTool-Setup-v1.0.1.exe"
-    assert info.asset_url == "https://x/LM_LabelingTool-Setup-v1.0.1.exe"
-    assert info.sha256 == "c" * 64
-    assert info.size == 1234
+    assert info.assets[0].name == "LM_LabelingTool-Setup-v1.0.1.exe"
+    assert info.assets[0].url == "https://x/LM_LabelingTool-Setup-v1.0.1.exe"
+    assert info.assets[0].sha256 == "c" * 64
+    assert info.assets[0].size == 1234
+    assert info.total_size == 1234
     assert "fixes things" in info.notes
 
 
 def test_find_update_none_when_same_version():
-    assert checker.find_update("1.0.1", "full", opener=_opener(_release(), "")) is None
+    assert checker.find_update("1.0.1", "full", opener=_opener(_release(), ""),
+                               platform=checker.WINDOWS) is None
 
 
 def test_find_update_none_when_no_installer_asset_present():
@@ -75,12 +93,14 @@ def test_find_update_none_when_no_installer_asset_present():
     app package, the runtime id do. A release carrying neither installer
     offers nothing."""
     rel = _release(names=("SomethingElse-v1.0.1.zip", "SHA256SUMS.txt"))
-    assert checker.find_update("1.0.0", "full", opener=_opener(rel, "")) is None
+    assert checker.find_update("1.0.0", "full", opener=_opener(rel, ""),
+                               platform=checker.WINDOWS) is None
 
 
 def test_find_update_requires_checksum():
     # an asset without an entry in SHA256SUMS.txt must not be offered
-    assert checker.find_update("1.0.0", "full", opener=_opener(_release(), "")) is None
+    assert checker.find_update("1.0.0", "full", opener=_opener(_release(), ""),
+                               platform=checker.WINDOWS) is None
 
 
 def test_find_update_propagates_network_errors():
@@ -88,3 +108,75 @@ def test_find_update_propagates_network_errors():
         raise OSError("no network")
     with pytest.raises(OSError):
         checker.find_update("1.0.0", "lite", opener=boom)
+
+
+def test_windows_asset_names_are_unchanged():
+    # Every client ever shipped looks for exactly these names.
+    assert (checker.full_asset_names("1.2.3", checker.WINDOWS)
+            == ("LM_LabelingTool-Setup-v1.2.3.exe",))
+    assert (checker.app_asset_name("1.2.3", "r3f8a1c92", checker.WINDOWS)
+            == "LM_LabelingTool-App-v1.2.3-r3f8a1c92.exe")
+
+
+def test_linux_asset_names():
+    # The runtime deb's FILENAME carries no runtime id: a client taking a full
+    # update knows the target version but not the new runtime id, so it could
+    # not spell the name otherwise. The id lives in its Version field instead.
+    assert (checker.full_asset_names("1.2.3", checker.LINUX)
+            == ("lm-labeling-tool-runtime_1.2.3_amd64.deb",
+                "lm-labeling-tool_1.2.3-RUNTIME_amd64.deb"))
+    assert (checker.app_asset_name("1.2.3", "r3f8a1c92", checker.LINUX)
+            == "lm-labeling-tool_1.2.3-r3f8a1c92_amd64.deb")
+
+
+def test_windows_update_carries_exactly_one_asset():
+    # The list is length 1 on Windows, always. This pins the refactor.
+    info = checker.find_update("1.0.0", "full", opener=_opener(_release()),
+                               platform=checker.WINDOWS)
+    assert len(info.assets) == 1
+    assert info.assets[0].name == "LM_LabelingTool-Setup-v1.0.1.exe"
+    assert info.total_size == info.assets[0].size
+
+
+def test_linux_full_update_carries_both_debs():
+    names = ("lm-labeling-tool-runtime_1.0.1_amd64.deb",
+             "lm-labeling-tool_1.0.1-rdeadbeef_amd64.deb", "SHA256SUMS.txt")
+    info = checker.find_update("1.0.0", "full",
+                               opener=_opener(_release(names=names)),
+                               platform=checker.LINUX)
+    assert info.kind == "full"
+    assert [a.name for a in info.assets] == list(names[:2])
+    assert info.total_size == sum(a.size for a in info.assets)
+
+
+def test_linux_app_update_carries_one_deb():
+    names = ("lm-labeling-tool-runtime_1.0.1_amd64.deb",
+             "lm-labeling-tool_1.0.1-r3f8a1c92_amd64.deb", "SHA256SUMS.txt")
+    info = checker.find_update("1.0.0", "full", runtime="r3f8a1c92",
+                               opener=_opener(_release(names=names)),
+                               platform=checker.LINUX)
+    assert info.kind == "app"
+    assert [a.name for a in info.assets] == ["lm-labeling-tool_1.0.1-r3f8a1c92_amd64.deb"]
+
+
+def test_linux_full_update_is_refused_when_the_runtime_deb_is_missing():
+    # spec 7.2.1: a release that lost its runtime deb must not produce a
+    # half-installable update. Offering the app deb alone would hand the user
+    # a download that dpkg then refuses.
+    names = ("lm-labeling-tool_1.0.1-rdeadbeef_amd64.deb", "SHA256SUMS.txt")
+    info = checker.find_update("1.0.0", "full",
+                               opener=_opener(_release(names=names)),
+                               platform=checker.LINUX)
+    assert info is None
+
+
+def test_an_asset_without_a_published_checksum_is_never_offered():
+    # Already true before this change; it must stay true per asset, not just
+    # for the first one.
+    names = ("lm-labeling-tool-runtime_1.0.1_amd64.deb",
+             "lm-labeling-tool_1.0.1-rdeadbeef_amd64.deb", "SHA256SUMS.txt")
+    info = checker.find_update("1.0.0", "full",
+                               opener=_opener(_release(names=names),
+                                              omit_sum=names[0]),
+                               platform=checker.LINUX)
+    assert info is None

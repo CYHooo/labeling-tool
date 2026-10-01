@@ -26,6 +26,10 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
+# user_cache_home() falls back to REPO_ROOT/.cache when not frozen (dev
+# runs and tests); keep its downloaded packages out of version control.
+/.cache/
+
 # 로그 (logs)
 *.log
 

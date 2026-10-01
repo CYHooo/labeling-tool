@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from labeling_tool.core.app_paths import app_home
+from labeling_tool.core.app_paths import user_data_home
 
 STATE_NAME = "update-state.json"
 
@@ -24,7 +24,7 @@ class UpdateState:
 
 
 def _path(home: Path | None) -> Path:
-    return (Path(home) if home is not None else app_home()) / STATE_NAME
+    return (Path(home) if home is not None else user_data_home()) / STATE_NAME
 
 
 def load(home: Path | None = None) -> UpdateState:
@@ -37,7 +37,12 @@ def load(home: Path | None = None) -> UpdateState:
 
 def save(st: UpdateState, home: Path | None = None) -> None:
     try:
-        _path(home).write_text(json.dumps(
+        path = _path(home)
+        # On Linux, the default home is an XDG directory that may not exist
+        # yet on a fresh install -- app_home() (beside the exe) never needed
+        # this because the exe's own directory always exists.
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(
             {"last_check": st.last_check, "skipped_version": st.skipped_version},
             indent=2), encoding="utf-8")
     except OSError:

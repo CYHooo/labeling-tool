@@ -1,4 +1,9 @@
-"""Writable locations: unchanged from source, next to the exe when frozen."""
+"""Writable locations: unchanged from source, platform-specific when frozen.
+
+Frozen Windows keeps the pre-existing rule (beside the exe) byte for byte.
+Frozen Linux writes under the XDG data dir instead, since the deb installs to
+/opt, which is root-owned and read-only."""
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -26,31 +31,63 @@ def test_frozen_helpers(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "executable", str(tmp_path / "LabelingTool.exe"))
     assert app_paths.is_frozen()
+
+    # Windows: the install is per-user and portable, so writable state sits
+    # beside the executable. This must hold byte for byte, on any host this
+    # test runs on, not just on a Windows machine.
+    monkeypatch.setattr(sys, "platform", "win32")
     assert app_paths.app_home() == tmp_path
     assert app_paths.writable_path(Path("ignored"), "config.json") == tmp_path / "config.json"
 
+    # Linux: /opt is root-owned and read-only, so writable state moves under
+    # the XDG data dir instead.
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+    assert app_paths.writable_path(Path("ignored"), "config.json") == \
+        tmp_path / "xdg" / "lm-labeling-tool" / "config.json"
 
-def test_frozen_module_constants_live_next_to_exe(tmp_path):
-    # module-level constants are computed at import: check them in a fresh
-    # interpreter that pretends to be the PyInstaller exe
-    exe = tmp_path / "LabelingTool.exe"
+
+def _frozen_module_constants(exe, platform, env=None):
+    """Module-level constants are computed at import, so check them in a
+    fresh interpreter that pretends to be the PyInstaller build for the
+    given platform."""
     code = (
-        "import sys; sys.frozen = True; sys.executable = %r\n"
+        "import sys; sys.frozen = True; sys.executable = %r; sys.platform = %r\n"
         "from labeling_tool.ui import dialog_helpers as d\n"
         "from labeling_tool.session import workspace as w\n"
         "from annotation_tool import configs as c\n"
         "print(d.CONFIG_PATH, w.DEFAULT_DATA_ROOT, c.SAM3_CHECKPOINT,\n"
         "      c.SAM2_CHECKPOINT, c.CLASSES_FILE, c.DEFAULT_DATASET_DIR, sep='\\n')\n"
-    ) % str(exe)
-    out = subprocess.run([sys.executable, "-c", code], cwd=ROOT,
+    ) % (str(exe), platform)
+    run_env = {**os.environ, **(env or {})}
+    out = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=run_env,
                          capture_output=True, text=True, check=True).stdout.split("\n")
-    assert [Path(p) for p in out[:6]] == [
+    return [Path(p) for p in out[:6]]
+
+
+def test_frozen_module_constants_live_next_to_exe_on_windows(tmp_path):
+    exe = tmp_path / "LabelingTool.exe"
+    assert _frozen_module_constants(exe, "win32") == [
         tmp_path / "config.json",
         tmp_path / "data",
         tmp_path / "checkpoint" / "sam3.pt",
         tmp_path / "checkpoint" / "sam2.1_hiera_base_plus.pt",
         tmp_path / "classes.json",
         tmp_path / "dataset",
+    ]
+
+
+def test_frozen_module_constants_use_xdg_data_home_on_linux(tmp_path):
+    exe = tmp_path / "opt" / "lm-labeling-tool" / "LM_LabelingTool"
+    xdg = tmp_path / "xdg"
+    base = xdg / "lm-labeling-tool"
+    assert _frozen_module_constants(exe, "linux", {"XDG_DATA_HOME": str(xdg)}) == [
+        base / "config.json",
+        base / "data",
+        base / "checkpoint" / "sam3.pt",
+        base / "checkpoint" / "sam2.1_hiera_base_plus.pt",
+        base / "classes.json",
+        base / "dataset",
     ]
 
 

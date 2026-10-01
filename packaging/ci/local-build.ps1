@@ -1,5 +1,5 @@
 # Verify a Windows release locally. This is the ONLY place the checks run:
-# CI (.github/workflows/build-windows.yml) just builds and publishes a tag,
+# CI (.github/workflows/release.yml) just builds and publishes a tag,
 # because a CI round took 18-25 minutes and every failure cost another.
 # Run all steps and get a green result before tagging; see docs/RELEASING.md.
 #

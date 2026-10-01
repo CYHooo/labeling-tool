@@ -8,7 +8,7 @@ asset name. A new user installs the previous version and the app package
 brings it up to date on first launch (every launch checks).
 
 It is attached under THIS version's name because every client ever shipped
-looks for exactly full_asset_name(<latest version>) in the latest release;
+looks for exactly full_asset_names(<latest version>) in the latest release;
 a release without it would leave anyone needing a full install -- e.g. an
 install on an older runtime -- with no update offered at all.
 
@@ -16,7 +16,7 @@ install on an older runtime -- with no update offered at all.
 an app package built against a runtime id, and if that id is ours, its full
 installer holds our runtime layer byte for byte.
 
-Called by CI (.github/workflows/build-windows.yml); PowerShell has no
+Called by CI (.github/workflows/release.yml); PowerShell has no
 heredoc, so the logic lives here where it is unit-tested.
 """
 
@@ -42,9 +42,9 @@ def plan_reuse(release: dict, runtime: str) -> tuple[str, str] | None:
     if not version or checker.parse_version(version) is None:
         return None
     names = {a.get("name") for a in release.get("assets") or []}
-    if checker.app_asset_name(version, runtime) not in names:
+    if checker.app_asset_name(version, runtime, checker.WINDOWS) not in names:
         return None   # runtime changed, or that release had no app package
-    full = checker.full_asset_name(version)
+    full = checker.full_asset_names(version, checker.WINDOWS)[0]
     if full not in names or checker.SUMS_ASSET not in names:
         return None
     return tag, full

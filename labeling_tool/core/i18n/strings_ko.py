@@ -199,6 +199,13 @@ STRINGS = {
     "update_check_failed_title":       "업데이트 확인 실패",
     "update_check_failed_msg":
         "업데이트 확인 중 오류가 발생했습니다: {type}: {exc}\n\n{url}",
+    "update_linux_deps_title":         "시스템 라이브러리 부족",
+    "update_linux_deps_msg":
+        "패키지 파일은 기록되었지만, 일부 시스템 라이브러리가 없어 설정을 "
+        "마치지 못했습니다.\n\n"
+        "터미널을 열고 다음을 실행하세요:\nsudo apt-get install -f\n\n{detail}",
+    "update_linux_restart_title":      "업데이트 설치 완료",
+    "update_linux_restart_msg":        "업데이트가 정상적으로 설치되었습니다. 앱을 다시 시작해 주세요.",
 
     # --- app / startup ---
     "app_fewshot_loading":             "Few-shot 모델 로딩 중… 잠시 기다려 주세요.",

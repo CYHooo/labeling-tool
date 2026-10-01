@@ -98,6 +98,45 @@ v1.0.0 은 압축판(`.zip`)으로 배포되었습니다. 압축을 푼 그 폴�
 
 ---
 
+## Linux 설치 (.deb) — Ubuntu 22.04 / 24.04
+
+GitHub 의 **Releases**(태그 버전)에서 아래 두 `.deb` 파일을 받습니다.
+
+| 파일 | 내용 | 크기 | 용도 |
+|---|---|---|---|
+| `lm-labeling-tool-runtime_<버전>_amd64.deb` | 런타임 계층 (Python / PyQt5 / torch / CUDA) | 약 1.4 GB | **처음 설치할 때** |
+| `lm-labeling-tool_<버전>-r<runtime id>_amd64.deb` | 앱 계층만 (코드 변경분) | 약 20 MB | 자동 업데이트가 내려받는 파일 |
+
+### 설치
+
+```bash
+sudo dpkg -i lm-labeling-tool-runtime_<버전>_amd64.deb lm-labeling-tool_<버전>-r<id>_amd64.deb
+```
+
+- 두 파일을 **함께** 지정하면 됩니다 (순서는 상관없습니다).
+- 설치 경로는 `/opt/lm-labeling-tool/` 이고, 데이터 디렉터리는 `~/.local/share/lm-labeling-tool/`
+  입니다 (설정 파일, 받은 작업, 가중치 등이 여기에 저장됩니다).
+- 애플리케이션 메뉴에 "LM Labeling Tool" 항목이 추가됩니다.
+- 시스템에 Qt 플랫폼 라이브러리(`libxcb-*`, `libglib2.0-*` 등)가 이미 있는 일반적인 데스크톱
+  환경이라면 `dpkg -i` 한 번으로 설치가 끝납니다. 드물게 라이브러리가 빠졌다는 오류가 나오면
+  `sudo apt-get install -f` 로 보완한 뒤 다시 `dpkg -i` 하세요.
+
+### 업데이트
+
+앱 실행 시 자동으로 새 버전을 확인합니다. 코드만 바뀐 업데이트는 앱 계층 deb 하나만
+(약 20 MB) 받아서 설치하면 되고, 런타임 계층이 바뀐 업데이트는 두 deb 를 모두 다시 받습니다.
+
+### 제거
+
+```bash
+sudo apt purge lm-labeling-tool lm-labeling-tool-runtime
+```
+
+사용자 데이터(`~/.local/share/lm-labeling-tool/`)는 `apt purge` 로도 삭제되지 않습니다.
+새로 설치하면 이전 데이터를 그대로 사용할 수 있습니다.
+
+---
+
 ## 실행
 
 저장소 폴더의 **실행 스크립트 하나로 모든 도구를 실행**합니다 (가상환경 활성화·폴더 이동이 필요 없습니다).
