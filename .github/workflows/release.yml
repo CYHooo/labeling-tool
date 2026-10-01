@@ -566,6 +566,15 @@ jobs:
           # step's own "Selftest packaged exe" step just wrote to, and if the
           # installed app crashes before logging, cat'ing a leftover old log
           # here would look like fresh output from the installed app.
+          #
+          # Install on the runner first: 1/2 installed inside a throwaway
+          # container, so nothing it did survives here (CI run 36853951013:
+          # "LM_LabelingTool: not found"). The runner already carries
+          # RUNTIME_DEPENDS from the build step, so this install is NOT the
+          # availability check -- that stays in 1/2's desktop container.
+          # The mismatch guard below also relies on this real runtime deb
+          # being installed; without it the guard passes vacuously.
+          sudo dpkg -i out/lm-labeling-tool-runtime_*.deb out/lm-labeling-tool_*.deb
           rm -f "$HOME/.local/share/lm-labeling-tool/selftest.log"
           set +e
           timeout 300 xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest=full

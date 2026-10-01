@@ -328,6 +328,26 @@ def test_the_linux_build_installs_the_bundled_libraries_too():
     assert "deb.BUNDLED_LIBS" in runs[0]
 
 
+def test_the_runner_installs_the_debs_before_running_the_installed_app():
+    # Smoke test 1/2 installs inside a throwaway container, so nothing it
+    # installs survives onto the runner. Steps that run the installed app
+    # (or rely on the real runtime deb being present, like the mismatch
+    # guard) need their own install on the runner -- without it 2/2 failed
+    # with "/opt/lm-labeling-tool/LM_LabelingTool: not found" (CI run
+    # 36853951013) and the guard passed vacuously.
+    yaml = pytest.importorskip("yaml")
+    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["build-linux"]["steps"]
+    runs = [s.get("run", "") for s in steps]
+    uses_installed = [i for i, r in enumerate(runs)
+                      if "/opt/lm-labeling-tool/" in r and "docker run" not in r]
+    assert uses_installed, "expected a runner-level step that runs the installed app"
+    first = uses_installed[0]
+    installs = [i for i, r in enumerate(runs)
+                if "sudo dpkg -i" in r and "lm-labeling-tool-runtime_" in r]
+    assert installs and installs[0] <= first, \
+        "the runner must install both debs before running the installed app"
+
+
 def test_the_linux_smoke_test_forbids_apt_fix_broken():
     # `dpkg -i` must succeed on its own; needing `apt-get install -f` means
     # the runtime package declares a library users will not have either.
