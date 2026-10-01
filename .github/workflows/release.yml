@@ -302,15 +302,31 @@ jobs:
           # build-essential: a C compiler, for any pinned package that has
           #   no prebuilt manylinux wheel.
           #
-          # Deliberately NOT installed here: the Qt/X11 libraries from
-          # packaging/deb.py's RUNTIME_DEPENDS. The install smoke test below
-          # must prove `dpkg -i` succeeds on THIS runner's own default
-          # package set -- pre-installing the very libraries it declares
-          # would make that assertion a tautology (install the dependency,
-          # then verify the dependency is satisfied) and could never catch
-          # a RUNTIME_DEPENDS entry this image genuinely lacks.
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends dpkg-dev xvfb build-essential
+
+          # RUNTIME_DEPENDS must be present AT BUILD TIME, even though the
+          # deb only declares it for install time. PyInstaller resolves the
+          # Qt plugins' shared-library chain by reading the real .so files:
+          # without them it logs "Library not found: could not resolve
+          # 'libxcb-xinerama.so.0', dependency of libqxcb.so" and ships a
+          # bundle whose xcb platform plugin cannot start (CI run
+          # 36841286350). The hosted runner image does not carry them.
+          #
+          # This does NOT make the availability check a tautology: that
+          # check moved into a clean container below, because the question
+          # it asks -- "does a normal desktop already have these?" -- can
+          # only be answered against a desktop baseline, and a CI runner is
+          # not one. The sufficiency check stays here, where having the
+          # libraries installed is exactly the premise it verifies.
+          #
+          # `apt-get satisfy` takes Depends syntax verbatim, so the list is
+          # derived from deb.py rather than hardcoded a fourth time -- it
+          # handles both the version constraint and the jammy/noble glib
+          # alternation on its own.
+          depends=$(python -c "import sys; sys.path.insert(0, 'packaging'); import deb; print(', '.join(deb.RUNTIME_DEPENDS))")
+          echo "build-time Qt/X11 libraries: $depends"
+          sudo apt-get satisfy -y --no-install-recommends "$depends"
 
       - name: Version
         run: |
@@ -510,15 +526,31 @@ jobs:
       - name: Install smoke test 1/2 -- are the declared dependencies already on this machine?
         run: |
           set -euo pipefail
-          # This runner only has dpkg-dev/xvfb/build-essential installed
-          # above -- NOT packaging/deb.py's RUNTIME_DEPENDS. So this is a
-          # real check of whether a stock ubuntu-22.04 desktop already
-          # carries what the runtime package declares, not a tautology
-          # (installing a dependency and then checking it is installed).
+          # Runs in a clean 22.04 container, NOT on the runner. The runner
+          # now has RUNTIME_DEPENDS installed (the build step needs them so
+          # PyInstaller can resolve Qt's plugin chain), which would make
+          # this assertion a tautology: install the dependency, then verify
+          # the dependency is satisfied.
+          #
+          # The baseline is ubuntu-desktop-minimal -- a metapackage that has
+          # nothing to do with us -- because the question is "does a normal
+          # desktop already carry what the runtime package declares?". A CI
+          # runner is not a desktop, so answering it against the runner was
+          # wrong in both directions: it lacks libraries real desktops have,
+          # and carries build tooling they do not (CI run 36841286350).
+          #
           # dpkg -i must succeed ON ITS OWN: needing apt's dependency-fixup
           # pass afterwards would mean RUNTIME_DEPENDS lists a library real
           # users will not have either.
-          sudo dpkg -i out/lm-labeling-tool-runtime_*.deb out/lm-labeling-tool_*.deb
+          docker run --rm -v "$PWD/out:/out:ro" -e DEBIAN_FRONTEND=noninteractive ubuntu:22.04 bash -euo pipefail -c '
+            apt-get update
+            # No init system under plain `docker run`, so stop maintainer
+            # scripts from trying to start services.
+            printf "#!/bin/sh\nexit 101\n" > /usr/sbin/policy-rc.d
+            chmod +x /usr/sbin/policy-rc.d
+            apt-get install -y ubuntu-desktop-minimal
+            dpkg -i /out/lm-labeling-tool-runtime_*.deb /out/lm-labeling-tool_*.deb
+          '
 
       - name: Install smoke test 2/2 -- are the declared dependencies enough?
         run: |
