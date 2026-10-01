@@ -27,7 +27,7 @@ before this release is built, but has no way to know the new runtime id.
 
 This is the Linux counterpart to packaging/reuse_full.py (Windows); see
 that module's docstring for the full rationale. Called by CI
-(.github/workflows/build-deb.yml); logic lives here so it is unit-tested.
+(.github/workflows/release.yml); logic lives here so it is unit-tested.
 """
 
 from __future__ import annotations

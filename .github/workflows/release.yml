@@ -248,7 +248,7 @@ jobs:
           # finding updates.
           $ver = $env:LT_VERSION -replace '^v', ''
           $names = (Get-ChildItem out\*.exe | ForEach-Object { $_.Name }) -join ","
-          python -c "import sys; from labeling_tool.update import checker; ver, rt, names = sys.argv[1], sys.argv[2], set(sys.argv[3].split(',')); [sys.exit(f'{w!r} not in {sorted(names)}') for w in (checker.full_asset_name(ver), checker.app_asset_name(ver, rt)) if w not in names]; print('asset names agree with checker.py')" $ver $env:LT_RUNTIME $names
+          python -c "import sys; from labeling_tool.update import checker; ver, rt, names = sys.argv[1], sys.argv[2], set(sys.argv[3].split(',')); [sys.exit(f'{w!r} not in {sorted(names)}') for w in (checker.full_asset_names(ver, checker.WINDOWS)[0], checker.app_asset_name(ver, rt, checker.WINDOWS)) if w not in names]; print('asset names agree with checker.py')" $ver $env:LT_RUNTIME $names
           if ($LASTEXITCODE -ne 0) { throw "asset names do not match checker.py" }
 
       - name: Checksums
@@ -298,21 +298,19 @@ jobs:
       - name: Install system dependencies
         run: |
           # dpkg-dev: dpkg-deb, used to build the two .deb packages.
-          # xvfb: runs the Qt GUI headless for the selftest and the install
-          #   smoke test below.
+          # xvfb: runs the Qt GUI headless for the selftest below.
           # build-essential: a C compiler, for any pinned package that has
           #   no prebuilt manylinux wheel.
-          # The remaining packages are exactly RUNTIME_DEPENDS from
-          # packaging/deb.py (jammy spelling of the glib package) -- the
-          # install smoke test below must see `dpkg -i` succeed on its own,
-          # which only holds if this machine already has what the package
-          # declares, the same way a real desktop would.
+          #
+          # Deliberately NOT installed here: the Qt/X11 libraries from
+          # packaging/deb.py's RUNTIME_DEPENDS. The install smoke test below
+          # must prove `dpkg -i` succeeds on THIS runner's own default
+          # package set -- pre-installing the very libraries it declares
+          # would make that assertion a tautology (install the dependency,
+          # then verify the dependency is satisfied) and could never catch
+          # a RUNTIME_DEPENDS entry this image genuinely lacks.
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            dpkg-dev xvfb build-essential \
-            libgl1 libglib2.0-0 libxkbcommon-x11-0 libxcb-xinerama0 \
-            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
-            libxcb-render-util0 libxcb-shape0 libdbus-1-3
+          sudo apt-get install -y --no-install-recommends dpkg-dev xvfb build-essential
 
       - name: Version
         run: |
@@ -366,7 +364,7 @@ jobs:
         run: |
           set -euo pipefail
           set +e
-          timeout 300 xvfb-run -a dist/LM_LabelingTool/LM_LabelingTool --selftest
+          timeout 300 xvfb-run -a dist/LM_LabelingTool/LM_LabelingTool --selftest=full
           code=$?
           set -e
           if [ -f dist/LM_LabelingTool/selftest.log ]; then
@@ -461,14 +459,36 @@ jobs:
             # entry point for exactly this (labeling_tool/tests/test_deb.py)
             # -- this step must never reach into deb.py's private staging
             # helpers directly.
-            python packaging/deb.py build --app-only dist/LM_LabelingTool out "$ver"
-            runtime_name="lm-labeling-tool-runtime_${ver}_amd64.deb"
+            XZ_OPT=-T4 python packaging/deb.py build --app-only dist/LM_LabelingTool out "$ver"
+            # Named via checker.py, not hand-built: the same pattern
+            # reuse_runtime.py itself already follows (see its "derive the
+            # runtime deb name from checker" fix) -- a literal
+            # "lm-labeling-tool-runtime_..." string here would be a second
+            # place to forget the next time that naming changes.
+            runtime_name=$(python -c "from labeling_tool.update import checker; import sys; print(checker.full_asset_names(sys.argv[1], checker.LINUX)[0])" "$ver")
             cp "$LT_REUSE_RUNTIME" "out/$runtime_name"
             echo "runtime deb reused: $(basename "$LT_REUSE_RUNTIME")"
           else
             XZ_OPT=-T4 python packaging/deb.py build dist/LM_LabelingTool out "$ver"
           fi
           ls -la out/
+
+      - name: Assert the runtime deb fits in a release asset
+        run: |
+          set -euo pipefail
+          # GitHub release assets must stay below 2 GiB -- the Windows job's
+          # counterpart of this check (test_the_size_ceiling_only_binds_on_published_builds).
+          # The runtime deb carries the full CUDA wheel set at ~1.4 GB, so
+          # it is the one Linux asset that could realistically grow into
+          # that ceiling. Only tag builds are checked: a fast-compressed
+          # dry run is legitimately larger for the same bytes.
+          runtime_deb=$(ls out/lm-labeling-tool-runtime_*.deb)
+          size=$(stat -c%s "$runtime_deb")
+          echo "$(basename "$runtime_deb"): $((size / 1024 / 1024)) MB"
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$size" -ge 2040109465 ]; then
+            echo "runtime deb too large for a release asset: $size bytes" >&2
+            exit 1
+          fi
 
       - name: Assert the asset names match what the client looks for
         run: |
@@ -480,23 +500,36 @@ jobs:
           names=$(cd out && ls -- *.deb | paste -sd, -)
           python -c "import sys; from labeling_tool.update import checker; ver, rt, names = sys.argv[1], sys.argv[2], set(sys.argv[3].split(',')); wanted = [checker.full_asset_names(ver, checker.LINUX)[0], checker.app_asset_name(ver, rt, checker.LINUX)]; missing = [w for w in wanted if w not in names]; sys.exit(f'{missing!r} not in {sorted(names)}') if missing else print('asset names agree with checker.py')" "$ver" "$LT_RUNTIME" "$names"
 
-      - name: Install smoke test
+      - name: Install smoke test 1/2 -- are the declared dependencies already on this machine?
         run: |
           set -euo pipefail
-          # dpkg -i must succeed on its own. Needing apt's dependency-fixup
-          # pass afterwards would mean the runtime package declares a
-          # library real users will not have either -- see
-          # packaging/deb.py's RUNTIME_DEPENDS comment.
+          # This runner only has dpkg-dev/xvfb/build-essential installed
+          # above -- NOT packaging/deb.py's RUNTIME_DEPENDS. So this is a
+          # real check of whether a stock ubuntu-22.04 desktop already
+          # carries what the runtime package declares, not a tautology
+          # (installing a dependency and then checking it is installed).
+          # dpkg -i must succeed ON ITS OWN: needing apt's dependency-fixup
+          # pass afterwards would mean RUNTIME_DEPENDS lists a library real
+          # users will not have either.
           sudo dpkg -i out/lm-labeling-tool-runtime_*.deb out/lm-labeling-tool_*.deb
+
+      - name: Install smoke test 2/2 -- are the declared dependencies enough?
+        run: |
+          set -euo pipefail
+          # A different question from the previous step: dpkg -i succeeding
+          # only proves this machine already HAD what RUNTIME_DEPENDS lists.
+          # It says nothing about whether that list is actually SUFFICIENT
+          # for Qt to start -- a missing-but-undeclared library would still
+          # let dpkg -i succeed and only crash here.
           set +e
-          timeout 300 xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest
+          timeout 300 xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest=full
           code=$?
           set -e
           if [ -f "$HOME/.local/share/lm-labeling-tool/selftest.log" ]; then
             cat "$HOME/.local/share/lm-labeling-tool/selftest.log"
           fi
           if [ "$code" -ne 0 ]; then
-            echo "installed-app selftest failed with exit code $code" >&2
+            echo "installed-app selftest failed with exit code $code -- RUNTIME_DEPENDS is likely missing a library" >&2
             exit 1
           fi
           echo "installed app selftest passed"
@@ -530,15 +563,26 @@ jobs:
           set -euo pipefail
           # "built on 22.04, runs on both" is otherwise only an assumption.
           # noble renamed libglib2.0-0 to libglib2.0-0t64 (64-bit time_t);
-          # RUNTIME_DEPENDS covers both names, so the same two debs built
-          # above must install cleanly here too, with no dependency-fixup pass.
-          docker run --rm -v "$PWD/out:/out:ro" ubuntu:24.04 bash -euo pipefail -c '
+          # RUNTIME_DEPENDS covers both names.
+          #
+          # The baseline installed below is a stock Ubuntu DESKTOP, not
+          # packaging/deb.py RUNTIME_DEPENDS itself -- installing
+          # RUNTIME_DEPENDS before dpkg -i would make "no dependency-fixup
+          # pass needed" a tautology (install the dependency, then verify
+          # the dependency is satisfied). ubuntu-desktop-minimal proves the
+          # declared Depends are covered by what a REAL desktop ships, not
+          # by us pre-supplying exactly what we declared.
+          docker run --rm -v "$PWD/out:/out:ro" -e DEBIAN_FRONTEND=noninteractive ubuntu:24.04 bash -euo pipefail -c '
             apt-get update
-            apt-get install -y --no-install-recommends xvfb libgl1 libglib2.0-0t64 \
-              libxkbcommon-x11-0 libxcb-xinerama0 libxcb-icccm4 libxcb-image0 \
-              libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libdbus-1-3
+            # A desktop metapackage postinst may try to start services; a
+            # container has no init system to receive them. This is the
+            # standard way to install such packages under plain docker run.
+            printf "#!/bin/sh\nexit 101\n" > /usr/sbin/policy-rc.d
+            chmod +x /usr/sbin/policy-rc.d
+            apt-get install -y ubuntu-desktop-minimal
+            apt-get install -y --no-install-recommends xvfb
             dpkg -i /out/lm-labeling-tool-runtime_*.deb /out/lm-labeling-tool_*.deb
-            xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest
+            xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest=full
           '
 
       - name: Checksums
@@ -573,6 +617,16 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Needed so the gate step below can import labeling_tool.update.checker
+      # -- the single source of truth for asset-name templates -- instead of
+      # hand-building the same filename strings deb.py/installer.iss already
+      # own (see reuse_runtime.py / reuse_full.py for the same reasoning).
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+
       - uses: actions/download-artifact@v4
         with:
           # Only the installers/debs: the runtime manifests are diagnostics,
@@ -594,38 +648,72 @@ jobs:
           # updater would silently never offer them.
           mkdir -p out
           find artifacts -mindepth 2 -maxdepth 2 -type f ! -name 'SHA256SUMS.txt' -exec cp {} out/ \;
-          cat artifacts/*/SHA256SUMS.txt > out/SHA256SUMS.txt
+          # `cat a b` silently glues a's last line to b's first line if a
+          # does not end in a newline. Rather than depend on every upstream
+          # SHA256SUMS.txt always ending with one (the Windows job's today,
+          # via Add-Content, only incidentally does), force a newline after
+          # each file and drop blank lines, so a future writer that omits
+          # the trailing newline cannot silently merge two checksum lines
+          # into one and lose an entry.
+          : > out/SHA256SUMS.txt
+          for f in artifacts/*/SHA256SUMS.txt; do
+            { cat "$f"; echo; } >> out/SHA256SUMS.txt
+          done
+          sed -i '/^$/d' out/SHA256SUMS.txt
           ls -la out/
 
-      - name: Assert all four release assets are present
+      - name: Assert all four release assets, and their checksums, are present
         run: |
           set -euo pipefail
           # A build failing on one platform must never publish a release
           # carrying only the other's assets -- the client looks for one
-          # exact name per platform and finds nothing, silently.
+          # exact name per platform and finds nothing, silently. And an
+          # empty/truncated checksum step must not slip through either: the
+          # client's find_update() skips any asset missing from
+          # SHA256SUMS.txt silently (see labeling_tool/update/checker.py),
+          # so a name existing in out/ is not enough -- it must also have a
+          # checksum LINE, not just a present file.
           ver="${GITHUB_REF_NAME#v}"
-          declare -A expected=(
-            ["Windows full installer"]="out/LM_LabelingTool-Setup-v${ver}.exe"
-            ["Windows app installer"]="out/LM_LabelingTool-App-v${ver}-r*.exe"
-            ["Linux runtime deb"]="out/lm-labeling-tool-runtime_${ver}_amd64.deb"
-            ["Linux app deb"]="out/lm-labeling-tool_${ver}-r*_amd64.deb"
-          )
-          missing=0
-          for label in "${!expected[@]}"; do
-            pattern="${expected[$label]}"
-            if ! compgen -G "$pattern" > /dev/null; then
-              echo "::error::missing release asset ($label): $pattern"
-              missing=1
-            fi
-          done
-          if [ ! -f out/SHA256SUMS.txt ]; then
-            echo "::error::missing merged SHA256SUMS.txt"
-            missing=1
-          fi
-          if [ "$missing" -ne 0 ]; then
-            exit 1
-          fi
-          echo "all four release assets and the merged checksum file are present"
+          python -c "
+          import fnmatch
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, '.')
+          from labeling_tool.update import checker
+
+          ver = sys.argv[1]
+          out = Path('out')
+          names = {p.name for p in out.glob('*')}
+          sums_file = out / checker.SUMS_ASSET
+          sums = checker.parse_sha256sums(sums_file.read_text(encoding='utf-8')) if sums_file.is_file() else {}
+
+          exact = {
+              'Windows full installer': checker.full_asset_names(ver, checker.WINDOWS)[0],
+              'Linux runtime deb': checker.full_asset_names(ver, checker.LINUX)[0],
+          }
+          globs = {
+              'Windows app installer': f'{checker.APP_PREFIX}-v{ver}-r*.exe',
+              'Linux app deb': f'{checker.DEB_APP}_{ver}-r*_{checker.DEB_ARCH}.deb',
+          }
+
+          missing = []
+          for label, name in exact.items():
+              if name not in names:
+                  missing.append(f'{label}: no file named {name}')
+              elif name not in sums:
+                  missing.append(f'{label}: {name} has no checksum line')
+          for label, pattern in globs.items():
+              matched = [n for n in names if fnmatch.fnmatch(n, pattern)]
+              if not matched:
+                  missing.append(f'{label}: no file matching {pattern}')
+              elif not any(n in sums for n in matched):
+                  missing.append(f'{label}: {matched[0]} has no checksum line')
+
+          if missing:
+              sys.exit('missing release assets or checksums:\n  ' + '\n  '.join(missing))
+          print('all four release assets and their checksums are present')
+          " "$ver"
 
       - name: Publish release assets
         uses: softprops/action-gh-release@v2
