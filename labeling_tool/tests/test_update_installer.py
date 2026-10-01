@@ -57,7 +57,11 @@ def test_deb_command_installs_every_package_in_one_call(tmp_path):
 @pytest.mark.parametrize("code,stderr,expected", [
     (0, "", installer.InstallOutcome.OK),
     (126, "", installer.InstallOutcome.CANCELLED),
-    (127, "", installer.InstallOutcome.CANCELLED),
+    # 127 means pkexec refused to even ask -- not authorised by polkit
+    # policy, or the command could not be executed -- not a user choice.
+    # Silently treating it as CANCELLED left the "Update" button doing
+    # nothing on any machine whose polkit policy denies this user root.
+    (127, "", installer.InstallOutcome.FAILED),
     (1, "dpkg: dependency problems prevent configuration of lm-labeling-tool",
      installer.InstallOutcome.MISSING_DEPS),
     (1, "dpkg: error processing archive (--install)", installer.InstallOutcome.FAILED),

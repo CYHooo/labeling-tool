@@ -87,3 +87,18 @@ def test_cache_home_is_separate_from_data_home(frozen, tmp_path, monkeypatch):
     frozen("linux", tmp_path / "opt")
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     assert app_paths.user_cache_home() == tmp_path / "cache" / "lm-labeling-tool"
+
+
+def test_windows_cache_home_is_not_the_install_directory(frozen, tmp_path, monkeypatch):
+    # Regression: user_cache_home() once returned app_home() on Windows too,
+    # which put a 1.5 GB in-progress update download inside the install
+    # directory. installer.iss's [InstallDelete] never clears it (it only
+    # knows about _internal/ and the two app-package subdirectories), so
+    # every full update would permanently grow the install by 1.5 GB and an
+    # uninstall would not remove it either. The download must land in the
+    # system temp directory instead, which the OS already reclaims on its
+    # own.
+    frozen("win32", tmp_path)
+    cache_home = app_paths.user_cache_home()
+    assert cache_home != app_paths.app_home()
+    assert cache_home == Path(app_paths.tempfile.gettempdir())

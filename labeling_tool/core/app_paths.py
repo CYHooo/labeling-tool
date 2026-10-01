@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -90,11 +91,23 @@ def user_data_home() -> Path:
 
 def user_cache_home() -> Path:
     """Where downloads land: discardable, and kept out of user_data_home() so
-    a 1.5 GB update package is not swept into the user's backups."""
+    a 1.5 GB update package is not swept into the user's backups.
+
+    Frozen on Windows: the system temp directory (``%TEMP%``), NOT
+    app_home() / beside the exe. Unlike user_data_home(), this directory is
+    not the published, portable install base -- it is scratch space for an
+    in-progress download. installer.iss's [InstallDelete] only clears
+    `{app}\\_internal` (full package) or its two app-package subdirectories;
+    it does not know about a download directory under `{app}`, and never
+    will, so anything placed there survives every future update and even an
+    uninstall. The OS already reclaims %TEMP% on its own, which is exactly
+    the property an abandoned 1.5 GB download needs.
+    Frozen on Linux: XDG_CACHE_HOME (or ~/.cache), same reasoning as
+    user_data_home() for XDG_DATA_HOME -- /opt is root-owned and read-only."""
     if not is_frozen():
         return REPO_ROOT / ".cache"
     if sys.platform == "win32":
-        return app_home()
+        return Path(tempfile.gettempdir())
     return _xdg_dir("XDG_CACHE_HOME", ".cache") / APP_DIR_NAME
 
 

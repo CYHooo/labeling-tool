@@ -321,7 +321,7 @@ jobs:
             fi
             ver="$GITHUB_REF_NAME"
           else
-            ver="dev-${GITHUB_SHA:0:7}"
+            ver="0.0.0-dev-${GITHUB_SHA:0:7}"
           fi
           echo "LT_VERSION=$ver" >> "$GITHUB_ENV"
 
@@ -367,9 +367,14 @@ jobs:
           timeout 300 xvfb-run -a dist/LM_LabelingTool/LM_LabelingTool --selftest=full
           code=$?
           set -e
-          if [ -f dist/LM_LabelingTool/selftest.log ]; then
-            cat dist/LM_LabelingTool/selftest.log
-            rm -f dist/LM_LabelingTool/selftest.log
+          # selftest.py logs via user_data_home(), which on Linux is the XDG
+          # data dir ($HOME/.local/share/lm-labeling-tool), NOT the build
+          # output directory -- that is Windows-only. Reading
+          # dist/LM_LabelingTool/selftest.log here always misses, printing a
+          # misleading "not found (early crash?)" on every successful build.
+          if [ -f "$HOME/.local/share/lm-labeling-tool/selftest.log" ]; then
+            cat "$HOME/.local/share/lm-labeling-tool/selftest.log"
+            rm -f "$HOME/.local/share/lm-labeling-tool/selftest.log"
           else
             echo "selftest.log not found (early crash?)"
           fi
@@ -523,6 +528,11 @@ jobs:
           # It says nothing about whether that list is actually SUFFICIENT
           # for Qt to start -- a missing-but-undeclared library would still
           # let dpkg -i succeed and only crash here.
+          # Remove any stale log first: this is the same XDG path the build
+          # step's own "Selftest packaged exe" step just wrote to, and if the
+          # installed app crashes before logging, cat'ing a leftover old log
+          # here would look like fresh output from the installed app.
+          rm -f "$HOME/.local/share/lm-labeling-tool/selftest.log"
           set +e
           timeout 300 xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest=full
           code=$?

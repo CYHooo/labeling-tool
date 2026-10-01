@@ -1,4 +1,5 @@
-"""Render labeling_tool/resources/icon.{ico,png} from the LM letter mark.
+"""Render labeling_tool/resources/icon.ico and icon-16/32/48/256.png from
+the LM letter mark.
 
 Kept as a script rather than a one-off command so the icons can be rebuilt
 identically later. Drawn directly with Pillow: no SVG rasteriser is

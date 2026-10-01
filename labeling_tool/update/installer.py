@@ -45,9 +45,16 @@ def launch_installer(installer_path: Path, log_path: Path,
 
 # -- Linux: dpkg installation -----------------------------------------------
 
-# pkexec's own exit codes for "the user dismissed the dialog" (126) and
-# "the authorisation could not even be requested" (127) -- no polkit agent
-# in this session. Both mean: go back to the app quietly.
+# pkexec's own exit codes. These are NOT interchangeable:
+# 126 is the user dismissing the authentication dialog -- a deliberate,
+# informed "no", so the app goes back quietly with no message.
+# 127 is pkexec refusing to even ASK: the subject is not authorised by
+# polkit policy, or the command could not be executed at all. The user
+# never saw a prompt and never made a choice, so treating this as a quiet
+# cancel means the "Update" button does nothing, every single time, on any
+# machine whose polkit policy does not allow this user to gain root --
+# exactly the silent failure this project keeps having to hunt down.
+# 127 is classified as FAILED, which does report stderr to the user.
 PKEXEC_CANCELLED = 126
 PKEXEC_NOT_AUTHORISED = 127
 
@@ -76,8 +83,13 @@ def classify_dpkg_result(returncode: int, stderr: str) -> InstallOutcome:
     """What actually happened, so the caller can tell a cancel from a fault."""
     if returncode == 0:
         return InstallOutcome.OK
-    if returncode in (PKEXEC_CANCELLED, PKEXEC_NOT_AUTHORISED):
+    if returncode == PKEXEC_CANCELLED:
         return InstallOutcome.CANCELLED
+    if returncode == PKEXEC_NOT_AUTHORISED:
+        # Not a user choice -- see PKEXEC_NOT_AUTHORISED's comment above.
+        # Report it like any other failure so the user is not left staring
+        # at an "Update" button that silently does nothing.
+        return InstallOutcome.FAILED
     if "dependency problems" in (stderr or ""):
         # dpkg -i does not resolve dependencies. Nothing is broken: the user
         # needs one apt call to pull the missing system libraries.

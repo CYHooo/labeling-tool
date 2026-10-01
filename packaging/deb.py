@@ -10,7 +10,7 @@ shipping a PyInstaller binary tree, the exact analogue of the Windows exe.
 
 The runtime package's Version field is the runtime id itself (e.g.
 "0~r3f8a1c92"), not a release number -- see
-docs/superpowers/specs/2026-09-30-linux-deb-distribution.md 4.1. The id is
+docs/superpowers/specs/2026-09-30-linux-deb-distribution-design.md 4.1. The id is
 computed from the runtime layer's file listing (packaging.layers), so two
 builds with an unchanged runtime always produce a package APT considers
 identical, and a changed runtime always produces a package APT considers
@@ -24,7 +24,7 @@ in ways that were invisible until it mattered: a brace-parsing bug once
 silently disabled it, and a MsgBox once hung CI for 96 minutes).
 
 The deb FILENAME and the deb Version are deliberately different -- see
-docs/superpowers/specs/2026-09-30-linux-deb-distribution.md 7.2:
+docs/superpowers/specs/2026-09-30-linux-deb-distribution-design.md 7.2:
 
 - The app deb's filename carries the runtime id
   (lm-labeling-tool_<version>-<runtime id>_amd64.deb) so a client can tell

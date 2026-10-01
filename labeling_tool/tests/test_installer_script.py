@@ -269,7 +269,7 @@ def test_the_linux_job_pins_2204_not_latest():
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "ubuntu-22.04" in text
     assert "runs-on: ubuntu-latest" not in [l.strip() for l in text.splitlines()
-                                            if "build-linux" in text]
+                                            if "build-linux" in l]
 
 
 def test_release_needs_both_builds():
@@ -283,6 +283,36 @@ def test_release_asserts_all_four_assets_are_present():
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "LM_LabelingTool-Setup-v" in text
     assert "lm-labeling-tool-runtime_" in text
+
+
+def test_the_linux_dev_version_starts_with_a_digit():
+    # dpkg-deb refuses a Version field that does not start with a digit
+    # ("version number does not start with digit"). Every later step strips
+    # a leading "v" off LT_VERSION (`ver="${LT_VERSION#v}"`) before it reaches
+    # deb.py's Version field, so a tag like "v1.2.3" is fine (becomes
+    # "1.2.3"), but the non-tag ("dev") branch's literal value goes through
+    # that same strip UNCHANGED since it never had a leading "v" -- so IT
+    # must already be digit-first. Regression: this step once used the
+    # Windows-shaped "dev-<sha>" (becomes "dev-<sha>", not digit-first),
+    # which makes every non-tag (manual dry-run) Linux build fail at
+    # `dpkg-deb --build`. local-build.sh's own "0.0.0-dev-local" default
+    # mirrors the fixed shape.
+    yaml = pytest.importorskip("yaml")
+    text = WORKFLOW.read_text(encoding="utf-8")
+    data = yaml.safe_load(text)
+    job = data["jobs"]["build-linux"]
+    version_steps = [s for s in job["steps"] if s.get("name") == "Version"]
+    assert version_steps, "expected a 'Version' step in build-linux"
+    run = version_steps[0]["run"]
+    m = re.search(r'else\s*\n\s*ver="([^"]*)"', run)
+    assert m, "expected an else-branch literal ver=\"...\" assignment"
+    dev_value = m.group(1)
+    stripped = re.sub(r'^v', '', dev_value)  # mirrors `${LT_VERSION#v}` downstream
+    assert re.match(r'^[0-9]', stripped), (
+        f"build-linux's non-tag Version branch assigns ver={dev_value!r}, which "
+        "does not start with a digit after the leading-'v' strip every later "
+        "step applies, and would make dpkg-deb reject the app deb's Version field"
+    )
 
 
 def test_the_linux_smoke_test_forbids_apt_fix_broken():

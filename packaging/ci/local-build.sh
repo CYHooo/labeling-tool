@@ -276,19 +276,26 @@ step_selftest() {
     # that silently turned a failed or hung selftest into a reported
     # success, printed the log, and still `exit 0`'d the whole script,
     # silently skipping `deb` and `smoke`.
+    # selftest.py logs via user_data_home(), which for a frozen Linux build
+    # is the XDG data dir ($HOME/.local/share/lm-labeling-tool), NOT the
+    # build output directory -- that is Windows-only. Reading
+    # "$DIST/selftest.log" here always misses: on success it silently prints
+    # a misleading "not found (early crash?)", and on FAILURE -- the one time
+    # a debugger actually needs this output -- there is nothing to cat.
+    local log="$HOME/.local/share/lm-labeling-tool/selftest.log"
     local code=0
     bounded 300 "selftest on the build output" xvfb-run -a "$DIST/LM_LabelingTool" --selftest=full || code=$?
     if [ "$code" -ne 0 ]; then
-        if [ -f "$DIST/selftest.log" ]; then
-            cat "$DIST/selftest.log"
+        if [ -f "$log" ]; then
+            cat "$log"
         else
             echo "selftest.log not found (early crash?)"
         fi
         exit "$code"
     fi
-    if [ -f "$DIST/selftest.log" ]; then
-        cat "$DIST/selftest.log"
-        rm -f "$DIST/selftest.log"
+    if [ -f "$log" ]; then
+        cat "$log"
+        rm -f "$log"
     fi
     rm -rf "$DIST/data" "$DIST/config.json"
 }

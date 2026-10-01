@@ -8,7 +8,7 @@ asset name. A new user installs the previous version and the app package
 brings it up to date on first launch (every launch checks).
 
 It is attached under THIS version's name because every client ever shipped
-looks for exactly full_asset_name(<latest version>) in the latest release;
+looks for exactly full_asset_names(<latest version>) in the latest release;
 a release without it would leave anyone needing a full install -- e.g. an
 install on an older runtime -- with no update offered at all.
 
