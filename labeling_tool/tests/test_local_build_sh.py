@@ -6,11 +6,30 @@ image, the step list staying in sync with the PowerShell original, and the
 smoke test refusing to paper over a missing dependency.
 """
 import re
+import subprocess
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SH = REPO / "packaging" / "ci" / "local-build.sh"
 PS1 = REPO / "packaging" / "ci" / "local-build.ps1"
+
+
+def _extract_function(text: str, name: str) -> str:
+    """Pull one `name() { ... }` function body out by brace-balance, not a
+    regex that assumes no nested braces -- bounded()'s own body contains
+    balanced `${...}` parameter expansions that a naive `[^}]*` match would
+    stop at early."""
+    start = text.index(f"{name}() {{")
+    depth = 0
+    i = text.index("{", start)
+    while True:
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+        i += 1
 
 
 def _declared_steps(text: str) -> list[str]:
@@ -64,6 +83,54 @@ def test_refuses_to_run_outside_a_container():
     # script directly on a developer's host would actually install them.
     text = SH.read_text(encoding="utf-8")
     assert "/.dockerenv" in text or "/proc/1/cgroup" in text
+
+
+def test_no_call_site_reads_dollar_question_inside_a_negated_if():
+    # `if ! cmd; then ...; local code=$?; ...` is a classic bash trap: `$?`
+    # inside that then-branch reflects the NEGATED PIPELINE's own status
+    # (always 0), not the wrapped command's real exit code. This exact bug
+    # was fixed inside bounded() itself (see its comment) and then
+    # independently reproduced at step_selftest()'s call site: a failed or
+    # hung selftest got reported as a success, the script printed the log
+    # and still exited 0, silently skipping `deb` and `smoke`. bounded()'s
+    # own fixed idiom (`cmd || code=$?` outside any `if !`) is the only
+    # correct form; guard against the broken one creeping back in anywhere.
+    text = SH.read_text(encoding="utf-8")
+    broken = re.search(r"if\s*!\s*[^\n]*;\s*then\b[^\n]*\n\s*local\s+\w+=\$\?", text)
+    assert broken is None, (
+        f"found the exit-code-capture bug pattern: {broken.group(0)!r}"
+    )
+
+
+def test_bounded_propagates_the_wrapped_commands_real_exit_code():
+    # A behavioural companion to the static check above: actually drive
+    # bounded() with a command that is guaranteed to fail in a specific,
+    # recognisable way, through the exact `cmd || code=$?` idiom the script
+    # uses, and assert the real code survives. This is what would have
+    # caught the step_selftest() bug even if the text pattern had been
+    # written differently (e.g. split across more lines).
+    text = SH.read_text(encoding="utf-8")
+    bounded_fn = _extract_function(text, "bounded")
+
+    harness = f"""#!/usr/bin/env bash
+set -u
+{bounded_fn}
+
+drive() {{
+    local code=0
+    bounded 2 "deliberately failing command" bash -c 'exit 37' || code=$?
+    if [ "$code" -ne 0 ]; then
+        exit "$code"
+    fi
+    exit 0
+}}
+drive
+"""
+    result = subprocess.run(["bash", "-c", harness], capture_output=True, text=True)
+    assert result.returncode == 37, (
+        f"expected the wrapped command's real exit code (37) to survive, "
+        f"got {result.returncode}; stderr={result.stderr!r}"
+    )
 
 
 def test_matches_release_yml_dependency_install_order():

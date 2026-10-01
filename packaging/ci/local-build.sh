@@ -267,8 +267,18 @@ step_build() {
 }
 
 step_selftest() {
-    if ! bounded 300 "selftest on the build output" xvfb-run -a "$DIST/LM_LabelingTool" --selftest=full; then
-        local code=$?
+    # `code=$?` must be set via `||`, not inside `if ! cmd; then` -- see
+    # bounded()'s own comment above for exactly this bug (and this was a
+    # second, independent occurrence of it: fixed inside bounded(), then
+    # reproduced right outside it at this call site). Inside the
+    # then-branch of `if ! cmd; then`, `$?` reflects the NEGATED pipeline's
+    # own status (always 0), not the wrapped command's real exit code --
+    # that silently turned a failed or hung selftest into a reported
+    # success, printed the log, and still `exit 0`'d the whole script,
+    # silently skipping `deb` and `smoke`.
+    local code=0
+    bounded 300 "selftest on the build output" xvfb-run -a "$DIST/LM_LabelingTool" --selftest=full || code=$?
+    if [ "$code" -ne 0 ]; then
         if [ -f "$DIST/selftest.log" ]; then
             cat "$DIST/selftest.log"
         else
