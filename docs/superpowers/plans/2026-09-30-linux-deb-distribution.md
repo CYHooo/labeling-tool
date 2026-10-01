@@ -1858,6 +1858,144 @@ an assumption."
 
 ---
 
+---
+
+### Task 11: Linux 本地验证脚本
+
+`docs/RELEASING.md` 开篇即声明「所有检测都在本地完成，CI 只负责构建和发布」，理由是一轮 CI 要
+18–25 分钟、失败就得重来。Windows 侧由 `packaging/ci/local-build.ps1` 承担这件事；Linux 侧若只
+在 CI 里烟测，等于退回项目刻意废弃的「推 tag → 等 20 分钟 → 失败 → 再来」循环。本任务补上对等物。
+
+必须在容器内运行：开发机是 Ubuntu 24.04 / glibc 2.39，而构建目标是 22.04 / glibc 2.35，宿主机上
+直接构建的产物不能代表发布物。
+
+**Files:**
+- Create: `packaging/ci/local-build.sh`
+- Modify: `docs/RELEASING.md`
+- Test: `labeling_tool/tests/test_local_build_sh.py`（静态校验，不实际构建）
+
+**Interfaces:**
+- Consumes: Task 1 的 `layers.py`（平台化）、Task 4 的 `build-lock-linux.txt`、Task 8 的 `deb.py`、Task 9 的 `reuse_runtime.py`
+- Produces: `packaging/ci/local-build.sh`，支持 `--steps` 子集选择，与 `local-build.ps1` 的步骤名一一对应
+
+- [ ] **Step 1: 写失败测试**
+
+新建 `labeling_tool/tests/test_local_build_sh.py`。这是**静态校验**——真正跑一次要十几分钟并下载数 GB，
+不适合进测试套件；但脚本本身的若干约束可以廉价地钉住：
+
+```python
+"""Static checks on the Linux local verification script.
+
+Running it for real takes ~15 minutes and several GB of downloads, so the
+suite checks the invariants that silently rot instead: the pinned base
+image, the step list staying in sync with the PowerShell original, and the
+smoke test refusing to paper over a missing dependency.
+"""
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[2]
+SH = REPO / "packaging" / "ci" / "local-build.sh"
+PS1 = REPO / "packaging" / "ci" / "local-build.ps1"
+
+
+def test_script_exists_and_is_executable():
+    assert SH.is_file(), f"{SH} missing"
+    assert SH.stat().st_mode & 0o111, "local-build.sh must be executable"
+
+
+def test_pins_2204_not_latest():
+    # glibc only works forwards: a 24.04 build cannot run on 22.04, and the
+    # dev machine is 24.04. Building against :latest would silently produce
+    # artifacts that exclude half the supported users.
+    text = SH.read_text(encoding="utf-8")
+    assert "ubuntu:22.04" in text
+    assert "ubuntu:latest" not in text
+
+
+def test_steps_match_the_powershell_original():
+    # The two scripts verify the same pipeline on two platforms. A step that
+    # exists on one side only is a verification gap nobody will notice.
+    sh_steps = set(_declared_steps(SH.read_text(encoding="utf-8")))
+    assert sh_steps == {"tests", "build", "selftest", "layers", "deb", "smoke"}
+
+
+def test_smoke_step_forbids_apt_fix_broken():
+    # dpkg -i must succeed on its own. Needing `apt-get install -f` means the
+    # runtime package declares a library real users will not have either.
+    text = SH.read_text(encoding="utf-8")
+    assert "dpkg -i" in text
+    assert "install -f" not in text
+
+
+def test_runs_the_three_test_directories():
+    # The repository's authoritative command; labeling_tool/tests alone
+    # misses the top-level tests/ directory.
+    text = SH.read_text(encoding="utf-8")
+    assert "tests labeling_tool/tests annotation_tool/tests" in text
+```
+
+（实现者注：`_declared_steps` 是本文件内的小辅助，从脚本里解析出步骤名列表；用脚本中一处显式声明
+步骤的数组作为单一来源，不要用正则去猜。）
+
+- [ ] **Step 2: 运行测试确认失败**
+
+Run: `QT_QPA_PLATFORM=offscreen python -m pytest labeling_tool/tests/test_local_build_sh.py -q`
+Expected: FAIL — `packaging/ci/local-build.sh` 不存在
+
+- [ ] **Step 3: 实现 `packaging/ci/local-build.sh`**
+
+结构对齐 `local-build.ps1`：顶部注释说明用途与为何必须用容器；一个显式的步骤数组；`--steps`
+参数选择子集；每步失败即退出并打印清晰原因。步骤与各自要做的事：
+
+| 步骤 | 内容 |
+|---|---|
+| `tests` | `QT_QPA_PLATFORM=offscreen python -m pytest tests labeling_tool/tests annotation_tool/tests -q` |
+| `build` | `pyinstaller --noconfirm packaging/labeling_tool.spec` |
+| `selftest` | `xvfb-run -a dist/LM_LabelingTool/LM_LabelingTool --selftest=full`，并打印 selftest 日志 |
+| `layers` | `python packaging/layers.py runtime-id dist/LM_LabelingTool` 并打印；应用层大小护栏（>20 MB 即失败） |
+| `deb` | `python packaging/deb.py build dist/LM_LabelingTool out "$VERSION"`，默认走快速压缩 |
+| `smoke` | `dpkg -i` 两个包 → `xvfb-run` 跑安装后 selftest → 单独装错配 app deb 断言被拒 → 卸载 |
+
+容器内需要的系统包：`dpkg-dev`、`xvfb`、`python3.12`（deadsnakes）、`build-essential`。依赖安装顺序
+必须与 `.github/workflows/` 的 Linux job 逐字一致（先 `-r requirements-dev.txt pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.7`，再 `torch==2.5.1 torchvision==0.20.1 --index-url
+https://download.pytorch.org/whl/cu124`，最后 `--no-build-isolation` 装 sam2 的固定 commit），否则
+本地验证的环境与 CI 不同，验证就失去意义。
+
+`smoke` 步骤在容器内以 root 运行，装到容器自己的 `/opt`，不会碰开发机。**脚本必须拒绝在容器外
+直接运行**（检测到不在容器里就报错退出），否则会往开发机的 `/opt` 真装东西。
+
+- [ ] **Step 4: 运行测试确认通过**
+
+Run: `QT_QPA_PLATFORM=offscreen python -m pytest labeling_tool/tests/test_local_build_sh.py -q`
+Expected: PASS
+
+- [ ] **Step 5: 真跑一次完整验证**
+
+Run: `bash packaging/ci/local-build.sh`
+Expected: 六个步骤全绿。这一步会花十几分钟并下载数 GB，是本任务唯一能证明脚本真的可用的证据，
+不可跳过。把输出尾部贴进报告。
+
+- [ ] **Step 6: 更新 `docs/RELEASING.md`**
+
+在既有的 Windows 本地验证一节旁，补 Linux 一节：如何跑 `local-build.sh`、它验证了什么、以及
+「两个平台各有自己的 runtime id，发布前都要与上一版核对」这件事。
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add packaging/ci/local-build.sh labeling_tool/tests/test_local_build_sh.py docs/RELEASING.md
+git commit -m "ci: verify the Linux build locally, the way Windows already is
+
+RELEASING.md's premise is that checks run locally and CI only publishes,
+because a CI round costs 18-25 minutes. Leaving the Linux smoke test in CI
+would have put that half of the release back on the tag-and-wait loop.
+
+It runs in an ubuntu:22.04 container rather than on the host: the dev
+machine is 24.04, and glibc only works forwards, so a host build does not
+represent what ships."
+```
+
 ## 完成条件
 
 全部任务完成后，以下均须为真：
@@ -1868,3 +2006,4 @@ an assumption."
 - 在 22.04 与 24.04 上均可用 `sudo dpkg -i` 两个包装成，无需 `apt-get install -f`，启动后 selftest 通过。
 - 装好的 Linux 版能检查到更新：运行时未变时只下载一个 app deb；运行时变更时下载两个 deb。
 - Windows 侧行为无任何可观察变化。
+- `packaging/ci/local-build.sh` 可在本机一次跑通六个步骤，Linux 发布前无需依赖 CI 反馈。
