@@ -96,3 +96,23 @@ def test_install_debs_returns_stderr_on_failure(tmp_path):
 def test_install_debs_refuses_a_missing_file(tmp_path):
     with pytest.raises(FileNotFoundError):
         installer.install_debs([tmp_path / "nope.deb"], runner=lambda *a, **k: None)
+
+
+def test_install_debs_forces_c_locale(tmp_path):
+    # dpkg's output is localized. This product's users are mostly Korean, so
+    # without a forced locale the "dependency problems" match would never
+    # fire on their machines, silently misclassifying MISSING_DEPS as FAILED.
+    deb = tmp_path / "x.deb"
+    deb.touch()
+    seen_kwargs = {}
+
+    class _Result:
+        returncode = 0
+        stderr = ""
+
+    def _runner(cmd, **kwargs):
+        seen_kwargs.update(kwargs)
+        return _Result()
+
+    installer.install_debs([deb], runner=_runner)
+    assert seen_kwargs["env"]["LC_ALL"] == "C"

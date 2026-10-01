@@ -1,13 +1,19 @@
-"""Hand the downloaded Inno Setup installer control, then quit.
+"""Carry out the downloaded update, per platform.
 
-Windows cannot replace a running exe, so the app launches the installer
-detached and exits immediately; /RESTARTAPP makes the installer start the new
-version when it is done.
+Windows cannot replace a running exe, so the app launches the Inno Setup
+installer detached and exits immediately, handing over control; /RESTARTAPP
+makes the installer start the new version when it is done.
+
+Linux has no such restriction, so instead of handing over blindly, the app
+installs the .deb packages synchronously with `pkexec dpkg -i` and waits for
+dpkg to exit: a failed update can then be reported to the user -- including
+*why* it failed -- rather than silently not happening.
 """
 
 from __future__ import annotations
 
 import enum
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -38,11 +44,6 @@ def launch_installer(installer_path: Path, log_path: Path,
 
 
 # -- Linux: dpkg installation -----------------------------------------------
-#
-# Unlike Windows -- which cannot replace a running exe, so the app hands the
-# installer over and exits blind -- Linux can wait for dpkg to finish and
-# read its exit code, so a failed update is reported instead of silently not
-# happening.
 
 # pkexec's own exit codes for "the user dismissed the dialog" (126) and
 # "the authorisation could not even be requested" (127) -- no polkit agent
@@ -85,19 +86,21 @@ def classify_dpkg_result(returncode: int, stderr: str) -> InstallOutcome:
 
 
 def install_debs(paths, runner=subprocess.run) -> tuple[InstallOutcome, str]:
-    """Install synchronously and report what happened.
-
-    Unlike Windows -- which cannot replace a running exe, so the app hands the
-    installer over and exits blind -- Linux can wait for dpkg and read its
-    exit code, so a failed update is reported instead of silently not
-    happening."""
+    """Install synchronously and report what happened (see module docstring)."""
     paths = [Path(p) for p in paths]
     for path in paths:
         if not path.is_file():
             raise FileNotFoundError(path)
+    # Force the C locale for dpkg's own output. This is standard practice
+    # when a caller parses command output, but here it matters concretely:
+    # this product's users are mostly Korean (the UI defaults to Korean, the
+    # packages are Korean-localized), so on their machines dpkg would emit
+    # Korean text and the "dependency problems" substring match below would
+    # never fire, silently downgrading a MISSING_DEPS case to a plain FAILED.
+    env = {**os.environ, "LC_ALL": "C"}
     try:
         result = runner(build_deb_command(paths), capture_output=True,
-                        text=True, check=False)
+                        text=True, check=False, env=env)
     except FileNotFoundError:
         # No pkexec on this system: an SSH session, WSL, or a desktop without
         # a polkit agent. Tell the user how to install by hand.

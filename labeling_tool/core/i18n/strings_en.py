@@ -197,7 +197,8 @@ STRINGS = {
         "An error occurred while checking for updates: {type}: {exc}\n\n{url}",
     "update_linux_deps_title":         "Missing system libraries",
     "update_linux_deps_msg":
-        "The package installed, but some system libraries are still missing.\n\n"
+        "The package files were written, but setup could not finish: some "
+        "system libraries are still missing.\n\n"
         "Open a terminal and run:\nsudo apt-get install -f\n\n{detail}",
     "update_linux_restart_title":      "Update installed",
     "update_linux_restart_msg":        "The update installed successfully. Please restart the app.",
