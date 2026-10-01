@@ -6,10 +6,22 @@ from PyQt5 import sip
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox, QWidget
 
+from labeling_tool.core import app_paths
 from labeling_tool.update import checker, state, ui
 from labeling_tool.update.version import BuildInfo
 
 _app = QApplication.instance() or QApplication([])
+
+
+@pytest.fixture(autouse=True)
+def _cache_in_tmp_path(monkeypatch, tmp_path):
+    """Keep downloaded packages out of the real repo cache.
+
+    user_cache_home() falls back to REPO_ROOT/.cache outside a frozen build,
+    which is exactly where the dev checkout and the test suite run - without
+    this, every download test litters the repository with update-* dirs.
+    """
+    monkeypatch.setattr(ui.app_paths, "user_cache_home", lambda: tmp_path)
 
 
 @pytest.fixture(autouse=True)
@@ -363,7 +375,6 @@ def test_prompt_update_uses_a_fresh_temp_dir_each_time(monkeypatch, tmp_path):
     ui.prompt_and_install(None, INFO, home=tmp_path)
     ui.prompt_and_install(None, INFO, home=tmp_path)
     assert seen_dirs[0] != seen_dirs[1]
-    from labeling_tool.core import app_paths
     assert str(seen_dirs[0]).startswith(str(app_paths.user_cache_home()))
 
 
@@ -387,6 +398,32 @@ def test_prompt_and_install_true_quits_the_app(monkeypatch, tmp_path):
     thread.wait(5000)
     _app.processEvents()
     assert quit_calls == [True]
+
+
+def test_a_successful_linux_install_does_not_quit_the_app(monkeypatch, tmp_path):
+    # dpkg already installed the update in place; the user was told to
+    # restart manually. Quitting here would be unprompted and could drop
+    # unsaved work, contradicting the restart message just shown.
+    info = _linux_app_info()
+
+    def fake_download(url, dest, sha, progress=None):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"deb")
+
+    monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.LINUX)
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "full", None))
+    monkeypatch.setattr(ui.checker, "find_update", lambda *a, **k: info)
+    monkeypatch.setattr(ui, "_ask", lambda *a, **k: ui.UPDATE)
+    monkeypatch.setattr(ui.net_download, "download_file", fake_download)
+    monkeypatch.setattr(ui.installer, "install_debs",
+                        lambda paths, **kw: (ui.installer.InstallOutcome.OK, ""))
+    monkeypatch.setattr(ui.QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    quit_calls = []
+    monkeypatch.setattr(QApplication, "quit", lambda: quit_calls.append(True))
+    thread = ui.check_for_updates(None, home=tmp_path)
+    thread.wait(5000)
+    _app.processEvents()
+    assert quit_calls == []
 
 
 # ------------------------------------------------------------- M2 / M10: the
