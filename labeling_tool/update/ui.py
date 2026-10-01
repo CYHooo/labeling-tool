@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QMessageBox, QProgressDialog,
 )
 
-from labeling_tool.core import net_download
+from labeling_tool.core import app_paths, net_download
 from labeling_tool.core.i18n import tr
 from labeling_tool.logging_setup import vlog
 from labeling_tool.update import checker, installer, state
@@ -146,31 +146,39 @@ def prompt_and_install(parent, info, home: Path | None = None) -> bool:
         return False
 
     # A fresh directory per download avoids the TOCTOU on a fixed,
-    # user-writable path and stops installers (up to ~1.5 GB each)
+    # user-writable path and stops packages (up to ~1.5 GB each)
     # accumulating forever under a single well-known name.
-    target_dir = Path(tempfile.mkdtemp(prefix="LabelingTool-update-"))
-    # Task 7 adds real multi-asset downloads (a Linux full update is two
-    # debs); for now the Windows path this ships stays exact -- one asset.
-    dest = target_dir / info.assets[0].name
+    cache_root = app_paths.user_cache_home()
+    cache_root.mkdir(parents=True, exist_ok=True)
+    target_dir = Path(tempfile.mkdtemp(prefix="update-", dir=cache_root))
     bar = QProgressDialog(tr("update_progress_label"), tr("update_cancel"), 0, 100, parent)
     bar.setWindowTitle(tr("update_title"))
     bar.setWindowModality(Qt.ApplicationModal)
     bar.setMinimumDuration(0)
     bar.setValue(0)
 
-    def on_progress(done: int, total: int) -> bool:
-        total = total or info.total_size
-        bar.setValue(min(100, done * 100 // max(1, total)))
-        bar.setLabelText(tr("update_progress_template",
-                           done=done // (1024 * 1024), total=total // (1024 * 1024)))
-        QApplication.processEvents()
-        return not bar.wasCanceled()
-
+    done_before = 0
+    paths = []
     try:
-        net_download.download_file(info.assets[0].url, dest, info.assets[0].sha256,
-                                   progress=on_progress)
-        installer.launch_installer(dest, target_dir / "update.log")
-        return True
+        for asset in info.assets:
+            dest = target_dir / asset.name
+
+            def on_progress(done, total, _base=done_before):
+                # One bar across every asset: two 700 MB debs must not each
+                # drive it from 0 to 100.
+                overall = _base + done
+                bar.setValue(min(100, overall * 100 // max(1, info.total_size)))
+                bar.setLabelText(tr("update_progress_template",
+                                    done=overall // (1024 * 1024),
+                                    total=info.total_size // (1024 * 1024)))
+                QApplication.processEvents()
+                return not bar.wasCanceled()
+
+            net_download.download_file(asset.url, dest, asset.sha256,
+                                       progress=on_progress)
+            paths.append(dest)
+            done_before += asset.size
+        return _hand_over(parent, info, paths, target_dir)
     except net_download.DownloadCancelled:
         return False
     except Exception as exc:  # noqa: BLE001 - network / disk / checksum / launch
@@ -181,6 +189,30 @@ def prompt_and_install(parent, info, home: Path | None = None) -> bool:
         return False
     finally:
         bar.close()
+
+
+def _hand_over(parent, info, paths, target_dir) -> bool:
+    """Install what was downloaded. True = the update is under way."""
+    if checker.current_platform() == checker.WINDOWS:
+        # Windows cannot replace a running exe: hand over and exit.
+        installer.launch_installer(paths[0], target_dir / "update.log")
+        return True
+    outcome, detail = installer.install_debs(paths)
+    if outcome is installer.InstallOutcome.OK:
+        QMessageBox.information(parent, tr("update_linux_restart_title"),
+                                tr("update_linux_restart_msg"))
+        return True
+    if outcome is installer.InstallOutcome.CANCELLED:
+        # The user dismissed the polkit dialog. Not an error.
+        return False
+    if outcome is installer.InstallOutcome.MISSING_DEPS:
+        QMessageBox.warning(parent, tr("update_linux_deps_title"),
+                            tr("update_linux_deps_msg", detail=detail))
+        return False
+    QMessageBox.critical(parent, tr("update_failed_title"),
+                         tr("update_failed_msg", type="dpkg", exc=detail,
+                            url=f"https://github.com/{checker.GITHUB_REPO}/releases/latest"))
+    return False
 
 
 def check_for_updates(parent, *, force: bool = False, home: Path | None = None):
@@ -238,8 +270,11 @@ def check_for_updates(parent, *, force: bool = False, home: Path | None = None):
             vlog().info("update %s found mid-session; offering it on exit", found.version)
             _PENDING[:] = [(found, home)]
             return
-        if prompt_and_install(box_parent, found, home):
-            QApplication.quit()   # the installer restarts the new version
+        if prompt_and_install(box_parent, found, home) and checker.current_platform() == checker.WINDOWS:
+            # Windows: the installer is about to replace the running exe, so
+            # quit now. Linux already installed in place (install_debs ran
+            # synchronously) and the user was told to restart manually.
+            QApplication.quit()
 
     def _on_finished():
         _RUNNING_CHECKS.discard(thread)

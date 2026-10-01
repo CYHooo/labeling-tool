@@ -1,5 +1,4 @@
 """Update prompt: three buttons, progress, and handing over to the installer."""
-import tempfile
 import threading
 
 import pytest
@@ -72,6 +71,7 @@ def test_prompt_update_downloads_verifies_and_launches(monkeypatch, tmp_path):
         if progress:
             progress(10, 100)
 
+    monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.WINDOWS)
     monkeypatch.setattr(ui, "_ask", lambda *a, **k: ui.UPDATE)
     monkeypatch.setattr(ui.net_download, "download_file", fake_download)
     monkeypatch.setattr(ui.installer, "launch_installer",
@@ -356,13 +356,15 @@ def test_prompt_update_uses_a_fresh_temp_dir_each_time(monkeypatch, tmp_path):
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"x")
 
+    monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.WINDOWS)
     monkeypatch.setattr(ui, "_ask", lambda *a, **k: ui.UPDATE)
     monkeypatch.setattr(ui.net_download, "download_file", fake_download)
     monkeypatch.setattr(ui.installer, "launch_installer", lambda *a, **k: None)
     ui.prompt_and_install(None, INFO, home=tmp_path)
     ui.prompt_and_install(None, INFO, home=tmp_path)
     assert seen_dirs[0] != seen_dirs[1]
-    assert str(seen_dirs[0]).startswith(tempfile.gettempdir())
+    from labeling_tool.core import app_paths
+    assert str(seen_dirs[0]).startswith(str(app_paths.user_cache_home()))
 
 
 # ----------------------------------------------------------------- M12: a
@@ -373,6 +375,7 @@ def test_prompt_and_install_true_quits_the_app(monkeypatch, tmp_path):
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"x")
 
+    monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.WINDOWS)
     monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "full", None))
     monkeypatch.setattr(ui.checker, "find_update", lambda *a, **k: INFO)
     monkeypatch.setattr(ui, "_ask", lambda *a, **k: ui.UPDATE)
@@ -439,3 +442,174 @@ def test_prompt_text_follows_language(monkeypatch, tmp_path):
     ui._ask(None, INFO)
     assert captured["text"] == i18n.tr("update_available", version=INFO.version,
                                        size=INFO.total_size // (1024 * 1024))
+
+
+# ---------------------------------------------- Task 7: multi-asset download
+
+def _asset(name, size=100 * 1024 * 1024, sha="a" * 64):
+    return checker.Asset(name=name, url=f"https://x/{name}", size=size, sha256=sha)
+
+
+def _linux_full_info():
+    return checker.UpdateInfo(
+        version="1.0.1", variant="full",
+        assets=(_asset("lm-labeling-tool-runtime_1.0.1_amd64.deb", 700 * 1024 * 1024,
+                       "b" * 64),
+                _asset("lm-labeling-tool_1.0.1-r3f8a1c92_amd64.deb", 20 * 1024 * 1024,
+                       "c" * 64)),
+        notes="fixes", kind="full")
+
+
+def _linux_app_info():
+    return checker.UpdateInfo(
+        version="1.0.1", variant="full",
+        assets=(_asset("lm-labeling-tool_1.0.1-r3f8a1c92_amd64.deb", 20 * 1024 * 1024),),
+        notes="fixes", kind="app")
+
+
+@pytest.fixture
+def linux(monkeypatch):
+    """Take the Linux branch, and never actually call pkexec."""
+    monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.LINUX)
+    monkeypatch.setattr(ui, "_ask", lambda *a, **k: ui.UPDATE)
+
+
+def test_every_asset_is_downloaded_and_verified(linux, monkeypatch, tmp_path):
+    # A Linux full update is two debs; downloading only the first would hand
+    # dpkg half an install.
+    got = []
+
+    def _download(url, dest, sha, progress=None):
+        got.append((dest.name, sha))
+        dest.write_bytes(b"deb")
+
+    monkeypatch.setattr(ui.net_download, "download_file", _download)
+    monkeypatch.setattr(ui.installer, "install_debs",
+                        lambda paths, **kw: (ui.installer.InstallOutcome.OK, ""))
+    monkeypatch.setattr(ui.QMessageBox, "information", staticmethod(lambda *a, **k: None))
+
+    info = _linux_full_info()
+    assert ui.prompt_and_install(None, info, home=tmp_path) is True
+    assert [name for name, _ in got] == [a.name for a in info.assets]
+    assert [sha for _, sha in got] == [a.sha256 for a in info.assets]
+
+
+def test_both_debs_are_passed_to_dpkg_in_one_call(linux, monkeypatch, tmp_path):
+    # dpkg must see both packages at once, or the app deb's Depends on the
+    # runtime deb cannot be satisfied.
+    calls = []
+    monkeypatch.setattr(ui.net_download, "download_file",
+                        lambda url, dest, sha, progress=None: dest.write_bytes(b"deb"))
+    monkeypatch.setattr(ui.installer, "install_debs",
+                        lambda paths, **kw: (calls.append(list(paths))
+                                             or (ui.installer.InstallOutcome.OK, "")))
+    monkeypatch.setattr(ui.QMessageBox, "information", staticmethod(lambda *a, **k: None))
+
+    ui.prompt_and_install(None, _linux_full_info(), home=tmp_path)
+    assert len(calls) == 1 and len(calls[0]) == 2
+
+
+def test_progress_spans_the_total_of_all_assets(linux, monkeypatch, tmp_path):
+    # Two debs must not each drive the bar from 0 to 100.
+    totals = []
+
+    def _download(url, dest, sha, progress=None):
+        dest.write_bytes(b"deb")
+        if progress is not None:
+            progress(1024, 0)
+
+    monkeypatch.setattr(ui.net_download, "download_file", _download)
+    monkeypatch.setattr(ui.installer, "install_debs",
+                        lambda paths, **kw: (ui.installer.InstallOutcome.OK, ""))
+    monkeypatch.setattr(ui.QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(ui.QProgressDialog, "setLabelText",
+                        lambda self, text: totals.append(text))
+
+    info = _linux_full_info()
+    ui.prompt_and_install(None, info, home=tmp_path)
+    whole_mb = str(info.total_size // (1024 * 1024))
+    assert all(whole_mb in t for t in totals), \
+        f"the bar must be scaled to {whole_mb} MB, saw {totals}"
+
+
+def test_cancelled_install_is_silent(linux, monkeypatch, tmp_path):
+    # Dismissing the polkit dialog is not an error.
+    boxes = []
+    monkeypatch.setattr(ui.net_download, "download_file",
+                        lambda url, dest, sha, progress=None: dest.write_bytes(b"deb"))
+    monkeypatch.setattr(ui.installer, "install_debs",
+                        lambda paths, **kw: (ui.installer.InstallOutcome.CANCELLED, ""))
+    monkeypatch.setattr(ui.QMessageBox, "critical",
+                        staticmethod(lambda *a, **k: boxes.append(a)))
+    monkeypatch.setattr(ui.QMessageBox, "warning",
+                        staticmethod(lambda *a, **k: boxes.append(a)))
+
+    assert ui.prompt_and_install(None, _linux_app_info(), home=tmp_path) is False
+    assert boxes == []
+
+
+def test_missing_deps_names_the_apt_command(linux, monkeypatch, tmp_path):
+    shown = []
+    monkeypatch.setattr(ui.net_download, "download_file",
+                        lambda url, dest, sha, progress=None: dest.write_bytes(b"deb"))
+    monkeypatch.setattr(ui.installer, "install_debs",
+                        lambda paths, **kw: (ui.installer.InstallOutcome.MISSING_DEPS,
+                                             "dpkg: dependency problems ... libxcb-xinerama0"))
+    monkeypatch.setattr(ui.QMessageBox, "warning",
+                        staticmethod(lambda *a, **k: shown.append(a)))
+
+    assert ui.prompt_and_install(None, _linux_app_info(), home=tmp_path) is False
+    assert shown, "the user must be told which apt command fixes this"
+    assert any("apt-get install -f" in str(arg) for arg in shown[0])
+
+
+def test_a_failed_download_installs_nothing(linux, monkeypatch, tmp_path):
+    # ~/.cache full or unwritable: report it, install nothing, keep the app
+    # usable. Installing a partially downloaded deb would be worse.
+    installs = []
+    monkeypatch.setattr(ui.installer, "install_debs",
+                        lambda paths, **kw: installs.append(paths))
+    monkeypatch.setattr(ui.QMessageBox, "critical", staticmethod(lambda *a, **k: None))
+
+    def _boom(url, dest, sha, progress=None):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(ui.net_download, "download_file", _boom)
+    assert ui.prompt_and_install(None, _linux_full_info(), home=tmp_path) is False
+    assert installs == []
+
+
+def test_a_failure_on_the_second_deb_installs_nothing(linux, monkeypatch, tmp_path):
+    # The first deb downloaded fine. Installing it alone would leave a
+    # runtime layer with no application on top of it.
+    installs = []
+    seen = []
+
+    def _download(url, dest, sha, progress=None):
+        seen.append(dest.name)
+        if len(seen) == 2:
+            raise OSError(28, "No space left on device")
+        dest.write_bytes(b"deb")
+
+    monkeypatch.setattr(ui.net_download, "download_file", _download)
+    monkeypatch.setattr(ui.installer, "install_debs",
+                        lambda paths, **kw: installs.append(paths))
+    monkeypatch.setattr(ui.QMessageBox, "critical", staticmethod(lambda *a, **k: None))
+
+    assert ui.prompt_and_install(None, _linux_full_info(), home=tmp_path) is False
+    assert installs == []
+
+
+def test_windows_still_hands_over_to_the_installer(monkeypatch, tmp_path):
+    # The Windows path must be untouched by the list refactor.
+    launched = []
+    monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.WINDOWS)
+    monkeypatch.setattr(ui, "_ask", lambda *a, **k: ui.UPDATE)
+    monkeypatch.setattr(ui.net_download, "download_file",
+                        lambda url, dest, sha, progress=None: dest.write_bytes(b"exe"))
+    monkeypatch.setattr(ui.installer, "launch_installer",
+                        lambda dest, log: launched.append(dest))
+
+    assert ui.prompt_and_install(None, INFO, home=tmp_path) is True
+    assert len(launched) == 1
+    assert launched[0].name == INFO.assets[0].name
