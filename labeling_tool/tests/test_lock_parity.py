@@ -1,5 +1,5 @@
 """The two build locks must not drift: drift means the platforms differ."""
-import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -8,16 +8,13 @@ REPO = Path(__file__).resolve().parents[2]
 WIN_LOCK = REPO / "packaging" / "build-lock.txt"
 LINUX_LOCK = REPO / "packaging" / "build-lock-linux.txt"
 
-# Load packaging/lock_parity.py by file path rather than
-# `from packaging import lock_parity`: pytest itself already imports and
-# caches the real, pip-installed `packaging` library (the version-parsing
-# one) as sys.modules["packaging"] before this test module runs, so a
-# dotted import would silently resolve to that library's namespace instead
-# of our local packaging/ directory and fail to find lock_parity.
-_spec = importlib.util.spec_from_file_location(
-    "lock_parity", REPO / "packaging" / "lock_parity.py")
-lock_parity = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(lock_parity)
+# Insert the packaging/ directory itself (not the repo root) and import the
+# module by its bare name, same as test_reuse_full.py and test_layers.py.
+# This never goes through the name "packaging" as a package, so it cannot
+# collide with the pip-installed packaging library that pytest itself
+# already imports and caches into sys.modules before this module runs.
+sys.path.insert(0, str(REPO / "packaging"))
+import lock_parity  # noqa: E402
 
 
 def test_parse_lock_ignores_comments_and_blanks():
