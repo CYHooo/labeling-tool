@@ -44,9 +44,11 @@ so the control fields never have to be verified by hand.
 from __future__ import annotations
 
 import os
+import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -81,7 +83,11 @@ ICON_SIZES = (16, 32, 48, 256)
 RUNTIME_DEPENDS = (
     "libc6 (>= 2.35)",
     "libgl1",
-    "libglib2.0-0",
+    # Ubuntu 24.04 (noble) renamed this package to libglib2.0-0t64 as part
+    # of its 64-bit time_t transition; 22.04 (jammy) still ships the old
+    # name. The alternation covers both -- do not collapse it to one name,
+    # that silently drops one of the two supported releases.
+    "libglib2.0-0t64 | libglib2.0-0",
     "libxkbcommon-x11-0",
     "libxcb-xinerama0",
     "libxcb-icccm4",
@@ -182,8 +188,6 @@ def _write_control_dir(root: Path, control: str, postinst: str | None = None) ->
 def _stage_runtime_layer(dist_dir: Path, root: Path, platform: str | None = None) -> int:
     """Copy every runtime-layer file under <root>/opt/lm-labeling-tool/.
     Returns the total staged size in bytes."""
-    import shutil
-
     target_root = root / INSTALL_PREFIX.lstrip("/")
     total = 0
     for rel, path in layers.iter_runtime_files(dist_dir, platform):
@@ -211,7 +215,6 @@ def _stage_app_extras(dist_dir: Path, root: Path, version: str) -> None:
         icon_dir = root / "usr" / "share" / "icons" / "hicolor" / \
             f"{px}x{px}" / "apps"
         icon_dir.mkdir(parents=True, exist_ok=True)
-        import shutil
         shutil.copy2(src, icon_dir / f"{APP_PACKAGE}.png")
 
     bin_dir = root / "usr" / "bin"
@@ -238,9 +241,6 @@ def build(dist_dir: Path, out_dir: Path, version: str) -> dict[str, Path]:
 
     Returns {"runtime": <path>, "app": <path>}.
     """
-    import shutil
-    import tempfile
-
     dist_dir = Path(dist_dir)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

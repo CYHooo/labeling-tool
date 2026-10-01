@@ -61,6 +61,15 @@ def test_filenames_split_the_runtime_id_from_the_version():
         "lm-labeling-tool-runtime_1.4.1_amd64.deb"
 
 
+def test_runtime_package_covers_both_glib_package_names():
+    # Ubuntu 24.04 (noble) renamed libglib2.0-0 to libglib2.0-0t64 for its
+    # 64-bit time_t transition; 22.04 (jammy) still has the old name. An
+    # alternation satisfies dpkg on either release -- a single name would
+    # make the deb uninstallable on one of our two supported targets.
+    f = _fields(deb.runtime_control("r1", installed_kb=1))
+    assert "libglib2.0-0t64 | libglib2.0-0" in f["Depends"]
+
+
 def test_filenames_match_what_the_client_looks_for():
     # Two modules spell these names; if they disagree, updates silently stop.
     from labeling_tool.update import checker
