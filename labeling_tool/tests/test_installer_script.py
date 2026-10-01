@@ -8,6 +8,7 @@ never found the install it was meant to protect.
 """
 
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -291,3 +292,83 @@ def test_the_linux_smoke_test_forbids_apt_fix_broken():
     assert "dpkg -i" in text
     assert "install -f" not in text, \
         "the smoke test must not paper over a missing dependency"
+
+
+# -------------------------------------- inline `python -c` in release.yml
+# A function renamed on one side of an inline `python -c` string is a
+# SyntaxError or AttributeError only CI (or a human) discovers -- exactly
+# what happened when checker.full_asset_name() (singular, never existed)
+# sat unnoticed in this workflow until a full review caught it: every
+# previous test here only did substring assertions on the raw YAML text,
+# so a release-breaking typo passed 593 green tests. These two tests
+# extract every inline `python -c "..."` string THE WAY THE SHELL WOULD
+# RECEIVE IT (via yaml.safe_load, not a regex over the raw file -- the YAML
+# block-scalar indentation strip matters) and check it for real.
+
+_PYTHON_C_RE = re.compile(r'python(?:3)?\s+-c\s+"((?:[^"\\]|\\.)*)"', re.DOTALL)
+
+
+def _iter_run_steps(workflow: dict):
+    """(job name, step name, run script) for every step with a `run:` key,
+    across every job -- not just build-linux."""
+    for job_name, job in (workflow.get("jobs") or {}).items():
+        for i, step in enumerate(job.get("steps") or []):
+            run = step.get("run")
+            if isinstance(run, str):
+                yield job_name, step.get("name", f"step #{i}"), run
+
+
+def _iter_inline_python(yaml_module, workflow_text: str):
+    """(job name, step name, python source) for every `python -c "..."`
+    invocation anywhere in the workflow. Parsed via yaml.safe_load so the
+    source is exactly what the shell sees -- a raw-text regex would still
+    carry the YAML block's own leading indentation."""
+    data = yaml_module.safe_load(workflow_text)
+    for job_name, step_name, run in _iter_run_steps(data):
+        for m in _PYTHON_C_RE.finditer(run):
+            yield job_name, step_name, m.group(1)
+
+
+def test_inline_python_in_the_workflow_actually_compiles():
+    yaml = pytest.importorskip("yaml")
+    text = WORKFLOW.read_text(encoding="utf-8")
+    snippets = list(_iter_inline_python(yaml, text))
+    assert snippets, "expected at least one inline `python -c` in release.yml"
+    problems = []
+    for job_name, step_name, snippet in snippets:
+        try:
+            compile(snippet, f"<{job_name}: {step_name}>", "exec")
+        except SyntaxError as exc:
+            problems.append(f"{job_name} / {step_name!r}: {exc.__class__.__name__}: {exc}")
+    assert not problems, "\n".join(problems)
+
+
+def test_inline_python_only_references_real_checker_layers_deb_names():
+    # compile() alone would NOT have caught checker.full_asset_name()
+    # (singular): calling a nonexistent attribute is syntactically valid
+    # Python, and only fails at runtime with an AttributeError. This walks
+    # every real `checker.X` / `layers.X` / `deb.X` ATTRIBUTE ACCESS (via
+    # the AST, not a text regex -- a regex would also match "checker.py"
+    # inside an unrelated string literal like a log message) and checks X
+    # is a real attribute of the real module.
+    import ast
+
+    yaml = pytest.importorskip("yaml")
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "packaging"))
+    import deb as deb_module  # noqa: E402
+    import layers as layers_module  # noqa: E402
+    from labeling_tool.update import checker as checker_module
+
+    modules = {"checker": checker_module, "layers": layers_module, "deb": deb_module}
+
+    text = WORKFLOW.read_text(encoding="utf-8")
+    problems = []
+    for job_name, step_name, snippet in _iter_inline_python(yaml, text):
+        tree = ast.parse(snippet)
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+                    and node.value.id in modules
+                    and not hasattr(modules[node.value.id], node.attr)):
+                problems.append(f"{job_name} / {step_name!r}: "
+                                 f"{node.value.id}.{node.attr} does not exist")
+    assert not problems, "\n".join(problems)

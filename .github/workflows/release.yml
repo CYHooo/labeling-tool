@@ -482,7 +482,9 @@ jobs:
           # it is the one Linux asset that could realistically grow into
           # that ceiling. Only tag builds are checked: a fast-compressed
           # dry run is legitimately larger for the same bytes.
-          runtime_deb=$(ls out/lm-labeling-tool-runtime_*.deb)
+          ver="${LT_VERSION#v}"
+          runtime_name=$(python -c "from labeling_tool.update import checker; import sys; print(checker.full_asset_names(sys.argv[1], checker.LINUX)[0])" "$ver")
+          runtime_deb="out/$runtime_name"
           size=$(stat -c%s "$runtime_deb")
           echo "$(basename "$runtime_deb"): $((size / 1024 / 1024)) MB"
           if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$size" -ge 2040109465 ]; then
