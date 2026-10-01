@@ -457,9 +457,11 @@ jobs:
             # ~1.4 GB runtime layer and build only the app deb -- see
             # packaging/reuse_runtime.py's module docstring for why redoing
             # that xz pass to reproduce identical bytes would be waste.
-            stage=$(mktemp -d)
-            python -c "import os, sys; from pathlib import Path; sys.path.insert(0, 'packaging'); import deb, layers; version, stage = sys.argv[1], Path(sys.argv[2]); dist_dir = Path('dist/LM_LabelingTool'); out_dir = Path('out'); out_dir.mkdir(parents=True, exist_ok=True); runtime_id = layers.compute_runtime_id(dist_dir, layers.LINUX); app_root = stage / 'app'; app_bytes, _ = layers.stage_app_layer(dist_dir, app_root / deb.INSTALL_PREFIX.lstrip('/'), layers.LINUX); deb._stage_app_extras(dist_dir, app_root, version); app_kb = max(1, app_bytes // 1024); deb._write_control_dir(app_root, deb.app_control(version, runtime_id, app_kb), deb.POSTINST); app_out = out_dir / deb.app_deb_filename(version, runtime_id); deb._dpkg_deb_build(app_root, app_out, bool(os.environ.get('LT_FAST'))); print(f'app: {app_out}')" "$ver" "$stage"
-            rm -rf "$stage"
+            # deb.py's build() exposes --app-only as a public, unit-tested
+            # entry point for exactly this (labeling_tool/tests/test_deb.py)
+            # -- this step must never reach into deb.py's private staging
+            # helpers directly.
+            python packaging/deb.py build --app-only dist/LM_LabelingTool out "$ver"
             runtime_name="lm-labeling-tool-runtime_${ver}_amd64.deb"
             cp "$LT_REUSE_RUNTIME" "out/$runtime_name"
             echo "runtime deb reused: $(basename "$LT_REUSE_RUNTIME")"
@@ -508,7 +510,12 @@ jobs:
           # counterpart of installer.iss's hand-written guard.
           ver="${LT_VERSION#v}"
           bad_stage=$(mktemp -d)
-          python -c "import sys; from pathlib import Path; sys.path.insert(0, 'packaging'); import deb; version, stage = sys.argv[1], Path(sys.argv[2]); bogus_runtime = 'rdeadbeef'; app_root = stage / 'app'; (app_root / 'usr' / 'bin').mkdir(parents=True, exist_ok=True); deb._write_control_dir(app_root, deb.app_control(version, bogus_runtime, installed_kb=1), deb.POSTINST); out = stage / deb.app_deb_filename(version, bogus_runtime); deb._dpkg_deb_build(app_root, out, fast=True); print(out)" "$ver" "$bad_stage"
+          # build()'s --runtime-id override is the public, unit-tested entry
+          # point for exactly this (labeling_tool/tests/test_deb.py) -- it
+          # exists only for this guard test and refuses to pair with a real
+          # runtime deb (see deb.py's build() docstring).
+          LT_FAST=1 python packaging/deb.py build --app-only --runtime-id rdeadbeef \
+            dist/LM_LabelingTool "$bad_stage" "$ver"
           bad_deb=$(ls "$bad_stage"/lm-labeling-tool_*.deb)
           if sudo dpkg -i "$bad_deb"; then
             echo "a mismatched-runtime app deb installed; it must be rejected" >&2

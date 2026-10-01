@@ -39,6 +39,14 @@ docs/superpowers/specs/2026-09-30-linux-deb-distribution.md 7.2:
 
 Imported by CI, and unit-tested directly (labeling_tool/tests/test_deb.py)
 so the control fields never have to be verified by hand.
+
+`build()` also accepts `app_only=True` (CLI: `deb.py build --app-only ...`)
+for CI's runtime-reuse path: when the runtime layer is unchanged from the
+previous release, packaging/reuse_runtime.py downloads and re-verifies that
+release's runtime deb instead of rebuilding it, so only the app deb needs
+building here. This is a public entry point, not something the workflow
+reaches into this module's private staging helpers for -- see
+.github/workflows/release.yml's "Build debs" step.
 """
 
 from __future__ import annotations
@@ -236,27 +244,52 @@ def _dpkg_deb_build(root: Path, out_path: Path, fast: bool) -> None:
     subprocess.run(args, check=True)
 
 
-def build(dist_dir: Path, out_dir: Path, version: str) -> dict[str, Path]:
-    """Build both debs from a PyInstaller onedir output.
+def build(dist_dir: Path, out_dir: Path, version: str, *,
+          app_only: bool = False, runtime_id: str | None = None) -> dict[str, Path]:
+    """Build the deb(s) from a PyInstaller onedir output.
 
-    Returns {"runtime": <path>, "app": <path>}.
+    Returns {"runtime": <path>, "app": <path>}, or just {"app": <path>}
+    when `app_only` is set.
+
+    `app_only` exists for CI's runtime-reuse path (see
+    packaging/reuse_runtime.py): when the runtime layer is unchanged from
+    the previous release, that release's runtime deb is downloaded and
+    re-verified instead of being rebuilt, so only the app deb -- which
+    always carries this build's own code -- needs building here. Without
+    this mode, a reuse would still have to pay for compressing (and then
+    discarding) a fresh ~1.4 GB runtime deb, defeating the point of reuse.
+    This is a public, unit-tested entry point on purpose: the CI workflow
+    calls it through the CLI below rather than reaching into this module's
+    staging helpers directly.
+
+    `runtime_id` overrides the id computed from `dist_dir` -- it only
+    exists for CI's dependency-guard smoke test, which needs an app deb
+    that FALSELY claims a runtime id the installed runtime does not have,
+    to prove `dpkg -i` refuses it. It requires `app_only=True`: a runtime
+    deb built under a declared id that does not match its own staged
+    payload would be a real, publishable bug, not a test fixture.
     """
+    if runtime_id is not None and not app_only:
+        raise ValueError("runtime_id can only be overridden with app_only=True "
+                          "-- a runtime deb's declared id must match its own payload")
     dist_dir = Path(dist_dir)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     fast = bool(os.environ.get("LT_FAST"))
 
-    runtime_id = layers.compute_runtime_id(dist_dir, layers.LINUX)
+    if runtime_id is None:
+        runtime_id = layers.compute_runtime_id(dist_dir, layers.LINUX)
 
     with tempfile.TemporaryDirectory(prefix="deb-stage-") as tmp:
         tmp_path = Path(tmp)
 
-        runtime_root = tmp_path / "runtime"
-        runtime_bytes = _stage_runtime_layer(dist_dir, runtime_root, layers.LINUX)
-        runtime_kb = max(1, runtime_bytes // 1024)
-        _write_control_dir(runtime_root, runtime_control(runtime_id, runtime_kb))
-        runtime_out = out_dir / runtime_deb_filename(version)
-        _dpkg_deb_build(runtime_root, runtime_out, fast)
+        if not app_only:
+            runtime_root = tmp_path / "runtime"
+            runtime_bytes = _stage_runtime_layer(dist_dir, runtime_root, layers.LINUX)
+            runtime_kb = max(1, runtime_bytes // 1024)
+            _write_control_dir(runtime_root, runtime_control(runtime_id, runtime_kb))
+            runtime_out = out_dir / runtime_deb_filename(version)
+            _dpkg_deb_build(runtime_root, runtime_out, fast)
 
         app_root = tmp_path / "app"
         app_bytes, _ = layers.stage_app_layer(
@@ -268,18 +301,36 @@ def build(dist_dir: Path, out_dir: Path, version: str) -> dict[str, Path]:
         app_out = out_dir / app_deb_filename(version, runtime_id)
         _dpkg_deb_build(app_root, app_out, fast)
 
+    if app_only:
+        return {"app": app_out}
     return {"runtime": runtime_out, "app": app_out}
 
 
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
-    if len(args) == 4 and args[0] == "build":
-        _, dist_dir, out_dir, version = args
-        paths = build(Path(dist_dir), Path(out_dir), version)
-        for kind, path in paths.items():
-            print(f"{kind}: {path}")
-        return 0
-    print("usage: deb.py build <dist> <out> <version>", file=sys.stderr)
+    if args and args[0] == "build":
+        rest = args[1:]
+        app_only = "--app-only" in rest
+        rest = [a for a in rest if a != "--app-only"]
+        runtime_id = None
+        if "--runtime-id" in rest:
+            i = rest.index("--runtime-id")
+            if i + 1 < len(rest):
+                runtime_id = rest[i + 1]
+                del rest[i:i + 2]
+        if len(rest) == 3:
+            dist_dir, out_dir, version = rest
+            try:
+                paths = build(Path(dist_dir), Path(out_dir), version,
+                              app_only=app_only, runtime_id=runtime_id)
+            except ValueError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 2
+            for kind, path in paths.items():
+                print(f"{kind}: {path}")
+            return 0
+    print("usage: deb.py build [--app-only] [--runtime-id ID] <dist> <out> <version>",
+          file=sys.stderr)
     return 2
 
 
