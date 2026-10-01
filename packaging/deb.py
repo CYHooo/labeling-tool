@@ -78,9 +78,12 @@ _DESKTOP_TEMPLATE = Path(__file__).resolve().parent / "linux" / \
 # large PNG the desktop environment rescales on the fly.
 ICON_SIZES = (16, 32, 48, 256)
 
-# Qt's xcb platform plugin links against the host's X libraries; PyInstaller
-# does not collect them. Without these the package installs cleanly and the
-# app dies at startup with "could not load the Qt platform plugin xcb".
+# Qt's xcb platform plugin links against these X libraries. PyInstaller
+# collects most of them into the runtime layer when they are present at
+# build time, but declaring them as well keeps the dynamic linker from
+# ever falling back to a missing system copy: without them the package can
+# install cleanly and the app dies at startup with "could not load the Qt
+# platform plugin xcb".
 #
 # Installation goes through `dpkg -i`, which does NOT fetch from
 # repositories, so this list must stay within what a desktop install of the
@@ -97,7 +100,6 @@ RUNTIME_DEPENDS = (
     # that silently drops one of the two supported releases.
     "libglib2.0-0t64 | libglib2.0-0",
     "libxkbcommon-x11-0",
-    "libxcb-xinerama0",
     "libxcb-icccm4",
     "libxcb-image0",
     "libxcb-keysyms1",
@@ -105,6 +107,16 @@ RUNTIME_DEPENDS = (
     "libxcb-render-util0",
     "libxcb-shape0",
     "libdbus-1-3",
+)
+
+# Needed by Qt's xcb platform plugin but NOT on a stock desktop, so they
+# cannot be Depends (see above): ubuntu-desktop-minimal on 22.04 lacks
+# libxcb-xinerama0, and dpkg -i refused the install (CI run 36842846563).
+# The build installs them alongside RUNTIME_DEPENDS so PyInstaller collects
+# them into the runtime layer -- its exclude list only skips glibc, libGL,
+# libdrm, libxcb itself and libxcb-dri*, none of which are listed here.
+BUNDLED_LIBS = (
+    "libxcb-xinerama0",
 )
 
 # Both tools must not fail the install when they are absent -- minimal

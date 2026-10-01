@@ -315,6 +315,19 @@ def test_the_linux_dev_version_starts_with_a_digit():
     )
 
 
+def test_the_linux_build_installs_the_bundled_libraries_too():
+    # deb.BUNDLED_LIBS are not declared as Depends; the runtime layer only
+    # carries them if PyInstaller finds them at build time. Installing
+    # RUNTIME_DEPENDS alone would ship an xcb plugin that cannot start on a
+    # desktop lacking them (CI run 36841286350's failure, by another route).
+    yaml = pytest.importorskip("yaml")
+    job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["build-linux"]
+    runs = [s.get("run", "") for s in job["steps"] if "apt-get satisfy" in s.get("run", "")]
+    assert runs, "expected the build-linux job to install libraries via apt-get satisfy"
+    assert "deb.RUNTIME_DEPENDS" in runs[0]
+    assert "deb.BUNDLED_LIBS" in runs[0]
+
+
 def test_the_linux_smoke_test_forbids_apt_fix_broken():
     # `dpkg -i` must succeed on its own; needing `apt-get install -f` means
     # the runtime package declares a library users will not have either.

@@ -265,7 +265,7 @@ sudo dpkg -i lm-labeling-tool-runtime_1.4.1_amd64.deb \
 
 **runtime 包必须声明系统库依赖。** PyInstaller 打包了 Python 侧的一切，但 Qt 的 xcb
 平台插件需链接宿主的 `libgl1`、`libglib2.0-0`、`libxkbcommon-x11-0`、
-`libxcb-xinerama0` 等。不声明则在较干净的机器上能装上、一启动即报
+`libxcb-icccm4` 等。不声明则在较干净的机器上能装上、一启动即报
 `could not load the Qt platform plugin "xcb"`。这组依赖归 runtime 包（服务于运行时
 层），app 包只依赖 runtime 包。
 
@@ -273,6 +273,12 @@ sudo dpkg -i lm-labeling-tool-runtime_1.4.1_amd64.deb \
 默认已具备的集合；任何超出部分都会让使用者的手动安装中断。9.2 的干净容器测试强制这一
 约束。若某个库确实必需而默认不具备，正确的做法是在 PyInstaller 侧把它收进运行时层，而
 不是声明成依赖。
+
+`libxcb-xinerama0` 就是这种情形：22.04 的 `ubuntu-desktop-minimal` 不带它，最初把它
+写进 `Depends` 后，`dpkg -i` 在干净容器里直接拒装（CI run 36842846563）。现在它列在
+`deb.py` 的 `BUNDLED_LIBS`：构建机与 `RUNTIME_DEPENDS` 一起装上，由 PyInstaller 收进
+运行时层，不再声明为依赖。24.04 交叉验证容器里系统并没有这个库，selftest 在那里跑通
+即证明打包的那份可用。
 
 **桌面集成归应用层。** `.desktop` 引用可执行文件，而可执行文件按白名单属应用层，两者
 必须同层，否则会出现「应用已更新但快捷方式指向旧路径」。app deb 安装

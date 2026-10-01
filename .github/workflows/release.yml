@@ -323,8 +323,10 @@ jobs:
           # `apt-get satisfy` takes Depends syntax verbatim, so the list is
           # derived from deb.py rather than hardcoded a fourth time -- it
           # handles both the version constraint and the jammy/noble glib
-          # alternation on its own.
-          depends=$(python -c "import sys; sys.path.insert(0, 'packaging'); import deb; print(', '.join(deb.RUNTIME_DEPENDS))")
+          # alternation on its own. BUNDLED_LIBS ride along: they are not
+          # declared Depends (a stock desktop lacks them), so the runtime
+          # layer only carries them if PyInstaller finds them here.
+          depends=$(python -c "import sys; sys.path.insert(0, 'packaging'); import deb; print(', '.join(deb.RUNTIME_DEPENDS + deb.BUNDLED_LIBS))")
           echo "build-time Qt/X11 libraries: $depends"
           sudo apt-get satisfy -y --no-install-recommends "$depends"
 

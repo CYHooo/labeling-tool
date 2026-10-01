@@ -69,6 +69,19 @@ def test_runtime_package_declares_the_qt_system_libraries():
         assert lib in f["Depends"], f"{lib} missing from runtime Depends"
 
 
+def test_libraries_a_stock_desktop_lacks_are_bundled_not_declared():
+    # `dpkg -i` does not fetch from repositories, so declaring a library a
+    # stock desktop does not ship makes the install fail outright -- CI run
+    # 36842846563: ubuntu-desktop-minimal on 22.04 has no libxcb-xinerama0.
+    # Such libraries are installed only at build time, where PyInstaller
+    # collects them into the runtime layer.
+    assert "libxcb-xinerama0" in deb.BUNDLED_LIBS
+    f = _fields(deb.runtime_control("r1", installed_kb=1))
+    declared = {d.strip() for d in f["Depends"].split(",")}
+    for lib in deb.BUNDLED_LIBS:
+        assert lib not in declared, f"{lib} is bundled, it must not be a Depends"
+
+
 def test_runtime_package_does_not_depend_on_an_nvidia_driver():
     # torch's cu124 wheel carries the CUDA runtime; requiring a driver
     # package would make the deb uninstallable on CPU-only machines.
