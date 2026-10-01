@@ -34,15 +34,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from labeling_tool.update import checker  # noqa: E402
-
-_APP_DEB = re.compile(
-    r"^lm-labeling-tool_(?P<ver>[^_]+)-(?P<runtime>r[0-9a-f]+)_amd64\.deb$")
 
 
 def plan(release_json: dict, runtime_id: str) -> tuple[str, str] | None:
@@ -57,13 +53,7 @@ def plan(release_json: dict, runtime_id: str) -> tuple[str, str] | None:
     if not version or checker.parse_version(version) is None:
         return None
     names = {a.get("name") for a in release_json.get("assets") or []}
-    match = None
-    for name in names:
-        m = _APP_DEB.match(name or "")
-        if m and m.group("ver") == version:
-            match = m
-            break
-    if match is None or match.group("runtime") != runtime_id:
+    if checker.app_asset_name(version, runtime_id, checker.LINUX) not in names:
         return None   # no app deb for this version, or the runtime moved
     runtime_deb = f"{checker.DEB_RUNTIME}_{version}_{checker.DEB_ARCH}.deb"
     if runtime_deb not in names:
@@ -97,7 +87,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{found[0]}\t{found[1]}")
         return 0
     if len(args) == 3 and args[0] == "verify":
-        sums_text = Path(args[1]).read_text(encoding="utf-8-sig")
+        # Matches reuse_full.py's verify(): the sums file is our own
+        # published artifact, never user-authored, so no BOM tolerance.
+        sums_text = Path(args[1]).read_text(encoding="utf-8")
         ok = verify(sums_text, Path(args[2]))
         print("checksum ok" if ok else "checksum MISMATCH", file=sys.stderr)
         return 0 if ok else 1

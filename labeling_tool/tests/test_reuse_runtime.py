@@ -19,7 +19,7 @@ def test_reuses_when_the_previous_release_carries_our_runtime_id():
 
 def test_rebuilds_when_the_runtime_id_moved():
     release = {"tagName": "v1.4.0", "assets": [
-        {"name": "lm-labeling-tool_1.4.0-rOLDOLD1_amd64.deb"},
+        {"name": "lm-labeling-tool_1.4.0-r00000000_amd64.deb"},
         {"name": "lm-labeling-tool-runtime_1.4.0_amd64.deb"}]}
     assert reuse_runtime.plan(release, "r3f8a1c92") is None
 
