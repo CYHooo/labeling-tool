@@ -194,6 +194,12 @@ STRINGS = {
     "update_check_failed_title":       "检查更新失败",
     "update_check_failed_msg":
         "检查更新时发生错误：{type}: {exc}\n\n{url}",
+    "update_linux_deps_title":         "缺少系统库",
+    "update_linux_deps_msg":
+        "软件包已安装，但仍缺少一些系统库。\n\n"
+        "请打开终端并执行：\nsudo apt-get install -f\n\n{detail}",
+    "update_linux_restart_title":      "更新安装完成",
+    "update_linux_restart_msg":        "更新已成功安装，请重启应用。",
 
     # --- app / startup ---
     "app_fewshot_loading":             "正在加载 Few-shot 模型…请稍候。",

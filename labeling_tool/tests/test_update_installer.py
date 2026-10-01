@@ -42,3 +42,57 @@ def test_missing_installer_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         installer.launch_installer(tmp_path / "nope.exe", tmp_path / "l.log",
                                    popen=lambda *a, **k: None)
+
+
+def test_deb_command_installs_every_package_in_one_call(tmp_path):
+    # dpkg unpacks all of them before configuring any, so the app deb's
+    # dependency on the runtime deb is satisfied within a single call.
+    runtime = tmp_path / "lm-labeling-tool-runtime_1.0.1_amd64.deb"
+    app = tmp_path / "lm-labeling-tool_1.0.1-r1_amd64.deb"
+    cmd = installer.build_deb_command([runtime, app])
+    assert cmd[:3] == ["pkexec", "dpkg", "-i"]
+    assert cmd[3:] == [str(runtime), str(app)]
+
+
+@pytest.mark.parametrize("code,stderr,expected", [
+    (0, "", installer.InstallOutcome.OK),
+    (126, "", installer.InstallOutcome.CANCELLED),
+    (127, "", installer.InstallOutcome.CANCELLED),
+    (1, "dpkg: dependency problems prevent configuration of lm-labeling-tool",
+     installer.InstallOutcome.MISSING_DEPS),
+    (1, "dpkg: error processing archive (--install)", installer.InstallOutcome.FAILED),
+])
+def test_dpkg_results_are_classified(code, stderr, expected):
+    assert installer.classify_dpkg_result(code, stderr) is expected
+
+
+def test_missing_pkexec_is_reported_not_raised(tmp_path):
+    # SSH sessions, WSL and stripped desktops have no polkit agent. An
+    # uncaught FileNotFoundError here would crash the app mid-update.
+    deb = tmp_path / "x.deb"
+    deb.touch()
+
+    def _runner(cmd, **kwargs):
+        raise FileNotFoundError(cmd[0])
+
+    outcome, detail = installer.install_debs([deb], runner=_runner)
+    assert outcome is installer.InstallOutcome.FAILED
+    assert "pkexec" in detail
+
+
+def test_install_debs_returns_stderr_on_failure(tmp_path):
+    deb = tmp_path / "x.deb"
+    deb.touch()
+
+    class _Result:
+        returncode = 1
+        stderr = "dpkg: dependency problems prevent configuration of foo"
+
+    outcome, detail = installer.install_debs([deb], runner=lambda *a, **k: _Result())
+    assert outcome is installer.InstallOutcome.MISSING_DEPS
+    assert "dependency problems" in detail
+
+
+def test_install_debs_refuses_a_missing_file(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        installer.install_debs([tmp_path / "nope.deb"], runner=lambda *a, **k: None)
