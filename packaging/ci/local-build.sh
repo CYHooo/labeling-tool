@@ -417,11 +417,13 @@ step_smoke() {
     sha=$(sha256sum "$zip" | cut -d' ' -f1)
     # Damage one installed app-layer file, then let the zip repair it.
     # (build-info.json must stay intact: apply_patch reads its runtime id.)
-    # -print -quit, not `| head -1`: under pipefail, find dies of SIGPIPE
-    # once head has exited and fails the step at random.
-    victim=$(cd /opt/lm-labeling-tool && find _internal/labeling_tool -name '*.pyc' -print -quit)
-    if [ -z "$victim" ]; then
-        echo "no installed app-layer .pyc to damage" >&2
+    # A fixed file the --apply-update run never imports: the first .pyc find
+    # meets depends on directory order and once was a module app.py imports
+    # at startup, so the app could not start to repair itself. The selftest
+    # below imports it, proving the zip restored it.
+    victim=_internal/labeling_tool/selftest.pyc
+    if [ ! -f "/opt/lm-labeling-tool/$victim" ]; then
+        echo "no installed $victim to damage" >&2
         return 1
     fi
     rm "/opt/lm-labeling-tool/$victim"

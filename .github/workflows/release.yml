@@ -659,10 +659,12 @@ jobs:
           sha=$(sha256sum "$zip" | cut -d' ' -f1)
           # Damage one installed app-layer file, then let the zip repair it.
           # (build-info.json must stay intact: apply_patch reads its runtime id.)
-          # -print -quit, not `| head -1`: under pipefail, find dies of
-          # SIGPIPE once head has exited and fails the step at random.
-          victim=$(cd /opt/lm-labeling-tool && find _internal/labeling_tool -name '*.pyc' -print -quit)
-          test -n "$victim"
+          # A fixed file the --apply-update run never imports: the first .pyc
+          # find meets depends on directory order and once was a module app.py
+          # imports at startup, so the app could not start to repair itself.
+          # The selftest below imports it, proving the zip restored it.
+          victim=_internal/labeling_tool/selftest.pyc
+          test -f "/opt/lm-labeling-tool/$victim"
           sudo rm "/opt/lm-labeling-tool/$victim"
           timeout 300 sudo /opt/lm-labeling-tool/LM_LabelingTool --apply-update "$zip" --sha256 "$sha"
           test -f "/opt/lm-labeling-tool/$victim"
