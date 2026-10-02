@@ -348,6 +348,25 @@ def test_the_runner_installs_the_debs_before_running_the_installed_app():
         "the runner must install both debs before running the installed app"
 
 
+def test_the_2404_cross_validation_overlaps_the_other_install_checks():
+    # The 24.04 container needs nothing the 22.04 checks produce, so it
+    # starts in the background as soon as the debs exist and the original
+    # step only collects its result -- the two desktop installs (~3.5 min
+    # each) no longer run back to back.
+    yaml = pytest.importorskip("yaml")
+    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["build-linux"]["steps"]
+    names = [s.get("name", "") for s in steps]
+    runs = [s.get("run", "") for s in steps]
+    start = [i for i, r in enumerate(runs) if "ubuntu:24.04" in r and "docker run" in r]
+    assert start, "expected a step that starts the 24.04 container"
+    smoke = next(i for i, n in enumerate(names) if n.startswith("Install smoke test 1/2"))
+    assert start[0] < smoke, "the 24.04 container must start before the 22.04 checks"
+    assert "&" in runs[start[0]], "the 24.04 container must be started in the background"
+    collect = runs[names.index("Cross-validate the install on Ubuntu 24.04")]
+    assert "docker run" not in collect, "the collecting step must not run the container again"
+    assert "timeout" in collect, "waiting for the background container must be bounded"
+
+
 def test_the_linux_smoke_test_forbids_apt_fix_broken():
     # `dpkg -i` must succeed on its own; needing `apt-get install -f` means
     # the runtime package declares a library users will not have either.

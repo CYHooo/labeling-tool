@@ -525,6 +525,62 @@ jobs:
           names=$(cd out && ls -- *.deb | paste -sd, -)
           python -c "import sys; from labeling_tool.update import checker; ver, rt, names = sys.argv[1], sys.argv[2], set(sys.argv[3].split(',')); wanted = [checker.full_asset_names(ver, checker.LINUX)[0], checker.app_asset_name(ver, rt, checker.LINUX)]; missing = [w for w in wanted if w not in names]; sys.exit(f'{missing!r} not in {sorted(names)}') if missing else print('asset names agree with checker.py')" "$ver" "$LT_RUNTIME" "$names"
 
+      - name: Start the Ubuntu 24.04 cross-validation in the background
+        run: |
+          set -euo pipefail
+          # "built on 22.04, runs on both" is otherwise only an assumption.
+          # noble renamed libglib2.0-0 to libglib2.0-0t64 (64-bit time_t);
+          # RUNTIME_DEPENDS covers both names.
+          #
+          # Started here, collected by "Cross-validate the install on Ubuntu
+          # 24.04" below: it needs only the debs, so its ~3.5 minute desktop
+          # install overlaps the 22.04 checks instead of following them.
+          #
+          # The baseline installed below is a stock Ubuntu DESKTOP, not
+          # packaging/deb.py RUNTIME_DEPENDS itself -- installing
+          # RUNTIME_DEPENDS before dpkg -i would make "no dependency-fixup
+          # pass needed" a tautology (install the dependency, then verify
+          # the dependency is satisfied). ubuntu-desktop-minimal proves the
+          # declared Depends are covered by what a REAL desktop ships, not
+          # by us pre-supplying exactly what we declared.
+          noble="$RUNNER_TEMP/noble"
+          mkdir -p "$noble"
+          cat > "$noble/check.sh" <<'EOF'
+          apt-get update
+          # A desktop metapackage postinst may try to start services; a
+          # container has no init system to receive them. This is the
+          # standard way to install such packages under plain docker run.
+          printf "#!/bin/sh\nexit 101\n" > /usr/sbin/policy-rc.d
+          chmod +x /usr/sbin/policy-rc.d
+          apt-get install -y ubuntu-desktop-minimal
+          apt-get install -y --no-install-recommends xvfb
+          dpkg -i /out/lm-labeling-tool-runtime_*.deb /out/lm-labeling-tool_*.deb
+          # Bounded: unbounded, this selftest once hung 23 minutes with no
+          # output (CI run 36856399327). The selftest arms its own
+          # faulthandler dump well inside this limit, so print both of
+          # its files -- selftest.log names the check that was running,
+          # selftest-hang.txt holds every thread traceback of a hang.
+          set +e
+          timeout --kill-after=10 300 xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest=full
+          code=$?
+          set -e
+          for f in selftest.log selftest-hang.txt; do
+            p="$HOME/.local/share/lm-labeling-tool/$f"
+            if [ -s "$p" ]; then echo "--- $f"; cat "$p"; fi
+          done
+          exit "$code"
+          EOF
+          df -h /
+          # setsid + every stream redirected: the step must not wait on a
+          # child holding its stdout. The exit code is written to a temp
+          # name and renamed, so the collecting step never reads it half
+          # written.
+          setsid bash -c '
+            docker run --rm -v "$PWD/out:/out:ro" -v "$0/check.sh:/check.sh:ro" \
+              -e DEBIAN_FRONTEND=noninteractive ubuntu:24.04 bash -euo pipefail /check.sh
+            echo $? > "$0/exit.tmp" && mv "$0/exit.tmp" "$0/exit"
+          ' "$noble" > "$noble/log" 2>&1 < /dev/null &
+
       - name: Install smoke test 1/2 -- are the declared dependencies already on this machine?
         run: |
           set -euo pipefail
@@ -616,42 +672,19 @@ jobs:
       - name: Cross-validate the install on Ubuntu 24.04
         run: |
           set -euo pipefail
-          # "built on 22.04, runs on both" is otherwise only an assumption.
-          # noble renamed libglib2.0-0 to libglib2.0-0t64 (64-bit time_t);
-          # RUNTIME_DEPENDS covers both names.
-          #
-          # The baseline installed below is a stock Ubuntu DESKTOP, not
-          # packaging/deb.py RUNTIME_DEPENDS itself -- installing
-          # RUNTIME_DEPENDS before dpkg -i would make "no dependency-fixup
-          # pass needed" a tautology (install the dependency, then verify
-          # the dependency is satisfied). ubuntu-desktop-minimal proves the
-          # declared Depends are covered by what a REAL desktop ships, not
-          # by us pre-supplying exactly what we declared.
-          docker run --rm -v "$PWD/out:/out:ro" -e DEBIAN_FRONTEND=noninteractive ubuntu:24.04 bash -euo pipefail -c '
-            apt-get update
-            # A desktop metapackage postinst may try to start services; a
-            # container has no init system to receive them. This is the
-            # standard way to install such packages under plain docker run.
-            printf "#!/bin/sh\nexit 101\n" > /usr/sbin/policy-rc.d
-            chmod +x /usr/sbin/policy-rc.d
-            apt-get install -y ubuntu-desktop-minimal
-            apt-get install -y --no-install-recommends xvfb
-            dpkg -i /out/lm-labeling-tool-runtime_*.deb /out/lm-labeling-tool_*.deb
-            # Bounded: unbounded, this selftest once hung 23 minutes with no
-            # output (CI run 36856399327). The selftest arms its own
-            # faulthandler dump well inside this limit, so print both of
-            # its files -- selftest.log names the check that was running,
-            # selftest-hang.txt holds every thread traceback of a hang.
-            set +e
-            timeout --kill-after=10 300 xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest=full
-            code=$?
-            set -e
-            for f in selftest.log selftest-hang.txt; do
-              p="$HOME/.local/share/lm-labeling-tool/$f"
-              if [ -s "$p" ]; then echo "--- $f"; cat "$p"; fi
-            done
-            exit "$code"
-          '
+          # Collects the container started in the background before smoke
+          # test 1/2. Bounded: a run on its own took under 4 minutes, so
+          # 25 is generous even with the 22.04 container competing for the
+          # same CPU and mirror.
+          noble="$RUNNER_TEMP/noble"
+          if ! timeout 1500 bash -c 'until [ -f "$0/exit" ]; do sleep 5; done' "$noble"; then
+            cat "$noble/log"
+            echo "the 24.04 cross-validation did not finish within 25 minutes" >&2
+            exit 1
+          fi
+          cat "$noble/log"
+          df -h /
+          exit "$(cat "$noble/exit")"
 
       - name: Checksums
         run: |
