@@ -104,8 +104,8 @@ GitHub 의 **Releases**(태그 버전)에서 아래 두 `.deb` 파일을 받습�
 
 | 파일 | 내용 | 크기 | 용도 |
 |---|---|---|---|
-| `lm-labeling-tool-runtime_<버전>_amd64.deb` | 런타임 계층 (Python / PyQt5 / torch / CUDA) | 약 1.4 GB | **처음 설치할 때** |
-| `lm-labeling-tool_<버전>-r<runtime id>_amd64.deb` | 앱 계층만 (코드 변경분) | 약 20 MB | 자동 업데이트가 내려받는 파일 |
+| `lm-labeling-tool-runtime_<버전>_amd64.deb` | 런타임 계층 (Python / PyQt5 / torch / CUDA) | 약 1.8 GB | **처음 설치할 때** |
+| `lm-labeling-tool_<버전>-r<runtime id>_amd64.deb` | 앱 계층만 (코드 변경분) | 약 0.3 MB | 자동 업데이트가 내려받는 파일 |
 
 ### 설치
 
@@ -124,7 +124,7 @@ sudo dpkg -i lm-labeling-tool-runtime_<버전>_amd64.deb lm-labeling-tool_<버�
 ### 업데이트
 
 앱 실행 시 자동으로 새 버전을 확인합니다. 코드만 바뀐 업데이트는 앱 계층 deb 하나만
-(약 20 MB) 받아서 설치하면 되고, 런타임 계층이 바뀐 업데이트는 두 deb 를 모두 다시 받습니다.
+(약 0.3 MB) 받아서 설치하면 되고, 런타임 계층이 바뀐 업데이트는 두 deb 를 모두 다시 받습니다.
 
 ### 제거
 

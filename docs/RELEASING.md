@@ -91,8 +91,8 @@ Windows 和 Linux 由**同一个 tag** 从同一个工作流（`release.yml`）�
 
 | 文件 | 内容 | 大小 | 用途 |
 |---|---|---|---|
-| `lm-labeling-tool-runtime_<版本>_amd64.deb` | 运行时层（Python、PyQt5、torch、CUDA） | 约 1.4 GB | **第一次安装**时需要 |
-| `lm-labeling-tool_<版本>-r<runtime id>_amd64.deb` | 应用层（我们自己的代码） | 约 20 MB | 日常更新 |
+| `lm-labeling-tool-runtime_<版本>_amd64.deb` | 运行时层（Python、PyQt5、torch、CUDA） | 约 1.8 GB | **第一次安装**时需要 |
+| `lm-labeling-tool_<版本>-r<runtime id>_amd64.deb` | 应用层（我们自己的代码） | 约 0.3 MB | 日常更新 |
 
 ### 本地完整验证（Linux）
 
@@ -190,13 +190,13 @@ Linux 版本的「错配 installer 守卫」：对着不匹配的 runtime 装应
 也就是说：
 
 - 只有 Windows 的锁变了：这次发布里，Windows 用户收到完整安装包，Linux 用户仍然只需要下载
-  app 包（约 20 MB）。
+  app 包（约 0.3 MB）。
 - 只有 Linux 的锁变了：反过来，Linux 用户收到两个 deb（完整安装），Windows 用户仍然只需要
   app 安装包。
 - 两份锁都没变（纯代码改动）：两个平台都只需要各自的小更新包。
 
 `build-linux` job 同样会在运行时未变时复用上一个 release 的 runtime deb（见
-`packaging/reuse_runtime.py`），跳过重新压缩 ~1.4 GB 的 xz，逻辑与 Windows 侧的
+`packaging/reuse_runtime.py`），跳过重新压缩 ~1.8 GB 的 xz（`-9` 级别，CI 上约 16 分钟），逻辑与 Windows 侧的
 `reuse_full.py` 对称。
 
 ### CI 里的安装冒烟测试

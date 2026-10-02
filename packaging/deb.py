@@ -273,7 +273,7 @@ def build(dist_dir: Path, out_dir: Path, version: str, *,
     re-verified instead of being rebuilt, so only the app deb -- which
     always carries this build's own code -- needs building here. Without
     this mode, a reuse would still have to pay for compressing (and then
-    discarding) a fresh ~1.4 GB runtime deb, defeating the point of reuse.
+    discarding) a fresh ~1.8 GB runtime deb, defeating the point of reuse.
     This is a public, unit-tested entry point on purpose: the CI workflow
     calls it through the CLI below rather than reaching into this module's
     staging helpers directly.

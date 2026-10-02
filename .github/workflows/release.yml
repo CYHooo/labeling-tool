@@ -492,7 +492,7 @@ jobs:
           fi
           if [ -n "${LT_REUSE_RUNTIME:-}" ]; then
             # Same runtime as the previous release: skip recompressing the
-            # ~1.4 GB runtime layer and build only the app deb -- see
+            # ~1.8 GB runtime layer and build only the app deb -- see
             # packaging/reuse_runtime.py's module docstring for why redoing
             # that xz pass to reproduce identical bytes would be waste.
             # deb.py's build() exposes --app-only as a public, unit-tested
@@ -518,7 +518,8 @@ jobs:
           set -euo pipefail
           # GitHub release assets must stay below 2 GiB -- the Windows job's
           # counterpart of this check (test_the_size_ceiling_only_binds_on_published_builds).
-          # The runtime deb carries the full CUDA wheel set at ~1.4 GB, so
+          # The runtime deb carries the full CUDA wheel set at ~1.8 GB (xz -9;
+          # 1,895,565,776 bytes in CI run 36969300396), so
           # it is the one Linux asset that could realistically grow into
           # that ceiling. Checked whenever the release compression is used
           # (a tag, or a manual rehearsal): a fast-compressed dry run is
