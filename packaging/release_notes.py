@@ -32,7 +32,7 @@ def build_body(version: str, notes: str, repo: str = checker.GITHUB_REPO) -> str
     return "\n".join([
         "| Architecture | Windows | Ubuntu 22.04 / 24.04 |",
         "|---|---|---|",
-        f"| x86-64 (64-bit) | [EXE]({base}{exe}) | [Download]({base}{deb}) |",
+        f"| x86-64 (64-bit) | [EXE]({base}{exe}) | [Download (.deb)]({base}{deb}) |",
         "",
         "## 변경 사항",
         checker.NOTES_START,
