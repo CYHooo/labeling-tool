@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 # Prevent cv2's bundled Qt plugins from clashing with PyQt5 (same guard the
 # original labeling GUI uses).
@@ -92,6 +93,30 @@ def open_fewshot_from_login(dlg):
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    from labeling_tool.core import app_paths
+    from labeling_tool.update import patch
+    if app_paths.is_frozen():
+        # A swap interrupted by a crash or power cut is undone before the
+        # app does anything else. On Linux the app runs unprivileged and
+        # /opt is root-owned, so this can be refused; the next root-run
+        # --apply-update recovers instead, and starting matters more.
+        try:
+            patch.recover(app_paths.app_home())
+            patch.cleanup(app_paths.app_home())
+        except OSError as exc:
+            vlog().warning("update recovery skipped: %s: %s", type(exc).__name__, exc)
+    if "--apply-update" in argv:
+        # Run as root by `pkexec <exe> --apply-update <zip> --sha256 <hex>`
+        # (installer.build_apply_command): no window, exit code = result,
+        # the reason on stderr for the unprivileged app to show.
+        zip_path = argv[argv.index("--apply-update") + 1]
+        sha = argv[argv.index("--sha256") + 1]
+        try:
+            patch.apply_patch(Path(zip_path), app_paths.app_home(), sha)
+        except (patch.PatchError, OSError) as exc:
+            print(f"update failed: {exc}", file=sys.stderr)
+            return 1
+        return 0
     for arg in argv:
         if arg.startswith("--selftest"):
             # build smoke test (CI): no window, exit code = result
@@ -121,13 +146,16 @@ def main(argv: list[str] | None = None) -> int:
     from labeling_tool.core.window.styles import STYLESHEET
     app.setStyleSheet(STYLESHEET)
 
-    # Update check on every launch (silent when offline or a dev build). A
-    # result that lands after a session window opened is offered when that
-    # window closes -- see prompt_pending_update() below.
+    # Update check on every launch and every 4 hours after (silent when
+    # offline or a dev build). A result that lands after a session window
+    # opened is offered when that window closes -- see
+    # prompt_pending_update() below.
     from labeling_tool.update.ui import (
-        check_for_updates, prompt_pending_update, wait_for_checks,
+        check_for_updates, prompt_pending_update, start_periodic_checks,
+        wait_for_checks,
     )
     check_for_updates(None)
+    start_periodic_checks()
 
     base = key = ""
     workspace = manifest = None

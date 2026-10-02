@@ -50,13 +50,14 @@ def _drain_qt_events():
         QMessageBox.critical = orig_crit
 
 
+# A full update: the Setup exe, downloaded only once the user agrees.
 INFO = checker.UpdateInfo(
-    version="1.0.1", variant="lite",
-    assets=(checker.Asset(name="LabelingTool-lite-Setup-v1.0.1.exe",
+    version="1.0.1", variant="full",
+    assets=(checker.Asset(name="LM_LabelingTool-Setup-v1.0.1.exe",
                           url="https://x/s.exe",
-                          size=170 * 1024 * 1024,
+                          size=1500 * 1024 * 1024,
                           sha256="a" * 64),),
-    notes="fixes", kind="app")
+    notes="fixes", kind="full")
 
 
 def test_prompt_later_does_nothing(monkeypatch, tmp_path):
@@ -404,7 +405,7 @@ def test_a_successful_linux_install_does_not_quit_the_app(monkeypatch, tmp_path)
     # dpkg already installed the update in place; the user was told to
     # restart manually. Quitting here would be unprompted and could drop
     # unsaved work, contradicting the restart message just shown.
-    info = _linux_app_info()
+    info = _linux_full_info()
 
     def fake_download(url, dest, sha, progress=None):
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -478,10 +479,11 @@ def test_prompt_text_follows_language(monkeypatch, tmp_path):
     i18n.set_language("en")
     ui._ask(None, INFO)
     assert captured["text"] == i18n.tr("update_available", version=INFO.version,
-                                       size=INFO.total_size // (1024 * 1024))
+                                       size=INFO.total_size // (1024 * 1024)) \
+        + i18n.tr("update_full_warning")
 
 
-# ---------------------------------------------- Task 7: multi-asset download
+# ------------------------------------------------- Linux full update: one deb
 
 def _asset(name, size=100 * 1024 * 1024, sha="a" * 64):
     return checker.Asset(name=name, url=f"https://x/{name}", size=size, sha256=sha)
@@ -490,18 +492,8 @@ def _asset(name, size=100 * 1024 * 1024, sha="a" * 64):
 def _linux_full_info():
     return checker.UpdateInfo(
         version="1.0.1", variant="full",
-        assets=(_asset("lm-labeling-tool-runtime_1.0.1_amd64.deb", 700 * 1024 * 1024,
-                       "b" * 64),
-                _asset("lm-labeling-tool_1.0.1-r3f8a1c92_amd64.deb", 20 * 1024 * 1024,
-                       "c" * 64)),
+        assets=(_asset("lm-labeling-tool_1.0.1_amd64.deb", 1500 * 1024 * 1024, "b" * 64),),
         notes="fixes", kind="full")
-
-
-def _linux_app_info():
-    return checker.UpdateInfo(
-        version="1.0.1", variant="full",
-        assets=(_asset("lm-labeling-tool_1.0.1-r3f8a1c92_amd64.deb", 20 * 1024 * 1024),),
-        notes="fixes", kind="app")
 
 
 @pytest.fixture
@@ -511,10 +503,8 @@ def linux(monkeypatch):
     monkeypatch.setattr(ui, "_ask", lambda *a, **k: ui.UPDATE)
 
 
-def test_every_asset_is_downloaded_and_verified(linux, monkeypatch, tmp_path):
-    # A Linux full update is two debs; downloading only the first would hand
-    # dpkg half an install.
-    got = []
+def test_the_deb_is_downloaded_verified_and_passed_to_dpkg(linux, monkeypatch, tmp_path):
+    got, calls = [], []
 
     def _download(url, dest, sha, progress=None):
         got.append((dest.name, sha))
@@ -522,32 +512,17 @@ def test_every_asset_is_downloaded_and_verified(linux, monkeypatch, tmp_path):
 
     monkeypatch.setattr(ui.net_download, "download_file", _download)
     monkeypatch.setattr(ui.installer, "install_debs",
-                        lambda paths, **kw: (ui.installer.InstallOutcome.OK, ""))
+                        lambda paths, **kw: (calls.append([p.name for p in paths])
+                                             or (ui.installer.InstallOutcome.OK, "")))
     monkeypatch.setattr(ui.QMessageBox, "information", staticmethod(lambda *a, **k: None))
 
     info = _linux_full_info()
     assert ui.prompt_and_install(None, info, home=tmp_path) is True
-    assert [name for name, _ in got] == [a.name for a in info.assets]
-    assert [sha for _, sha in got] == [a.sha256 for a in info.assets]
+    assert got == [(info.assets[0].name, info.assets[0].sha256)]
+    assert calls == [[info.assets[0].name]]
 
 
-def test_both_debs_are_passed_to_dpkg_in_one_call(linux, monkeypatch, tmp_path):
-    # dpkg must see both packages at once, or the app deb's Depends on the
-    # runtime deb cannot be satisfied.
-    calls = []
-    monkeypatch.setattr(ui.net_download, "download_file",
-                        lambda url, dest, sha, progress=None: dest.write_bytes(b"deb"))
-    monkeypatch.setattr(ui.installer, "install_debs",
-                        lambda paths, **kw: (calls.append(list(paths))
-                                             or (ui.installer.InstallOutcome.OK, "")))
-    monkeypatch.setattr(ui.QMessageBox, "information", staticmethod(lambda *a, **k: None))
-
-    ui.prompt_and_install(None, _linux_full_info(), home=tmp_path)
-    assert len(calls) == 1 and len(calls[0]) == 2
-
-
-def test_progress_spans_the_total_of_all_assets(linux, monkeypatch, tmp_path):
-    # Two debs must not each drive the bar from 0 to 100.
+def test_progress_is_scaled_to_the_download_size(linux, monkeypatch, tmp_path):
     totals = []
 
     def _download(url, dest, sha, progress=None):
@@ -565,7 +540,7 @@ def test_progress_spans_the_total_of_all_assets(linux, monkeypatch, tmp_path):
     info = _linux_full_info()
     ui.prompt_and_install(None, info, home=tmp_path)
     whole_mb = str(info.total_size // (1024 * 1024))
-    assert all(whole_mb in t for t in totals), \
+    assert totals and all(whole_mb in t for t in totals), \
         f"the bar must be scaled to {whole_mb} MB, saw {totals}"
 
 
@@ -581,7 +556,7 @@ def test_cancelled_install_is_silent(linux, monkeypatch, tmp_path):
     monkeypatch.setattr(ui.QMessageBox, "warning",
                         staticmethod(lambda *a, **k: boxes.append(a)))
 
-    assert ui.prompt_and_install(None, _linux_app_info(), home=tmp_path) is False
+    assert ui.prompt_and_install(None, _linux_full_info(), home=tmp_path) is False
     assert boxes == []
 
 
@@ -595,7 +570,7 @@ def test_missing_deps_names_the_apt_command(linux, monkeypatch, tmp_path):
     monkeypatch.setattr(ui.QMessageBox, "warning",
                         staticmethod(lambda *a, **k: shown.append(a)))
 
-    assert ui.prompt_and_install(None, _linux_app_info(), home=tmp_path) is False
+    assert ui.prompt_and_install(None, _linux_full_info(), home=tmp_path) is False
     assert shown, "the user must be told which apt command fixes this"
     assert any("apt-get install -f" in str(arg) for arg in shown[0])
 
@@ -616,29 +591,8 @@ def test_a_failed_download_installs_nothing(linux, monkeypatch, tmp_path):
     assert installs == []
 
 
-def test_a_failure_on_the_second_deb_installs_nothing(linux, monkeypatch, tmp_path):
-    # The first deb downloaded fine. Installing it alone would leave a
-    # runtime layer with no application on top of it.
-    installs = []
-    seen = []
-
-    def _download(url, dest, sha, progress=None):
-        seen.append(dest.name)
-        if len(seen) == 2:
-            raise OSError(28, "No space left on device")
-        dest.write_bytes(b"deb")
-
-    monkeypatch.setattr(ui.net_download, "download_file", _download)
-    monkeypatch.setattr(ui.installer, "install_debs",
-                        lambda paths, **kw: installs.append(paths))
-    monkeypatch.setattr(ui.QMessageBox, "critical", staticmethod(lambda *a, **k: None))
-
-    assert ui.prompt_and_install(None, _linux_full_info(), home=tmp_path) is False
-    assert installs == []
-
-
 def test_windows_still_hands_over_to_the_installer(monkeypatch, tmp_path):
-    # The Windows path must be untouched by the list refactor.
+    # A full update on Windows: the Setup exe takes over and restarts the app.
     launched = []
     monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.WINDOWS)
     monkeypatch.setattr(ui, "_ask", lambda *a, **k: ui.UPDATE)
@@ -650,3 +604,291 @@ def test_windows_still_hands_over_to_the_installer(monkeypatch, tmp_path):
     assert ui.prompt_and_install(None, INFO, home=tmp_path) is True
     assert len(launched) == 1
     assert launched[0].name == INFO.assets[0].name
+
+
+# ------------------------------------------------ app-layer zip: cache, apply
+
+def _zip_info(sha="a" * 64):
+    return checker.UpdateInfo(
+        version="0.2.1", variant="full", kind="app", notes="- 개선",
+        assets=(checker.Asset("update-v0.2.1-r11111111-windows.zip", "https://x/u.zip", 10, sha),))
+
+
+def test_a_cached_zip_with_the_right_checksum_is_not_downloaded_again(tmp_path, monkeypatch):
+    import hashlib
+    monkeypatch.setattr(ui.app_paths, "user_cache_home", lambda: tmp_path)
+    data = b"zip bytes"
+    info = _zip_info(hashlib.sha256(data).hexdigest())
+    path = ui.cached_update_path(info)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(data)
+    monkeypatch.setattr(ui.net_download, "download_file",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("downloaded again")))
+    assert ui.ensure_downloaded(info) == path
+
+
+def test_a_corrupt_cached_zip_is_downloaded_again(tmp_path, monkeypatch):
+    monkeypatch.setattr(ui.app_paths, "user_cache_home", lambda: tmp_path)
+    info = _zip_info()
+    path = ui.cached_update_path(info)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"half a download")
+    calls = []
+    monkeypatch.setattr(ui.net_download, "download_file",
+                        lambda url, dest, sha, progress=None: calls.append(dest) or dest.write_bytes(b"ok"))
+    ui.ensure_downloaded(info)
+    assert calls == [path]
+
+
+def test_other_cached_updates_are_removed(tmp_path, monkeypatch):
+    monkeypatch.setattr(ui.app_paths, "user_cache_home", lambda: tmp_path)
+    info = _zip_info()
+    stale = tmp_path / "updates" / "update-v0.1.9-r11111111-windows.zip"
+    stale.parent.mkdir(parents=True)
+    stale.write_bytes(b"old")
+    monkeypatch.setattr(ui.net_download, "download_file",
+                        lambda url, dest, sha, progress=None: dest.write_bytes(b"ok"))
+    ui.ensure_downloaded(info)
+    assert not stale.exists()
+
+
+def test_periodic_checks_start_one_timer(monkeypatch):
+    monkeypatch.setattr(ui, "_PERIODIC", [])
+    ui.start_periodic_checks(1000)
+    ui.start_periodic_checks(1000)
+    try:
+        assert len(ui._PERIODIC) == 1 and ui._PERIODIC[0].interval() == 1000
+        assert ui._PERIODIC[0].isActive()
+    finally:
+        ui._PERIODIC[0].stop()
+
+
+@pytest.fixture
+def no_restart(monkeypatch):
+    """Record the relaunch and the quit instead of doing either."""
+    seen = {"popen": [], "quit": []}
+    monkeypatch.setattr(ui.subprocess, "Popen",
+                        lambda cmd, **kw: seen["popen"].append(cmd))
+    monkeypatch.setattr(QApplication, "quit", lambda: seen["quit"].append(True))
+    return seen
+
+
+def test_windows_applies_the_zip_in_process_and_restarts(monkeypatch, tmp_path, no_restart):
+    monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.WINDOWS)
+    monkeypatch.setattr(ui.app_paths, "app_home", lambda: tmp_path)
+    applied = []
+    monkeypatch.setattr(ui.patch, "apply_patch",
+                        lambda z, root, sha: applied.append((z, root, sha)))
+    info = _zip_info()
+    assert ui.apply_and_restart(None, info, tmp_path / "u.zip") is True
+    assert applied == [(tmp_path / "u.zip", tmp_path, info.assets[0].sha256)]
+    assert no_restart["popen"] == [[str(tmp_path / "LM_LabelingTool.exe")]]
+    assert no_restart["quit"] == [True]
+
+
+def test_a_failed_windows_apply_keeps_the_old_version_running(monkeypatch, tmp_path, no_restart):
+    monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.WINDOWS)
+    monkeypatch.setattr(ui.app_paths, "app_home", lambda: tmp_path)
+
+    def locked(*a, **k):
+        raise ui.patch.PatchError("could not apply the update: file in use")
+
+    monkeypatch.setattr(ui.patch, "apply_patch", locked)
+    shown = []
+    monkeypatch.setattr(ui.QMessageBox, "warning", staticmethod(lambda *a, **k: shown.append(a)))
+    assert ui.apply_and_restart(None, _zip_info(), tmp_path / "u.zip") is False
+    assert shown and "file in use" in shown[0][2]
+    assert no_restart == {"popen": [], "quit": []}
+
+
+def test_linux_applies_the_zip_through_pkexec_and_restarts(monkeypatch, tmp_path, no_restart):
+    monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.LINUX)
+    monkeypatch.setattr(ui.app_paths, "app_home", lambda: tmp_path)
+    calls = []
+    monkeypatch.setattr(ui.installer, "apply_zip_linux",
+                        lambda exe, z, sha: calls.append((exe, z, sha))
+                        or (ui.installer.InstallOutcome.OK, ""))
+    info = _zip_info()
+    assert ui.apply_and_restart(None, info, tmp_path / "u.zip") is True
+    assert calls == [(tmp_path / "LM_LabelingTool", tmp_path / "u.zip", info.assets[0].sha256)]
+    assert no_restart["popen"] == [[str(tmp_path / "LM_LabelingTool")]]
+
+
+def test_linux_cancelled_apply_is_silent(monkeypatch, tmp_path, no_restart):
+    monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.LINUX)
+    monkeypatch.setattr(ui.installer, "apply_zip_linux",
+                        lambda *a: (ui.installer.InstallOutcome.CANCELLED, ""))
+    monkeypatch.setattr(ui.QMessageBox, "warning",
+                        staticmethod(lambda *a, **k: pytest.fail("cancel reported")))
+    assert ui.apply_and_restart(None, _zip_info(), tmp_path / "u.zip") is False
+    assert no_restart["popen"] == []
+
+
+def test_linux_failed_apply_is_reported(monkeypatch, tmp_path, no_restart):
+    monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.LINUX)
+    monkeypatch.setattr(ui.installer, "apply_zip_linux",
+                        lambda *a: (ui.installer.InstallOutcome.FAILED, "update failed: runtime mismatch"))
+    shown = []
+    monkeypatch.setattr(ui.QMessageBox, "warning", staticmethod(lambda *a, **k: shown.append(a)))
+    assert ui.apply_and_restart(None, _zip_info(), tmp_path / "u.zip") is False
+    assert "runtime mismatch" in shown[0][2]
+    assert no_restart["popen"] == []
+
+
+def test_accepting_a_zip_update_downloads_then_applies(monkeypatch, tmp_path):
+    monkeypatch.setattr(ui, "_ask", lambda *a, **k: ui.UPDATE)
+    monkeypatch.setattr(ui.net_download, "download_file",
+                        lambda url, dest, sha, progress=None: dest.write_bytes(b"zip"))
+    applied = []
+    monkeypatch.setattr(ui, "apply_and_restart",
+                        lambda parent, info, z: applied.append(z) or True)
+    monkeypatch.setattr(ui.installer, "launch_installer",
+                        lambda *a, **k: pytest.fail("a zip went to the Setup hand-off"))
+    monkeypatch.setattr(ui.installer, "install_debs",
+                        lambda *a, **k: pytest.fail("a zip went to dpkg"))
+    info = _zip_info()
+    assert ui.prompt_and_install(None, info, home=tmp_path) is True
+    assert applied == [ui.cached_update_path(info)]
+
+
+def test_a_cached_zip_update_shows_no_download_progress(monkeypatch, tmp_path):
+    import hashlib
+    data = b"zip"
+    info = _zip_info(hashlib.sha256(data).hexdigest())
+    path = ui.cached_update_path(info)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(data)
+    monkeypatch.setattr(ui, "_ask", lambda *a, **k: ui.UPDATE)
+    monkeypatch.setattr(ui, "QProgressDialog",
+                        lambda *a, **k: pytest.fail("progress shown for a cached zip"))
+    monkeypatch.setattr(ui, "apply_and_restart", lambda parent, info, z: True)
+    assert ui.prompt_and_install(None, info, home=tmp_path) is True
+
+
+def test_ask_offers_a_restart_for_a_zip_and_shows_every_note_line(monkeypatch):
+    from labeling_tool.core import i18n
+    notes = "\n".join(f"- change {n}" for n in range(12))
+    info = checker.UpdateInfo(version="0.2.1", variant="full", kind="app", notes=notes,
+                              assets=_zip_info().assets)
+    captured = {}
+
+    def fake_exec(self):
+        captured["informative"] = self.informativeText()
+        captured["buttons"] = [b.text() for b in self.buttons()]
+
+    monkeypatch.setattr(QMessageBox, "exec_", fake_exec)
+    monkeypatch.setattr(QMessageBox, "clickedButton", lambda self: None)
+    ui._ask(None, info)
+    assert captured["informative"] == i18n.tr("update_ready_informative", notes=notes)
+    assert i18n.tr("update_btn_restart") in captured["buttons"]
+
+
+def _found_zip(monkeypatch, info):
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("0.2.0", "full", None))
+    monkeypatch.setattr(ui.checker, "find_update", lambda *a, **k: info)
+
+
+def _settle():
+    """Run every check/download thread to completion and deliver its signals."""
+    for _ in range(3):
+        ui.wait_for_checks(5000)
+        _app.processEvents()
+
+
+def test_a_found_zip_is_downloaded_in_the_background_then_offered(monkeypatch, tmp_path):
+    info = _zip_info()
+    _found_zip(monkeypatch, info)
+    order = []
+    monkeypatch.setattr(ui.net_download, "download_file",
+                        lambda url, dest, sha, progress=None: order.append("download")
+                        or dest.write_bytes(b"zip"))
+    monkeypatch.setattr(ui, "prompt_and_install",
+                        lambda parent, found, home=None: order.append("prompt") or False)
+    ui.check_for_updates(None, home=tmp_path)
+    _settle()
+    assert order == ["download", "prompt"]
+
+
+def test_a_zip_ready_mid_session_waits_and_says_so_in_the_status_bar(monkeypatch, tmp_path):
+    from labeling_tool.core import i18n
+    info = _zip_info()
+    _found_zip(monkeypatch, info)
+    monkeypatch.setattr(ui.net_download, "download_file",
+                        lambda url, dest, sha, progress=None: dest.write_bytes(b"zip"))
+    monkeypatch.setattr(ui, "prompt_and_install",
+                        lambda *a, **k: pytest.fail("prompted mid-session"))
+    win = QMainWindow()
+    win.show()
+    try:
+        ui.check_for_updates(None, home=tmp_path)
+        _settle()
+        message = win.statusBar().currentMessage()
+    finally:
+        win.close()
+    assert ui._PENDING == [(info, tmp_path)]
+    assert message == i18n.tr("update_ready_status", version=info.version)
+
+
+def test_a_failed_background_download_is_silent(monkeypatch, tmp_path):
+    _found_zip(monkeypatch, _zip_info())
+
+    def offline(*a, **k):
+        raise OSError("network unreachable")
+
+    monkeypatch.setattr(ui.net_download, "download_file", offline)
+    monkeypatch.setattr(ui, "prompt_and_install",
+                        lambda *a, **k: pytest.fail("prompted without a download"))
+    for name in ("warning", "critical", "information"):
+        monkeypatch.setattr(ui.QMessageBox, name,
+                            staticmethod(lambda *a, **k: pytest.fail("a box was shown")))
+    ui.check_for_updates(None, home=tmp_path)
+    _settle()
+    assert ui._PENDING == []
+    assert not ui._RUNNING_CHECKS
+
+
+def test_a_full_update_is_not_downloaded_before_the_user_agrees(monkeypatch, tmp_path):
+    monkeypatch.setattr(ui, "read_build_info", lambda: BuildInfo("1.0.0", "full", None))
+    monkeypatch.setattr(ui.checker, "find_update", lambda *a, **k: INFO)
+    monkeypatch.setattr(ui.net_download, "download_file",
+                        lambda *a, **k: pytest.fail("a 1.5 GB download started unasked"))
+    asked = []
+    monkeypatch.setattr(ui, "prompt_and_install",
+                        lambda parent, found, home=None: asked.append(found) or False)
+    ui.check_for_updates(None, home=tmp_path)
+    _settle()
+    assert asked == [INFO]
+
+
+def test_shutdown_cancels_a_download_still_running(monkeypatch, tmp_path):
+    # A QThread still running when the process exits aborts it.
+    started = threading.Event()
+
+    def endless(url, dest, sha, progress=None):
+        started.set()
+        while progress(1, 0) is not False:
+            threading.Event().wait(0.01)
+        raise ui.net_download.DownloadCancelled()
+
+    monkeypatch.setattr(ui.net_download, "download_file", endless)
+    thread = ui.UpdateDownloadThread(_zip_info())
+    ui._RUNNING_CHECKS.add(thread)
+    try:
+        thread.start()
+        assert started.wait(5)
+        ui.wait_for_checks(50)
+        assert thread.isFinished()
+    finally:
+        ui._RUNNING_CHECKS.discard(thread)
+        _app.processEvents()
+
+
+def test_a_periodic_check_is_skipped_while_a_prompt_is_open(monkeypatch):
+    checks = []
+    monkeypatch.setattr(ui, "check_for_updates", lambda parent: checks.append(parent))
+    monkeypatch.setattr(ui, "_PROMPTING", [True])
+    ui._periodic_check()
+    assert checks == []
+    monkeypatch.setattr(ui, "_PROMPTING", [])
+    ui._periodic_check()
+    assert checks == [None]
