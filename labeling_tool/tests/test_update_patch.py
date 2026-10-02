@@ -412,3 +412,78 @@ def test_linux_does_not_retry_a_refused_move(tmp_path, monkeypatch):
     with pytest.raises(PermissionError):
         patch._move(tmp_path / "a", tmp_path / "b")
     assert calls["n"] == 1
+
+
+@pytest.mark.skipif(not Path("/proc/self/fd").is_dir(), reason="maps fds to paths via /proc")
+def test_every_staged_file_is_on_disk_before_the_first_journal_entry(tmp_path, monkeypatch):
+    """The journal promises a swap can be undone; that only holds if the new
+    files it moves into place are already durable. Otherwise a power cut
+    seconds after a "successful" swap leaves empty files, and the backup is
+    gone by the next start."""
+    import os
+    root = _install(tmp_path / "app")
+    z, sha = _zip(tmp_path / "u.zip", NEW)
+    synced: list[str] = []
+    synced_before_journal: list[set] = []
+    real_fsync, real_journal = os.fsync, patch._write_journal
+
+    def spy_fsync(fd):
+        try:
+            synced.append(os.readlink(f"/proc/self/fd/{fd}"))
+        except OSError:
+            pass
+        real_fsync(fd)
+
+    def spy_journal(r, journal):
+        synced_before_journal.append(set(synced))
+        real_journal(r, journal)
+
+    monkeypatch.setattr(patch.os, "fsync", spy_fsync)
+    monkeypatch.setattr(patch, "_write_journal", spy_journal)
+    patch.apply_patch(z, root, sha, platform="win32")
+    first = synced_before_journal[0]
+    staging = str((root / patch.STAGING).resolve())
+    for rel in NEW:
+        assert f"{staging}/{rel}" in first, f"{rel} not fsynced before the journal"
+
+
+@pytest.mark.skipif(not Path("/proc/self/fd").is_dir(), reason="maps fds to paths via /proc")
+def test_each_swapped_directory_is_synced_after_its_last_rename_and_before_the_drop(tmp_path, monkeypatch):
+    """Dropping the journal declares the swap done; every rename it recorded
+    must be durable first. A sync of a directory only counts if it comes
+    AFTER the last rename into that directory."""
+    import os
+    root = _install(tmp_path / "app")
+    z, sha = _zip(tmp_path / "u.zip", NEW)
+    events: list[tuple[str, str]] = []
+    real_fsync, real_unlink, real_move = os.fsync, Path.unlink, patch._move
+
+    def spy_fsync(fd):
+        try:
+            events.append(("sync", os.readlink(f"/proc/self/fd/{fd}")))
+        except OSError:
+            pass
+        real_fsync(fd)
+
+    def spy_unlink(self, *a, **k):
+        if self.name == patch.JOURNAL:
+            events.append(("drop", ""))
+        return real_unlink(self, *a, **k)
+
+    def spy_move(src, dst):
+        real_move(src, dst)
+        events.append(("move", str(Path(dst).parent.resolve())))
+
+    monkeypatch.setattr(patch.os, "fsync", spy_fsync)
+    monkeypatch.setattr(Path, "unlink", spy_unlink)
+    monkeypatch.setattr(patch, "_move", spy_move)
+    patch.apply_patch(z, root, sha, platform="win32")
+    drop = events.index(("drop", ""))
+    lt = (root / "_internal" / "labeling_tool").resolve()
+    for d in (lt, (root / patch.BACKUP / "_internal" / "labeling_tool").resolve(),
+              root.resolve(), (root / patch.BACKUP).resolve(), (root / "_internal").resolve(),
+              (root / patch.BACKUP / "_internal").resolve()):
+        moves = [i for i, e in enumerate(events) if e == ("move", str(d))]
+        last = moves[-1] if moves else -1
+        assert any(e == ("sync", str(d)) for e in events[last + 1:drop]), \
+            f"{d} not synced between its last rename and the journal drop"
