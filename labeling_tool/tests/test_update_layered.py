@@ -134,10 +134,11 @@ def _info(kind, size):
         notes="", kind=kind)
 
 
-def test_app_update_text_states_the_version_and_size():
+def test_app_update_text_states_the_version_but_no_download_size():
+    """The zip is already downloaded when the prompt appears."""
     text = update_ui.prompt_text(_info("app", 31 * 1024 * 1024))
     assert "1.3.1" in text
-    assert "31" in text
+    assert "31" not in text
 
 
 def test_app_update_text_carries_no_reinstall_warning():
