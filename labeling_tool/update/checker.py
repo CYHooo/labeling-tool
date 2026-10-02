@@ -23,14 +23,13 @@ SUMS_ASSET = "SHA256SUMS.txt"
 WINDOWS = "win32"
 LINUX = "linux"
 
-APP_PREFIX = "LM_LabelingTool-App"
 FULL_PREFIX = "LM_LabelingTool-Setup"
-DEB_APP = "lm-labeling-tool"
-DEB_RUNTIME = "lm-labeling-tool-runtime"
+DEB_PACKAGE = "lm-labeling-tool"
 DEB_ARCH = "amd64"
+NOTES_START = "<!-- notes:start -->"
+NOTES_END = "<!-- notes:end -->"
 
 _SUM_LINE = re.compile(r"^([0-9a-fA-F]{64})\s+(\S+)$")
-_APP_DEB = re.compile(r"^lm-labeling-tool_(?P<ver>[^_]+)-(?P<runtime>r[0-9a-f]+)_amd64\.deb$")
 
 
 def current_platform() -> str:
@@ -59,55 +58,33 @@ class UpdateInfo:
 
     @property
     def asset_name(self) -> str:
-        """The first asset's name, for display only. Callers that install must
-        iterate `assets`: a Linux full update is two packages."""
+        """The first asset's name, for display only."""
         return self.assets[0].name if self.assets else ""
 
 
-def app_asset_name(version: str, runtime: str, platform: str | None = None) -> str:
-    """The small package: only our own code, built against `runtime`.
-
-    The runtime id is in the FILENAME on both platforms, so a client can tell
-    from the name alone whether a package matches its own runtime, without
-    downloading it. On Linux the deb's Version field stays a clean version
-    number -- the runtime binding is expressed by Depends instead."""
+def full_asset_name(version: str, platform: str | None = None) -> str:
+    """The one package a user downloads by hand, and the full update a
+    machine takes when its runtime id no longer matches."""
     if (platform or current_platform()) == WINDOWS:
-        return f"{APP_PREFIX}-v{version}-{runtime}.exe"
-    return f"{DEB_APP}_{version}-{runtime}_{DEB_ARCH}.deb"
+        return f"{FULL_PREFIX}-v{version}.exe"
+    return f"{DEB_PACKAGE}_{version}_{DEB_ARCH}.deb"
 
 
-def full_asset_names(version: str, platform: str | None = None) -> tuple[str, ...]:
-    """Everything a machine needs when its runtime does not match.
-
-    Windows: one installer carrying both layers. Linux: the runtime deb plus
-    the app deb. The app deb's name needs a runtime id the client does not
-    know at this point, so it is spelled with the RUNTIME placeholder and
-    resolved against the release's actual asset list by _resolve_full()."""
-    if (platform or current_platform()) == WINDOWS:
-        return (f"{FULL_PREFIX}-v{version}.exe",)
-    return (f"{DEB_RUNTIME}_{version}_{DEB_ARCH}.deb",
-            f"{DEB_APP}_{version}-RUNTIME_{DEB_ARCH}.deb")
+def update_asset_name(version: str, runtime: str, platform: str | None = None) -> str:
+    """The app-layer zip built against `runtime`. The id is in the name so a
+    client can tell, without downloading, whether the zip fits its install."""
+    tag = "windows" if (platform or current_platform()) == WINDOWS else "linux"
+    return f"update-v{version}-{runtime}-{tag}.zip"
 
 
-def _resolve_full(names: tuple[str, ...], version: str,
-                  available: dict) -> list[str] | None:
-    """Replace the RUNTIME placeholder with the id this release actually
-    carries. None when the release is missing any part of a full install."""
-    out = []
-    for name in names:
-        if "-RUNTIME_" not in name:
-            if name not in available:
-                return None
-            out.append(name)
-            continue
-        matches = [n for n in available
-                   if (m := _APP_DEB.match(n)) and m.group("ver") == version]
-        if len(matches) != 1:
-            # Zero: the release lost its app deb. More than one: ambiguous,
-            # and guessing would hand the user a package dpkg refuses.
-            return None
-        out.append(matches[0])
-    return out
+def extract_notes(body: str) -> str:
+    """The change notes between the markers release_notes.py writes; the
+    first eight lines of a body that has none (hand-edited releases)."""
+    text = str(body or "")
+    start, end = text.find(NOTES_START), text.find(NOTES_END)
+    if start != -1 and end > start:
+        return text[start + len(NOTES_START):end].strip()
+    return "\n".join(text.splitlines()[:8])
 
 
 def parse_version(text: str) -> tuple[int, ...] | None:
@@ -154,13 +131,11 @@ def find_update(current_version: str, variant: str, repo: str = GITHUB_REPO,
                 platform: str | None = None) -> UpdateInfo | None:
     """Newest release for this install, or None when up to date.
 
-    Prefers the small app-layer package built against THIS machine's runtime
-    id; falls back to the full installer when the runtime changed, when the
-    release carries no app package, or when this install predates layering
-    and has no runtime id at all. Every asset offered must have a published
-    checksum -- an unverifiable download is not installed -- and a full
-    update must resolve every one of its parts, or none is offered: half an
-    install is worse than none.
+    Offers exactly one asset: the update zip built against THIS machine's
+    runtime id when the release has it, otherwise the single full package
+    (runtime changed, no zip published, or this install has no runtime id).
+    The asset must have a published checksum -- an unverifiable download is
+    not installed.
 
     Network and parse errors are raised to the caller.
     """
@@ -176,24 +151,17 @@ def find_update(current_version: str, variant: str, repo: str = GITHUB_REPO,
     sums = parse_sha256sums(
         _read(opener, assets[SUMS_ASSET]["browser_download_url"], timeout))
 
-    candidates: list[tuple[str, tuple[str, ...]]] = []
+    candidates: list[tuple[str, str]] = []
     if runtime:
-        candidates.append(("app", (app_asset_name(version, runtime, platform),)))
-    candidates.append(("full", full_asset_names(version, platform)))
-    for kind, wanted in candidates:
-        names = _resolve_full(wanted, version, assets) if kind == "full" \
-            else ([wanted[0]] if wanted[0] in assets else None)
-        if not names:
-            continue
-        # Every part must be verifiable: an unverifiable download is not
-        # installed, and half a full install is worse than none.
-        if any(n not in sums for n in names):
-            continue
+        candidates.append(("app", update_asset_name(version, runtime, platform)))
+    candidates.append(("full", full_asset_name(version, platform)))
+    for kind, name in candidates:
+        if name not in assets or name not in sums:
+            continue  # an unverifiable download is never installed
+        a = assets[name]
         return UpdateInfo(
             version=version, variant=variant,
-            assets=tuple(Asset(name=n,
-                               url=assets[n]["browser_download_url"],
-                               size=int(assets[n].get("size", 0)),
-                               sha256=sums[n]) for n in names),
-            notes=str(release.get("body") or ""), kind=kind)
+            assets=(Asset(name=name, url=a["browser_download_url"],
+                          size=int(a.get("size", 0)), sha256=sums[name]),),
+            notes=extract_notes(release.get("body") or ""), kind=kind)
     return None
