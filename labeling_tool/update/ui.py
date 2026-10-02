@@ -157,10 +157,11 @@ def prompt_text(info) -> str:
     Extracted from _ask so it can be tested without building a QMessageBox
     (a modal box under offscreen Qt hangs the suite). The warning hangs off
     `kind`, not the variant: a full reinstall is needed when the runtime
-    layer changed, which is what kind == "full" means."""
-    size_mb = info.total_size // (1024 * 1024)
-    text = tr("update_available", version=info.version, size=size_mb)
+    layer changed, which is what kind == "full" means. A zip ("app") is
+    already downloaded when this is shown, so it gets no download size."""
+    text = tr("update_available", version=info.version)
     if info.kind == "full":
+        text += tr("update_download_size", size=info.total_size // (1024 * 1024))
         text += tr("update_full_warning")
     return text
 

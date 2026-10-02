@@ -179,7 +179,8 @@ STRINGS = {
 
     # --- update dialog ---
     "update_title":                    "업데이트",
-    "update_available":                "새 버전이 있습니다: v{version}\n다운로드 크기: 약 {size} MB",
+    "update_available":                "새 버전이 있습니다: v{version}",
+    "update_download_size":            "\n다운로드 크기: 약 {size} MB",
     "update_full_warning":
         "\n\n⚠ torch / CUDA 구성이 바뀌어 전체 설치 파일을 내려받습니다. "
         "충분한 네트워크/디스크 공간을 확인하세요.",

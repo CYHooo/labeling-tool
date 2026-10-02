@@ -478,9 +478,27 @@ def test_prompt_text_follows_language(monkeypatch, tmp_path):
     monkeypatch.setattr(ui.QMessageBox, "clickedButton", lambda self: None)
     i18n.set_language("en")
     ui._ask(None, INFO)
-    assert captured["text"] == i18n.tr("update_available", version=INFO.version,
-                                       size=INFO.total_size // (1024 * 1024)) \
+    assert captured["text"] == i18n.tr("update_available", version=INFO.version) \
+        + i18n.tr("update_download_size", size=INFO.total_size // (1024 * 1024)) \
         + i18n.tr("update_full_warning")
+
+
+@pytest.mark.parametrize("lang", ["en", "ko", "zh"])
+def test_a_downloaded_zip_prompt_shows_no_download_size(monkeypatch, tmp_path, lang):
+    """The zip is already on disk, and a few MB would read "about 0 MB"."""
+    from labeling_tool.core import i18n
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path)
+    i18n.set_language(lang)
+    app_info = checker.UpdateInfo(
+        version="1.0.1", variant="full",
+        assets=(checker.Asset(name="LM_LabelingTool-update-v1.0.1-win.zip",
+                              url="https://x/u.zip", size=300 * 1024, sha256="a" * 64),),
+        notes="", kind="app")
+    text = ui.prompt_text(app_info)
+    assert text == i18n.tr("update_available", version="1.0.1")
+    assert "MB" not in text
+    full = ui.prompt_text(INFO)
+    assert i18n.tr("update_download_size", size=1500) in full
 
 
 # ------------------------------------------------- Linux full update: one deb

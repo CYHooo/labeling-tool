@@ -175,7 +175,8 @@ STRINGS = {
 
     # --- update dialog ---
     "update_title":                    "Update",
-    "update_available":                "A new version is available: v{version}\nDownload size: about {size} MB",
+    "update_available":                "A new version is available: v{version}",
+    "update_download_size":            "\nDownload size: about {size} MB",
     "update_full_warning":
         "\n\n⚠ The torch / CUDA layer changed, so the full installer will be "
         "downloaded. Check your network and free disk space.",
