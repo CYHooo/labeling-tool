@@ -4,14 +4,8 @@
 # docs/superpowers/specs/2026-09-28-ui-refresh-and-rebrand-design.md 2.1.
 # Build from the repo root:  pyinstaller --noconfirm packaging/labeling_tool.spec
 import os
-import sys
 
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
-
-# packaging/ itself, for bundle_filters -- imported by bare name, never as
-# "from packaging import ...", which is pip's own library.
-sys.path.insert(0, SPECPATH)
-import bundle_filters  # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 
@@ -54,11 +48,11 @@ for pkg in ("sam2", "hydra", "omegaconf"):
     hiddenimports += h
 # nccl is multi-GPU collective communication and cupti is the CUDA
 # profiler: neither is reachable from single-card inference, and together
-# they are 283 MB unpacked. These excludes only drop them on WINDOWS: on
-# Linux libtorch_cuda.so links libnccl.so.2 (DT_NEEDED), so PyInstaller's
-# binary analysis brings both back -- twice, see the filter below. Everything else under nvidia/ stays -- cudnn and
-# cublas are required, and the rest cannot be verified without a GPU, which
-# CI does not have.
+# they are 283 MB unpacked. These excludes only drop them on Windows; on
+# Linux libtorch_cuda.so links libnccl.so.2, which PyInstaller collects as
+# a symlink, so there is no duplicate data. Everything else under nvidia/
+# stays -- cudnn and cublas are required, and the rest cannot be verified
+# without a GPU, which CI does not have.
 excludes = ["sam3", "triton", "timm", "nvidia.nccl", "nvidia.cuda_cupti"]
 
 a = Analysis(
@@ -75,11 +69,6 @@ a = Analysis(
     # of unchanged third-party bytecode.
     noarchive=True,
 )
-# Linux: torch's CUDA libraries also land at the top level next to their
-# nvidia/<pkg>/lib/ originals; DT_RPATH loads the nested ones first, so the
-# top-level twins are dead weight (2 x 240 MB of NCCL in v2.0.0). A no-op on
-# Windows, whose CUDA DLLs live under nvidia/<pkg>/bin.
-a.binaries = bundle_filters.drop_toplevel_nvidia_duplicates(a.binaries)
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz,

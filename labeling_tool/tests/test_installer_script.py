@@ -50,17 +50,10 @@ def test_code_section_never_calls_blocking_msgbox(iss):
         "SuppressibleMsgBox so /SUPPRESSMSGBOXES cannot hang the install")
 
 
-def test_guard_reads_the_same_appid_the_setup_section_declares(iss):
-    """The guard looks the install up under
-    HKCU\\...\\Uninstall\\<AppId>_is1. If that GUID drifts from [Setup]'s
-    AppId the lookup silently returns nothing, the guard finds no install
-    and refuses (or, before the fix, let everything through)."""
-    # Two pairs, in the same order in both places: production first, then
-    # the /DMyTestInstall id used by local smoke tests.
+def test_production_appid_is_unchanged(iss):
+    """Every existing install upgrades in place through this AppId."""
     declared = re.findall(r"^AppId=\{\{([0-9A-Fa-f-]+)\}", iss, re.M)
-    used = re.findall(r"APP_GUID\s*=\s*'\{'\s*\+\s*'([0-9A-Fa-f-]+)'", _code_section(iss))
     assert len(declared) == 2, f"expected production + test AppId, got {declared}"
-    assert used == declared, f"AppIds {declared} != guard GUIDs {used}"
     assert declared[0] == "9E1E0C6B-6E0F-4E8E-9E2F-0F7B5C1A0F02", (
         "the production AppId changed: every existing install would stop "
         "upgrading in place")
@@ -78,14 +71,19 @@ def test_test_install_can_never_touch_the_real_install(iss):
     assert "DefaultGroupName={#MyAppName}" in setup
 
 
-def test_app_layer_installdelete_never_clears_internal_wholesale(iss):
-    """The app package does not ship the ~1.4 GB runtime layer; clearing
-    _internal would leave the program unable to start."""
-    block = _section(iss, "[InstallDelete]")
-    app_part = block[block.index('#if MyLayer == "app"'):block.index("#else")]
-    assert '"{app}\\_internal"' not in app_part
-    assert "_internal\\labeling_tool" in app_part
-    assert "_internal\\annotation_tool" in app_part
+def test_the_installer_has_no_app_layer_mode(iss):
+    assert "MyLayer" not in iss and "MyRuntime" not in iss
+    assert "OutputBaseFilename=LM_LabelingTool-Setup-v{#MyVersion}" in iss
+
+
+def test_install_replaces_internal_wholesale(iss):
+    assert 'Name: "{app}\\_internal"' in _section(iss, "[InstallDelete]")
+
+
+def test_uninstall_removes_update_leftovers(iss):
+    for name in (".update-backup", ".update-staging", ".update-journal"):
+        assert f'{{app}}\\{name}' in iss
+        assert f'{{app}}\\{name}' in _section(iss, "[UninstallDelete]")
 
 
 # ------------------------------------------------------------- CI workflow

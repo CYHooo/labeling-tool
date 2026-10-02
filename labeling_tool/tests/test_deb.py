@@ -1,4 +1,4 @@
-"""The deb control files: where the layer split becomes dpkg's problem."""
+"""The single deb: control fields, maintainer scripts and the build."""
 import shutil
 import subprocess
 import sys
@@ -43,51 +43,52 @@ def dpkg_deb_available() -> bool:
     return shutil.which("dpkg-deb") is not None
 
 
-def test_runtime_package_is_versioned_by_the_runtime_id():
-    f = _fields(deb.runtime_control("r3f8a1c92", installed_kb=1_400_000))
-    assert f["Package"] == "lm-labeling-tool-runtime"
-    # 0~ sorts before every real version, so this can never be mistaken for
-    # an application version number.
-    assert f["Version"] == "0~r3f8a1c92"
-    assert f["Architecture"] == "amd64"
-    assert f["Installed-Size"] == "1400000"
+def test_one_package_named_like_the_client_expects():
+    from labeling_tool.update import checker
+    assert deb.deb_filename("0.2.0") == checker.full_asset_name("0.2.0", checker.LINUX)
 
 
-def test_app_package_pins_the_exact_runtime():
-    # This one line replaces the hand-written guard installer.iss needs.
-    f = _fields(deb.app_control("1.4.1", "r3f8a1c92", installed_kb=20_000))
+def test_control_has_a_real_version_and_the_system_depends():
+    f = _fields(deb.control("0.2.0", installed_kb=1))
     assert f["Package"] == "lm-labeling-tool"
-    assert f["Version"] == "1.4.1"
-    assert f["Depends"] == "lm-labeling-tool-runtime (= 0~r3f8a1c92)"
+    assert f["Version"] == "0.2.0"
+    assert f["Architecture"] == "amd64"
+    assert f["Installed-Size"] == "1"
+    for lib in ("libgl1", "libxkbcommon-x11-0"):
+        assert lib in f["Depends"]
+    assert "lm-labeling-tool-runtime" not in f["Depends"]
 
 
-def test_runtime_package_declares_the_qt_system_libraries():
-    # Without these, the install succeeds and the app dies at startup with
-    # "could not load the Qt platform plugin xcb".
-    f = _fields(deb.runtime_control("r1", installed_kb=1))
-    for lib in ("libgl1", "libglib2.0-0", "libxkbcommon-x11-0"):
-        assert lib in f["Depends"], f"{lib} missing from runtime Depends"
+def test_control_covers_both_glib_package_names():
+    # Ubuntu 24.04 (noble) renamed libglib2.0-0 to libglib2.0-0t64 for its
+    # 64-bit time_t transition; 22.04 (jammy) still has the old name. An
+    # alternation satisfies dpkg on either release.
+    f = _fields(deb.control("0.2.0", installed_kb=1))
+    assert "libglib2.0-0t64 | libglib2.0-0" in f["Depends"]
 
 
 def test_libraries_a_stock_desktop_lacks_are_bundled_not_declared():
     # `dpkg -i` does not fetch from repositories, so declaring a library a
     # stock desktop does not ship makes the install fail outright -- CI run
     # 36842846563: ubuntu-desktop-minimal on 22.04 has no libxcb-xinerama0.
-    # Such libraries are installed only at build time, where PyInstaller
-    # collects them into the runtime layer.
     assert "libxcb-xinerama0" in deb.BUNDLED_LIBS
-    f = _fields(deb.runtime_control("r1", installed_kb=1))
+    f = _fields(deb.control("0.2.0", installed_kb=1))
     declared = {d.strip() for d in f["Depends"].split(",")}
     for lib in deb.BUNDLED_LIBS:
         assert lib not in declared, f"{lib} is bundled, it must not be a Depends"
 
 
-def test_runtime_package_does_not_depend_on_an_nvidia_driver():
+def test_package_does_not_depend_on_an_nvidia_driver():
     # torch's cu124 wheel carries the CUDA runtime; requiring a driver
     # package would make the deb uninstallable on CPU-only machines.
-    f = _fields(deb.runtime_control("r1", installed_kb=1))
+    f = _fields(deb.control("0.2.0", installed_kb=1))
     assert "nvidia" not in f["Depends"].lower()
     assert "cuda" not in f["Depends"].lower()
+
+
+def test_control_ends_with_a_newline():
+    # dpkg-deb rejects a control file whose last field has no trailing LF.
+    assert deb.control("1.0.0", 1).endswith("\n")
 
 
 def test_a_release_build_compresses_with_xz_level_9(tmp_path, monkeypatch):
@@ -103,34 +104,6 @@ def test_a_release_build_compresses_with_xz_level_9(tmp_path, monkeypatch):
     assert "-Zgzip" in calls[0]
 
 
-def test_filenames_split_the_runtime_id_from_the_version():
-    # The app deb's NAME carries the id so a client can match it without
-    # downloading. The runtime deb's does not: a client taking a full update
-    # knows the version but not the new id.
-    assert deb.app_deb_filename("1.4.1", "r3f8a1c92") == \
-        "lm-labeling-tool_1.4.1-r3f8a1c92_amd64.deb"
-    assert deb.runtime_deb_filename("1.4.1") == \
-        "lm-labeling-tool-runtime_1.4.1_amd64.deb"
-
-
-def test_runtime_package_covers_both_glib_package_names():
-    # Ubuntu 24.04 (noble) renamed libglib2.0-0 to libglib2.0-0t64 for its
-    # 64-bit time_t transition; 22.04 (jammy) still has the old name. An
-    # alternation satisfies dpkg on either release -- a single name would
-    # make the deb uninstallable on one of our two supported targets.
-    f = _fields(deb.runtime_control("r1", installed_kb=1))
-    assert "libglib2.0-0t64 | libglib2.0-0" in f["Depends"]
-
-
-def test_filenames_match_what_the_client_looks_for():
-    # Two modules spell these names; if they disagree, updates silently stop.
-    from labeling_tool.update import checker
-    assert deb.app_deb_filename("1.4.1", "r3f8a1c92") == \
-        checker.app_asset_name("1.4.1", "r3f8a1c92", checker.LINUX)
-    assert deb.runtime_deb_filename("1.4.1") == \
-        checker.full_asset_names("1.4.1", checker.LINUX)[0]
-
-
 def test_desktop_entry_points_at_the_installed_executable():
     entry = deb.desktop_entry("1.4.1")
     assert "Exec=/opt/lm-labeling-tool/LM_LabelingTool" in entry
@@ -138,118 +111,52 @@ def test_desktop_entry_points_at_the_installed_executable():
     assert entry.startswith("[Desktop Entry]")
 
 
-def test_control_ends_with_a_newline():
-    # dpkg-deb rejects a control file whose last field has no trailing LF.
-    assert deb.runtime_control("r1", 1).endswith("\n")
-    assert deb.app_control("1.0.0", "r1", 1).endswith("\n")
+def test_postrm_removes_files_dpkg_never_tracked():
+    # zip updates write app-layer files outside dpkg's database
+    assert "rm -rf /opt/lm-labeling-tool" in deb.POSTRM
+    assert "remove|purge" in deb.POSTRM
 
 
-# ------------------------------------------------------ build() / app_only
-# CI's runtime-reuse path (packaging/reuse_runtime.py) downloads and
-# re-verifies the previous release's runtime deb instead of rebuilding it,
-# so build() must be able to produce just the app deb. These are the public,
-# unit-tested entry point the CI workflow calls -- see
-# .github/workflows/release.yml's "Build debs" step, which must never reach
-# into this module's private staging helpers directly.
+def test_preinst_clears_the_app_layer_before_a_full_install():
+    for d in ("_internal/labeling_tool", "_internal/annotation_tool",
+              ".update-backup", ".update-staging"):
+        assert f"/opt/lm-labeling-tool/{d}" in deb.PREINST
 
-def test_build_produces_both_debs_by_default(tmp_path, dpkg_deb_available):
+
+def test_build_produces_exactly_one_deb(tmp_path, dpkg_deb_available):
     if not dpkg_deb_available:
         pytest.skip("dpkg-deb not installed")
     dist = _make_dist(tmp_path)
-    out = tmp_path / "out"
-    paths = deb.build(dist, out, "1.4.1")
-    assert set(paths) == {"runtime", "app"}
-    assert paths["runtime"].is_file()
-    assert paths["app"].is_file()
-    produced = {p.name for p in out.glob("*.deb")}
-    assert produced == {paths["runtime"].name, paths["app"].name}
+    out = deb.build(dist, tmp_path / "out", "0.2.0")
+    assert sorted(p.name for p in (tmp_path / "out").iterdir()) == [
+        "lm-labeling-tool_0.2.0_amd64.deb"]
+    control = _extract_control(out, tmp_path / "ctl")
+    assert "Version: 0.2.0" in control
 
 
-def test_build_app_only_produces_only_the_app_deb(tmp_path, dpkg_deb_available):
-    # The whole point of app_only: no runtime deb is built (or published) at
-    # all when the previous release's is being reused instead.
-    if not dpkg_deb_available:
-        pytest.skip("dpkg-deb not installed")
-    dist = _make_dist(tmp_path)
-    out = tmp_path / "out"
-    paths = deb.build(dist, out, "1.4.1", app_only=True)
-    assert set(paths) == {"app"}
-    assert paths["app"].is_file()
-    produced = list(out.glob("*.deb"))
-    assert produced == [paths["app"]]
-    assert not any(p.name.startswith("lm-labeling-tool-runtime_") for p in produced)
-
-
-def test_app_only_control_matches_a_full_build(tmp_path, dpkg_deb_available):
-    # app_only must not be a different code path that happens to produce a
-    # similar-looking package: its app deb's control has to be byte-for-byte
-    # what a full build would have produced for the same dist_dir/version.
-    if not dpkg_deb_available:
-        pytest.skip("dpkg-deb not installed")
-    dist = _make_dist(tmp_path)
-    full = deb.build(dist, tmp_path / "out-full", "1.4.1")
-    app_only = deb.build(dist, tmp_path / "out-app-only", "1.4.1", app_only=True)
-    full_control = _extract_control(full["app"], tmp_path / "extract-full")
-    app_only_control = _extract_control(app_only["app"], tmp_path / "extract-app-only")
-    assert full_control == app_only_control
-    # And the filename -- which carries the runtime id -- agrees too.
-    assert full["app"].name == app_only["app"].name
-
-
-def test_cli_accepts_the_app_only_flag(tmp_path, dpkg_deb_available, capsys):
-    if not dpkg_deb_available:
-        pytest.skip("dpkg-deb not installed")
-    dist = _make_dist(tmp_path)
-    out = tmp_path / "out"
-    assert deb.main(["build", "--app-only", str(dist), str(out), "1.4.1"]) == 0
-    produced = list(out.glob("*.deb"))
-    assert len(produced) == 1
-    assert produced[0].name.startswith("lm-labeling-tool_")
-    printed = capsys.readouterr().out
-    assert "app:" in printed
-    assert "runtime:" not in printed
-
-
-def test_cli_rejects_unknown_arguments():
-    assert deb.main(["build", "--bogus-flag", "a", "b", "c"]) == 2
-    assert deb.main(["nonsense"]) == 2
-
-
-# -------------------------------------------- runtime_id override (CI guard)
-# CI's dependency-guard smoke test needs an app deb that FALSELY claims a
-# runtime id the installed runtime does not have, to prove dpkg -i refuses
-# it -- see the "Dependency guard" step in .github/workflows/release.yml.
-
-def test_runtime_id_override_builds_an_app_deb_for_a_different_runtime(
+def test_every_maintainer_script_is_executable_in_the_built_deb(
         tmp_path, dpkg_deb_available):
     if not dpkg_deb_available:
         pytest.skip("dpkg-deb not installed")
     dist = _make_dist(tmp_path)
-    out = tmp_path / "out"
-    paths = deb.build(dist, out, "1.4.1", app_only=True, runtime_id="rdeadbeef")
-    assert set(paths) == {"app"}
-    assert paths["app"].name == "lm-labeling-tool_1.4.1-rdeadbeef_amd64.deb"
-    control = _extract_control(paths["app"], tmp_path / "extract")
-    assert "lm-labeling-tool-runtime (= 0~rdeadbeef)" in control
+    out = deb.build(dist, tmp_path / "out", "0.2.0")
+    _extract_control(out, tmp_path / "ctl")
+    for name in ("postinst", "preinst", "postrm"):
+        script = tmp_path / "ctl" / name
+        assert script.is_file(), name
+        assert script.stat().st_mode & 0o111 == 0o111, name
 
 
-def test_runtime_id_override_requires_app_only():
-    # A runtime deb built under a declared id that does not match its own
-    # staged payload would be a real, publishable bug, not a test fixture.
-    with pytest.raises(ValueError):
-        deb.build("dist", "out", "1.4.1", app_only=False, runtime_id="rdeadbeef")
-
-
-def test_cli_accepts_the_runtime_id_flag(tmp_path, dpkg_deb_available):
+def test_cli_builds_and_prints_the_path(tmp_path, dpkg_deb_available, capsys):
     if not dpkg_deb_available:
         pytest.skip("dpkg-deb not installed")
     dist = _make_dist(tmp_path)
     out = tmp_path / "out"
-    assert deb.main(["build", "--app-only", "--runtime-id", "rdeadbeef",
-                      str(dist), str(out), "1.4.1"]) == 0
-    produced = list(out.glob("*.deb"))
-    assert produced == [out / "lm-labeling-tool_1.4.1-rdeadbeef_amd64.deb"]
+    assert deb.main(["build", str(dist), str(out), "0.2.0"]) == 0
+    assert capsys.readouterr().out.strip() == f"deb: {out / 'lm-labeling-tool_0.2.0_amd64.deb'}"
 
 
-def test_cli_surfaces_the_app_only_requirement_as_a_clean_error():
-    assert deb.main(["build", "--runtime-id", "rdeadbeef", "dist", "out", "1.4.1"]) == 2
+def test_cli_rejects_unknown_arguments():
+    assert deb.main(["build", "--bogus-flag", "a", "b", "c"]) == 2
+    assert deb.main(["build", "--app-only", "a", "b", "c"]) == 2
+    assert deb.main(["nonsense"]) == 2

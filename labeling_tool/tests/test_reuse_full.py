@@ -16,8 +16,8 @@ def _release(tag, *names):
 
 
 PREV = _release("v1.4.0",
-                "LM_LabelingTool-App-v1.4.0-r88c8d3f0.exe",
                 "LM_LabelingTool-Setup-v1.4.0.exe",
+                "update-v1.4.0-r88c8d3f0-windows.zip",
                 "SHA256SUMS.txt")
 
 
@@ -31,12 +31,12 @@ def test_a_changed_runtime_needs_a_fresh_full_build():
 
 
 def test_a_release_without_a_full_installer_cannot_be_reused():
-    rel = _release("v1.4.0", "LM_LabelingTool-App-v1.4.0-r88c8d3f0.exe", "SHA256SUMS.txt")
+    rel = _release("v1.4.0", "update-v1.4.0-r88c8d3f0-windows.zip", "SHA256SUMS.txt")
     assert reuse_full.plan_reuse(rel, "r88c8d3f0") is None
 
 
 def test_a_release_without_checksums_cannot_be_reused():
-    rel = _release("v1.4.0", "LM_LabelingTool-App-v1.4.0-r88c8d3f0.exe",
+    rel = _release("v1.4.0", "update-v1.4.0-r88c8d3f0-windows.zip",
                    "LM_LabelingTool-Setup-v1.4.0.exe")
     assert reuse_full.plan_reuse(rel, "r88c8d3f0") is None
 
@@ -51,7 +51,7 @@ def test_names_follow_the_client_contract():
     other way would let the reuse path drift from what clients request."""
     from labeling_tool.update import checker
     tag, full = reuse_full.plan_reuse(PREV, "r88c8d3f0")
-    assert full == checker.full_asset_names("1.4.0", checker.WINDOWS)[0]
+    assert full == checker.full_asset_name("1.4.0", checker.WINDOWS)
 
 
 def _published(tmp_path, name, content):
@@ -105,3 +105,10 @@ def test_cli_verify_exit_codes(tmp_path):
 def test_cli_rejects_bad_usage(capsys):
     assert reuse_full.main(["nonsense"]) == 2
     assert "usage:" in capsys.readouterr().err
+
+
+def test_reuse_when_the_previous_release_has_our_runtime_zip():
+    rel = {"tagName": "v0.2.0", "assets": [{"name": n} for n in (
+        "LM_LabelingTool-Setup-v0.2.0.exe", "update-v0.2.0-r11111111-windows.zip", "SHA256SUMS.txt")]}
+    assert reuse_full.plan_reuse(rel, "r11111111") == ("v0.2.0", "LM_LabelingTool-Setup-v0.2.0.exe")
+    assert reuse_full.plan_reuse(rel, "r22222222") is None
