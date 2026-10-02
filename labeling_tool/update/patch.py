@@ -6,8 +6,10 @@ swap moves each replaced file into .update-backup/ before moving the new
 one in, journalling every move first, so a failure rolls back exactly and a
 crash mid-swap is undone by recover(). The journal is replaced atomically and
 synced on every write; if it is still unreadable, recover() restores the whole
-backup instead. The executable is swapped last, so a crash never leaves the
-install without one.
+backup instead. Staged files are synced before the first journal entry and
+every swapped directory before the journal is dropped. The executable is
+swapped last, so a crash mid-swap normally leaves the old one in place (only
+the moment between its own two renames has none).
 
 Windows: a running .exe cannot be overwritten but can be renamed, so moving
 it into the backup works while the app runs. Linux: /opt is root-owned, so
@@ -112,6 +114,21 @@ def _fsync_dir(path: Path) -> None:
         os.close(fd)
 
 
+def _write_durable(path: Path, data: bytes) -> None:
+    """Write a staged file and force it to disk: the journal that later moves
+    it into place must never point at bytes still sitting in a page cache."""
+    with open(path, "wb") as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def _fsync_dirs(paths) -> None:
+    """Make the renames inside each of these directories durable."""
+    for path in sorted({Path(p) for p in paths}):
+        _fsync_dir(path)
+
+
 def _write_journal(root: Path, journal: list[list[str]]) -> None:
     """Replace the journal atomically: a crash leaves either the previous
     journal or this one on disk, never a torn file."""
@@ -212,16 +229,18 @@ def _stage(zip_path: Path, root: Path, staging: Path, expected_sha256: str,
         for rel in m.files:
             target = staging / rel
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(z.read(rel))
+            _write_durable(target, z.read(rel))
             if _sha256(target) != m.files[rel]:
                 raise PatchError(f"{rel} does not match the manifest")
-            # write_bytes drops the mode; keep the executable bit the zip
-            # carries, else the file being replaced has.
+            # A fresh file gets the default mode; keep the executable bit the
+            # zip carries, else the file being replaced has.
             mode = (z.getinfo(rel).external_attr >> 16) & 0o777
             if not mode and (root / rel).exists():
                 mode = (root / rel).stat().st_mode & 0o777
             if mode:
                 target.chmod(mode)
+    # The staged files are durable; their directory entries must be too.
+    _fsync_dirs([staging, *((staging / rel).parent for rel in m.files)])
     return m
 
 
@@ -264,7 +283,8 @@ def apply_patch(zip_path: Path, install_dir: Path, expected_sha256: str,
 
     try:
         stale = set(_installed_app_files(root, platform)) - set(m.files)
-        for rel in _swap_order(set(m.files) | stale, platform):
+        swapped = _swap_order(set(m.files) | stale, platform)
+        for rel in swapped:
             current = root / rel
             if current.exists():
                 record("backup", current, backup / rel)
@@ -275,7 +295,14 @@ def apply_patch(zip_path: Path, install_dir: Path, expected_sha256: str,
     except Exception as exc:  # noqa: BLE001 - any failure must roll back
         _rollback(root, journal)
         raise PatchError(f"could not apply the update: {exc}") from exc
+    # Dropping the journal declares the swap done, and the backup is deleted
+    # soon after (next start on Windows, next update on Linux): every rename
+    # the journal recorded must be on disk before it goes.
+    _fsync_dirs([root, backup,
+                 *((root / rel).parent for rel in swapped),
+                 *((backup / rel).parent for rel in swapped if (backup / rel).exists())])
     journal_path.unlink(missing_ok=True)
+    _fsync_dir(root)
     shutil.rmtree(staging, ignore_errors=True)
     return m
 

@@ -412,3 +412,68 @@ def test_linux_does_not_retry_a_refused_move(tmp_path, monkeypatch):
     with pytest.raises(PermissionError):
         patch._move(tmp_path / "a", tmp_path / "b")
     assert calls["n"] == 1
+
+
+@pytest.mark.skipif(not Path("/proc/self/fd").is_dir(), reason="maps fds to paths via /proc")
+def test_every_staged_file_is_on_disk_before_the_first_journal_entry(tmp_path, monkeypatch):
+    """The journal promises a swap can be undone; that only holds if the new
+    files it moves into place are already durable. Otherwise a power cut
+    seconds after a "successful" swap leaves empty files, and the backup is
+    gone by the next start."""
+    import os
+    root = _install(tmp_path / "app")
+    z, sha = _zip(tmp_path / "u.zip", NEW)
+    synced: list[str] = []
+    synced_before_journal: list[set] = []
+    real_fsync, real_journal = os.fsync, patch._write_journal
+
+    def spy_fsync(fd):
+        try:
+            synced.append(os.readlink(f"/proc/self/fd/{fd}"))
+        except OSError:
+            pass
+        real_fsync(fd)
+
+    def spy_journal(r, journal):
+        synced_before_journal.append(set(synced))
+        real_journal(r, journal)
+
+    monkeypatch.setattr(patch.os, "fsync", spy_fsync)
+    monkeypatch.setattr(patch, "_write_journal", spy_journal)
+    patch.apply_patch(z, root, sha, platform="win32")
+    first = synced_before_journal[0]
+    staging = str((root / patch.STAGING).resolve())
+    for rel in NEW:
+        assert f"{staging}/{rel}" in first, f"{rel} not fsynced before the journal"
+
+
+@pytest.mark.skipif(not Path("/proc/self/fd").is_dir(), reason="maps fds to paths via /proc")
+def test_the_swapped_in_directories_are_synced_before_the_journal_is_dropped(tmp_path, monkeypatch):
+    """Dropping the journal declares the swap done; the renames it recorded
+    must be durable first, or a crash could lose them with no journal left."""
+    import os
+    root = _install(tmp_path / "app")
+    z, sha = _zip(tmp_path / "u.zip", NEW)
+    events: list[str] = []
+    real_fsync, real_unlink = os.fsync, Path.unlink
+
+    def spy_fsync(fd):
+        try:
+            events.append("sync:" + os.readlink(f"/proc/self/fd/{fd}"))
+        except OSError:
+            pass
+        real_fsync(fd)
+
+    def spy_unlink(self, *a, **k):
+        if self.name == patch.JOURNAL:
+            events.append("drop-journal")
+        return real_unlink(self, *a, **k)
+
+    monkeypatch.setattr(patch.os, "fsync", spy_fsync)
+    monkeypatch.setattr(Path, "unlink", spy_unlink)
+    patch.apply_patch(z, root, sha, platform="win32")
+    drop = events.index("drop-journal")
+    before = set(events[:drop])
+    lt = str((root / "_internal" / "labeling_tool").resolve())
+    assert "sync:" + lt in before, "the installed app-layer directory was not synced"
+    assert "sync:" + str(root.resolve()) in before, "the install root was not synced"
