@@ -52,7 +52,12 @@ def _frozen_module_constants(exe, platform, env=None):
     fresh interpreter that pretends to be the PyInstaller build for the
     given platform."""
     code = (
-        "import sys; sys.frozen = True; sys.executable = %r; sys.platform = %r\n"
+        # Faking sys.platform makes any stdlib module first imported afterwards
+        # take its Windows branch (python3.12's shutil does `import _winapi`),
+        # which cannot exist here. So load the stdlib first, fake the
+        # platform last.
+        "import sys, shutil, tempfile, pathlib, json, subprocess\n"
+        "sys.frozen = True; sys.executable = %r; sys.platform = %r\n"
         "from labeling_tool.ui import dialog_helpers as d\n"
         "from labeling_tool.session import workspace as w\n"
         "from annotation_tool import configs as c\n"
@@ -60,9 +65,11 @@ def _frozen_module_constants(exe, platform, env=None):
         "      c.SAM2_CHECKPOINT, c.CLASSES_FILE, c.DEFAULT_DATASET_DIR, sep='\\n')\n"
     ) % (str(exe), platform)
     run_env = {**os.environ, **(env or {})}
-    out = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=run_env,
-                         capture_output=True, text=True, check=True).stdout.split("\n")
-    return [Path(p) for p in out[:6]]
+    result = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=run_env,
+                            capture_output=True, text=True)
+    # Surface the child's traceback: a bare CalledProcessError hides it.
+    assert result.returncode == 0, result.stderr
+    return [Path(p) for p in result.stdout.split("\n")[:6]]
 
 
 def test_frozen_module_constants_live_next_to_exe_on_windows(tmp_path):
