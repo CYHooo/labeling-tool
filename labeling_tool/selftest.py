@@ -105,7 +105,8 @@ def run_selftest(variant: str) -> int:
         return 2
     log = home / "selftest.log"
     lines, failed = [f"selftest variant={variant} home={home}"], 0
-    with open(home / "selftest-hang.txt", "w", encoding="utf-8") as hang_file:
+    hang_path = home / "selftest-hang.txt"
+    with open(hang_path, "w", encoding="utf-8") as hang_file:
         faulthandler.dump_traceback_later(HANG_SECONDS, exit=True, file=hang_file)
         try:
             for name, check in _checks(variant):
@@ -120,6 +121,11 @@ def run_selftest(variant: str) -> int:
                     lines.append(f"FAIL {name}: {type(exc).__name__}: {exc}")
         finally:
             faulthandler.cancel_dump_traceback_later()
+    # Reaching here means no hang: drop the empty file. On Windows this
+    # directory is the bundle itself, and a leftover file joins the runtime
+    # layer and moves the runtime id. A hang exits inside the block above,
+    # so its traceback is never removed.
+    hang_path.unlink()
     lines.append("RESULT: " + ("PASS" if not failed else f"FAIL ({failed})"))
     report = "\n".join(lines) + "\n"
     print(report, end="")

@@ -109,3 +109,15 @@ def test_a_hung_run_dumps_every_thread_and_exits(monkeypatch, tmp_path):
     assert timeout == selftest.HANG_SECONDS
     assert kw["exit"] is True
     assert kw["file"].name == str(tmp_path / "selftest-hang.txt")
+
+
+def test_a_finished_run_leaves_no_hang_file(monkeypatch, tmp_path):
+    """On Windows user_data_home() is the exe's own directory, so CI's
+    selftest of dist/ writes into the bundle that gets layered. An empty
+    selftest-hang.txt left behind there joined the runtime layer and moved
+    the runtime id (r88c8d3f0 -> r2853893c), which would have pushed every
+    Windows user onto a full reinstall. Only a hang may leave it."""
+    monkeypatch.setattr(selftest, "user_data_home", lambda: tmp_path)
+    monkeypatch.setattr(selftest, "_checks", lambda variant: iter([("ok", lambda: None)]))
+    assert selftest.run_selftest("full") == 0
+    assert not (tmp_path / "selftest-hang.txt").exists()
