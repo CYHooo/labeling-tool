@@ -129,6 +129,18 @@ def _fsync_dirs(paths) -> None:
         _fsync_dir(path)
 
 
+def _up_to(path: Path, top: Path) -> list[Path]:
+    """`path` and each parent up to and including `top`: a directory a move
+    created (mkdir parents=True) is an entry in its own parent, which needs
+    syncing too on filesystems without one ordered metadata journal."""
+    path, top = Path(path), Path(top)
+    out = [path]
+    while path != top and top in path.parents:
+        path = path.parent
+        out.append(path)
+    return out
+
+
 def _write_journal(root: Path, journal: list[list[str]]) -> None:
     """Replace the journal atomically: a crash leaves either the previous
     journal or this one on disk, never a torn file."""
@@ -182,16 +194,20 @@ def _installed_app_files(root: Path, platform: str) -> list[str]:
 
 def _rollback(root: Path, journal: list[list[str]]) -> None:
     journal_path = root / JOURNAL
+    restored: list[Path] = []
     while journal:
         op, a, b = journal[-1]
         src, dst = Path(b), Path(a)   # undo: move it back where it came from
         if src.exists():
             _move(src, dst)
+            restored.append(dst.parent)
         # Shrink the journal as we go so an interrupted rollback can be re-run
         # without undoing the same entry twice (which would clobber a restored file).
         journal.pop()
         if journal:
             _write_journal(root, journal)
+    # The restores must be durable before the journal that could redo them goes.
+    _fsync_dirs(d for parent in restored for d in _up_to(parent, root))
     shutil.rmtree(root / STAGING, ignore_errors=True)
     journal_path.unlink(missing_ok=True)
 
@@ -202,9 +218,13 @@ def _restore_whole_backup(root: Path) -> None:
     belonged to (apply_patch refuses to start over a backup it cannot clear),
     so this restores the old version; a file the update added stays, unused."""
     backup = root / BACKUP
+    restored: list[Path] = []
     if backup.is_dir():
         for path in sorted(p for p in backup.rglob("*") if p.is_file()):
-            _move(path, root / path.relative_to(backup))
+            target = root / path.relative_to(backup)
+            _move(path, target)
+            restored.append(target.parent)
+    _fsync_dirs(d for parent in restored for d in _up_to(parent, root))
     shutil.rmtree(root / STAGING, ignore_errors=True)
     (root / JOURNAL).unlink(missing_ok=True)
 
@@ -240,7 +260,7 @@ def _stage(zip_path: Path, root: Path, staging: Path, expected_sha256: str,
             if mode:
                 target.chmod(mode)
     # The staged files are durable; their directory entries must be too.
-    _fsync_dirs([staging, *((staging / rel).parent for rel in m.files)])
+    _fsync_dirs(d for rel in m.files for d in _up_to((staging / rel).parent, staging))
     return m
 
 
@@ -298,9 +318,9 @@ def apply_patch(zip_path: Path, install_dir: Path, expected_sha256: str,
     # Dropping the journal declares the swap done, and the backup is deleted
     # soon after (next start on Windows, next update on Linux): every rename
     # the journal recorded must be on disk before it goes.
-    _fsync_dirs([root, backup,
-                 *((root / rel).parent for rel in swapped),
-                 *((backup / rel).parent for rel in swapped if (backup / rel).exists())])
+    _fsync_dirs([*(d for rel in swapped for d in _up_to((root / rel).parent, root)),
+                 *(d for rel in swapped if (backup / rel).exists()
+                   for d in _up_to((backup / rel).parent, root))])
     journal_path.unlink(missing_ok=True)
     _fsync_dir(root)
     shutil.rmtree(staging, ignore_errors=True)

@@ -448,32 +448,42 @@ def test_every_staged_file_is_on_disk_before_the_first_journal_entry(tmp_path, m
 
 
 @pytest.mark.skipif(not Path("/proc/self/fd").is_dir(), reason="maps fds to paths via /proc")
-def test_the_swapped_in_directories_are_synced_before_the_journal_is_dropped(tmp_path, monkeypatch):
-    """Dropping the journal declares the swap done; the renames it recorded
-    must be durable first, or a crash could lose them with no journal left."""
+def test_each_swapped_directory_is_synced_after_its_last_rename_and_before_the_drop(tmp_path, monkeypatch):
+    """Dropping the journal declares the swap done; every rename it recorded
+    must be durable first. A sync of a directory only counts if it comes
+    AFTER the last rename into that directory."""
     import os
     root = _install(tmp_path / "app")
     z, sha = _zip(tmp_path / "u.zip", NEW)
-    events: list[str] = []
-    real_fsync, real_unlink = os.fsync, Path.unlink
+    events: list[tuple[str, str]] = []
+    real_fsync, real_unlink, real_move = os.fsync, Path.unlink, patch._move
 
     def spy_fsync(fd):
         try:
-            events.append("sync:" + os.readlink(f"/proc/self/fd/{fd}"))
+            events.append(("sync", os.readlink(f"/proc/self/fd/{fd}")))
         except OSError:
             pass
         real_fsync(fd)
 
     def spy_unlink(self, *a, **k):
         if self.name == patch.JOURNAL:
-            events.append("drop-journal")
+            events.append(("drop", ""))
         return real_unlink(self, *a, **k)
+
+    def spy_move(src, dst):
+        real_move(src, dst)
+        events.append(("move", str(Path(dst).parent.resolve())))
 
     monkeypatch.setattr(patch.os, "fsync", spy_fsync)
     monkeypatch.setattr(Path, "unlink", spy_unlink)
+    monkeypatch.setattr(patch, "_move", spy_move)
     patch.apply_patch(z, root, sha, platform="win32")
-    drop = events.index("drop-journal")
-    before = set(events[:drop])
-    lt = str((root / "_internal" / "labeling_tool").resolve())
-    assert "sync:" + lt in before, "the installed app-layer directory was not synced"
-    assert "sync:" + str(root.resolve()) in before, "the install root was not synced"
+    drop = events.index(("drop", ""))
+    lt = (root / "_internal" / "labeling_tool").resolve()
+    for d in (lt, (root / patch.BACKUP / "_internal" / "labeling_tool").resolve(),
+              root.resolve(), (root / patch.BACKUP).resolve(), (root / "_internal").resolve(),
+              (root / patch.BACKUP / "_internal").resolve()):
+        moves = [i for i, e in enumerate(events) if e == ("move", str(d))]
+        last = moves[-1] if moves else -1
+        assert any(e == ("sync", str(d)) for e in events[last + 1:drop]), \
+            f"{d} not synced between its last rename and the journal drop"
