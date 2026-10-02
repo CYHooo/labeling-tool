@@ -4,7 +4,10 @@ The zip carries the app layer -- our own code, a few MB -- plus
 manifest.json (version, runtime id, platform, every file's SHA-256). The
 swap moves each replaced file into .update-backup/ before moving the new
 one in, journalling every move first, so a failure rolls back exactly and a
-crash mid-swap is undone by recover() on the next start.
+crash mid-swap is undone by recover(). The journal is replaced atomically and
+synced on every write; if it is still unreadable, recover() restores the whole
+backup instead. The executable is swapped last, so a crash never leaves the
+install without one.
 
 Windows: a running .exe cannot be overwritten but can be renamed, so moving
 it into the backup works while the app runs. Linux: /opt is root-owned, so
@@ -17,6 +20,7 @@ import hashlib
 import json
 import os
 import shutil
+import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -74,9 +78,69 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+# Windows only: antivirus briefly locks a freshly written exe, so a refused
+# move is retried after each of these pauses (seconds) before giving up.
+_MOVE_RETRY_DELAYS = (0.2, 0.4, 0.8, 1.0)
+
+
 def _move(src: Path, dst: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
+    delays = _MOVE_RETRY_DELAYS if checker.current_platform() == checker.WINDOWS else ()
+    for delay in delays:
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            time.sleep(delay)
     os.replace(src, dst)
+
+
+def _fsync_dir(path: Path) -> None:
+    """Make a rename in `path` durable. Windows cannot open a directory for
+    this (and NTFS journals renames itself), so it is skipped there."""
+    if os.name == "nt":
+        return
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def _write_journal(root: Path, journal: list[list[str]]) -> None:
+    """Replace the journal atomically: a crash leaves either the previous
+    journal or this one on disk, never a torn file."""
+    tmp = root / (JOURNAL + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(json.dumps(journal))
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, root / JOURNAL)
+    _fsync_dir(root)
+
+
+def _read_journal(path: Path) -> list[list[str]] | None:
+    """The journal's entries, or None when it cannot be read or is not one."""
+    try:
+        journal = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(journal, list) or not all(
+            isinstance(e, list) and len(e) == 3 and all(isinstance(x, str) for x in e)
+            for e in journal):
+        return None
+    return journal
+
+
+def _swap_order(rels: set[str], platform: str) -> list[str]:
+    """Every file, with the executable last: recover() needs an exe to run."""
+    exe = APP_LAYER_PREFIXES(platform)[0]
+    return sorted(rels, key=lambda rel: (rel == exe, rel))
 
 
 def read_manifest(zip_path: Path) -> PatchManifest:
@@ -110,7 +174,20 @@ def _rollback(root: Path, journal: list[list[str]]) -> None:
         # without undoing the same entry twice (which would clobber a restored file).
         journal.pop()
         if journal:
-            journal_path.write_text(json.dumps(journal), encoding="utf-8")
+            _write_journal(root, journal)
+    shutil.rmtree(root / STAGING, ignore_errors=True)
+    journal_path.unlink(missing_ok=True)
+
+
+def _restore_whole_backup(root: Path) -> None:
+    """Recover without a journal: put every backed-up file back over its
+    install path. The backup only ever holds files of the swap the journal
+    belonged to (apply_patch refuses to start over a backup it cannot clear),
+    so this restores the old version; a file the update added stays, unused."""
+    backup = root / BACKUP
+    if backup.is_dir():
+        for path in sorted(p for p in backup.rglob("*") if p.is_file()):
+            _move(path, root / path.relative_to(backup))
     shutil.rmtree(root / STAGING, ignore_errors=True)
     (root / JOURNAL).unlink(missing_ok=True)
 
@@ -173,16 +250,21 @@ def apply_patch(zip_path: Path, install_dir: Path, expected_sha256: str,
 
     backup = root / BACKUP
     shutil.rmtree(backup, ignore_errors=True)
+    if backup.exists():
+        # recover() may have to restore this whole directory, so it must hold
+        # nothing but what this swap puts there.
+        shutil.rmtree(staging, ignore_errors=True)
+        raise PatchError(f"could not clear the previous backup in {backup}")
     journal: list[list[str]] = []
     journal_path = root / JOURNAL
 
     def record(op: str, src: Path, dst: Path) -> None:
         journal.append([op, str(src), str(dst)])
-        journal_path.write_text(json.dumps(journal), encoding="utf-8")
+        _write_journal(root, journal)
 
     try:
         stale = set(_installed_app_files(root, platform)) - set(m.files)
-        for rel in sorted(set(m.files) | stale):
+        for rel in _swap_order(set(m.files) | stale, platform):
             current = root / rel
             if current.exists():
                 record("backup", current, backup / rel)
@@ -199,16 +281,20 @@ def apply_patch(zip_path: Path, install_dir: Path, expected_sha256: str,
 
 
 def recover(install_dir: Path) -> bool:
-    """Undo a swap that never finished. Call first thing at startup."""
+    """Undo a swap that never finished. Call first thing at startup.
+
+    An unreadable journal is never thrown away with the backup: the whole
+    backup is restored instead. If that fails too, the OSError propagates and
+    journal and backup both stay, so cleanup() keeps refusing to delete them."""
     root = Path(install_dir)
     journal_path = root / JOURNAL
     if not journal_path.exists():
         return False
-    try:
-        journal = json.loads(journal_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        journal = []
-    _rollback(root, journal)
+    journal = _read_journal(journal_path)
+    if journal is None:
+        _restore_whole_backup(root)
+    else:
+        _rollback(root, journal)
     return True
 
 
@@ -219,3 +305,5 @@ def cleanup(install_dir: Path) -> None:
         return
     shutil.rmtree(root / BACKUP, ignore_errors=True)
     shutil.rmtree(root / STAGING, ignore_errors=True)
+    # A crash between writing and renaming the journal leaves this behind.
+    (root / (JOURNAL + ".tmp")).unlink(missing_ok=True)
