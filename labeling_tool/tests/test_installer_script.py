@@ -210,7 +210,26 @@ def test_release_compression_is_multithreaded(iss):
 def test_the_size_ceiling_only_binds_on_published_builds(workflow):
     """A fast-compressed verification build is legitimately larger than a
     release one; the 2 GiB release ceiling must not fail it."""
-    assert "GITHUB_REF_TYPE -eq 'tag' -and $full.Length -ge 1.9GB" in workflow
+    assert "$env:LT_RELEASE_COMPRESSION -eq 'true' -and $full.Length -ge 1.9GB" in workflow
+
+
+def test_a_manual_run_can_rehearse_release_compression(workflow):
+    """Dry runs compress fast and skip the size ceilings, so v2.0.0's real
+    runtime deb size was first measured by the tag itself (CI run
+    36965987450). A manual run must be able to opt into the release
+    compression -- and with it the ceilings -- on both platforms."""
+    yaml = pytest.importorskip("yaml")
+    data = yaml.safe_load(workflow)
+    on = data.get("on", data.get(True))
+    inp = on["workflow_dispatch"]["inputs"]["release_compression"]
+    assert inp["type"] == "boolean" and inp["default"] is False
+    assert "inputs.release_compression" in data["env"]["LT_RELEASE_COMPRESSION"]
+    assert "github.ref_type == 'tag'" in data["env"]["LT_RELEASE_COMPRESSION"]
+    # every compression switch and size ceiling keys off that one variable
+    assert "GITHUB_REF_TYPE -ne 'tag'" not in workflow
+    assert '"$GITHUB_REF_TYPE" != "tag"' not in workflow
+    assert '[ "$GITHUB_REF_TYPE" = "tag" ] && [ "$size"' not in workflow
+    assert '[ "$LT_RELEASE_COMPRESSION" = "true" ] && [ "$size" -ge 2040109465 ]' in workflow
 
 
 def test_every_iscc_invocation_honours_the_compression_mode(workflow):

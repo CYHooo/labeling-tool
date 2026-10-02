@@ -251,7 +251,11 @@ def _dpkg_deb_build(root: Path, out_path: Path, fast: bool) -> None:
     # Compression controlled the same way the Windows build picks its
     # compressor via /DMyFast=1: fast gzip for local iteration, xz for a
     # real release (XZ_OPT=-T4 is set by the caller to parallelize it).
-    args += (["-Zgzip", "-z1"] if fast else ["-Zxz"])
+    # Level 9, not xz's default 6: -6 left the v2.0.0 runtime deb at
+    # 2,061,489,096 bytes, over the release asset ceiling (CI run
+    # 36965987450); -9's 64 MB dictionary measured 8% smaller on the
+    # torch + CUDA payload for ~37% more compression time.
+    args += (["-Zgzip", "-z1"] if fast else ["-Zxz", "-z9"])
     args += [str(root), str(out_path)]
     subprocess.run(args, check=True)
 

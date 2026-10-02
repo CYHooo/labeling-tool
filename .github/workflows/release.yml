@@ -30,15 +30,31 @@
 # Triggers: a version tag (v*) builds and publishes both platforms. A
 # manual run builds with fast compression and uploads the installers /
 # debs as workflow artifacts only -- a dry run of the release job's input.
+# Tick release_compression on a manual run to rehearse a tag exactly:
+# release compression on both platforms, and the asset size ceilings
+# enforced -- still without publishing anything.
 name: release
 
 on:
   workflow_dispatch:
+    inputs:
+      release_compression:
+        description: "Compress like a release and enforce the asset size ceilings (slower)"
+        type: boolean
+        default: false
   push:
     tags: ["v*"]
 
 permissions:
   contents: read
+
+env:
+  # "true" on a tag, or on a manual run that asked for it. Every compression
+  # switch and asset size ceiling below keys off this one variable: dry runs
+  # used to compress fast and skip the ceilings, so v2.0.0's real runtime
+  # deb size was first measured by the tag itself -- and failed (CI run
+  # 36965987450).
+  LT_RELEASE_COMPRESSION: ${{ github.ref_type == 'tag' || inputs.release_compression }}
 
 jobs:
   build-windows:
@@ -208,8 +224,9 @@ jobs:
           $common = @("/DMyVersion=$ver", "/DMyVersionInfo=$infoVer",
                       "/DMySourceRoot=$PWD", "/DMyRuntime=$env:LT_RUNTIME")
           # Tags are what users download: maximum compression. A manual dry
-          # run only needs to show that the release would build.
-          if ($env:GITHUB_REF_TYPE -ne 'tag') {
+          # run only needs to show that the release would build, unless it
+          # asked to rehearse the release compression.
+          if ($env:LT_RELEASE_COMPRESSION -ne 'true') {
             $common += "/DMyFast=1"
             Write-Host "dry run: fast compression"
           }
@@ -235,9 +252,9 @@ jobs:
           if (-not $full) { throw "ISCC produced no full installer" }
           if (-not $app)  { throw "ISCC produced no app installer" }
           Get-ChildItem out\*.exe | ForEach-Object { "{0}  {1:N1} MB" -f $_.Name, ($_.Length/1MB) }
-          # GitHub release assets must stay below 2 GiB. Only tag builds are
-          # published, and only they use maximum compression.
-          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $full.Length -ge 1.9GB) {
+          # GitHub release assets must stay below 2 GiB. Checked whenever the
+          # release compression is used: on a tag, or a rehearsal of one.
+          if ($env:LT_RELEASE_COMPRESSION -eq 'true' -and $full.Length -ge 1.9GB) {
             throw "installer too large for a release asset: $($full.Length) bytes"
           }
 
@@ -469,7 +486,7 @@ jobs:
           set -euo pipefail
           mkdir -p out
           ver="${LT_VERSION#v}"
-          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+          if [ "$LT_RELEASE_COMPRESSION" != "true" ]; then
             export LT_FAST=1
             echo "dry run: fast compression"
           fi
@@ -503,14 +520,15 @@ jobs:
           # counterpart of this check (test_the_size_ceiling_only_binds_on_published_builds).
           # The runtime deb carries the full CUDA wheel set at ~1.4 GB, so
           # it is the one Linux asset that could realistically grow into
-          # that ceiling. Only tag builds are checked: a fast-compressed
-          # dry run is legitimately larger for the same bytes.
+          # that ceiling. Checked whenever the release compression is used
+          # (a tag, or a manual rehearsal): a fast-compressed dry run is
+          # legitimately larger for the same bytes.
           ver="${LT_VERSION#v}"
           runtime_name=$(python -c "from labeling_tool.update import checker; import sys; print(checker.full_asset_names(sys.argv[1], checker.LINUX)[0])" "$ver")
           runtime_deb="out/$runtime_name"
           size=$(stat -c%s "$runtime_deb")
           echo "$(basename "$runtime_deb"): $((size / 1024 / 1024)) MB"
-          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$size" -ge 2040109465 ]; then
+          if [ "$LT_RELEASE_COMPRESSION" = "true" ] && [ "$size" -ge 2040109465 ]; then
             echo "runtime deb too large for a release asset: $size bytes" >&2
             exit 1
           fi

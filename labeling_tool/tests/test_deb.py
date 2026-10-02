@@ -90,6 +90,19 @@ def test_runtime_package_does_not_depend_on_an_nvidia_driver():
     assert "cuda" not in f["Depends"].lower()
 
 
+def test_a_release_build_compresses_with_xz_level_9(tmp_path, monkeypatch):
+    # xz's default level (-6, 8 MB dictionary) left the v2.0.0 runtime deb at
+    # 2,061,489,096 bytes -- over the release asset ceiling (CI run
+    # 36965987450). -9 measured 8% smaller on the torch + CUDA payload.
+    calls = []
+    monkeypatch.setattr(deb.subprocess, "run", lambda args, **kw: calls.append(args))
+    deb._dpkg_deb_build(tmp_path / "root", tmp_path / "out.deb", fast=False)
+    assert "-Zxz" in calls[0] and "-z9" in calls[0]
+    calls.clear()
+    deb._dpkg_deb_build(tmp_path / "root", tmp_path / "out.deb", fast=True)
+    assert "-Zgzip" in calls[0]
+
+
 def test_filenames_split_the_runtime_id_from_the_version():
     # The app deb's NAME carries the id so a client can match it without
     # downloading. The runtime deb's does not: a client taking a full update
