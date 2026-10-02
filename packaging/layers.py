@@ -59,13 +59,15 @@ def app_layer_prefixes(platform: str | None = None) -> tuple[str, ...]:
 
 # Carved back out of the prefixes above. Nothing needs it today: the ONNX
 # models used to sit at _internal/labeling_tool/models/ and were excluded
-# here, but they now ship at _internal/models/ instead -- outside the
-# directory the app-layer installer clears, which is the only safe place
-# for a runtime-layer file (CI run 36670089766).
+# here, but they now ship at _internal/models/ instead -- outside the app
+# layer's directories, which is the only safe place for a runtime-layer
+# file (CI run 36670089766).
 #
-# An entry here MUST NOT start with "_internal/labeling_tool/": that
-# directory is wiped before an app-layer install, so anything excluded from
-# the app layer while living inside it would be deleted and never restored.
+# An entry here MUST NOT start with "_internal/labeling_tool/": a zip update
+# (labeling_tool/update/patch.py) treats every installed file under that
+# prefix as app layer and moves any the zip does not carry into the backup,
+# so a runtime file excluded from the zip while living there would vanish
+# with the first update and never come back.
 # test_nothing_runtime_layer_lives_under_the_cleared_directory enforces it.
 APP_LAYER_EXCLUSIONS: tuple[str, ...] = ()
 

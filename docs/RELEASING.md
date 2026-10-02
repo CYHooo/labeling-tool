@@ -112,7 +112,11 @@ venv 里不能有多余的包：PyInstaller 会把它们一起打包进去，run
 - **检查时机**：启动时一次，运行中每 4 小时一次；失败静默，被用户跳过的版本不再提示。
 - **只改了代码**（runtime id 与本机相同）：程序在后台下载 update zip 并校验 SHA256，重启时由程序自己
   应用——Windows 的安装目录用户可写，无需提权；Linux 通过 `pkexec` 弹一次密码框。替换过程有日志与
-  备份，失败或中途断电都会还原，旧版本继续可用。
+  备份，替换失败会立即还原，旧版本继续可用。
+- **中途断电或崩溃**：Windows 在**下次启动**时按日志自动还原。Linux 上程序以普通用户启动，
+  动不了 root 所有的 `/opt`，所以**启动时不会还原**；还原发生在**下一次应用更新**（以 root 运行）时，
+  或者重新 `sudo dpkg -i` 安装 deb。
+- **旧版本的备份**（`.update-backup/`）：Windows 在下次启动时删除；Linux 在下一次应用更新时删除。
 - **运行时变了**（torch / CUDA / 模型）：弹窗提示完整包的大小，**不经用户同意不会下载**。
 
 ## 为什么本地和 CI 的结果会一致
@@ -208,7 +212,17 @@ sudo dpkg -i lm-labeling-tool_<版本>_amd64.deb
 sudo apt purge lm-labeling-tool
 ```
 
-安装只需这一个包，正常情况下一次成功。卸载（`purge`）会删除整个 `/opt/lm-labeling-tool`
+安装只需这一个包，正常情况下一次成功。
+
+**从旧的两个 deb 迁移**：装过旧版（`lm-labeling-tool` + `lm-labeling-tool-runtime` 两个包）的机器，
+先把两个包都卸掉，再安装新的单个 deb：
+
+```bash
+sudo apt purge lm-labeling-tool lm-labeling-tool-runtime
+sudo dpkg -i lm-labeling-tool_<版本>_amd64.deb
+```
+
+卸载（`purge`）会删除整个 `/opt/lm-labeling-tool`
 （应用内更新绕过了 dpkg，`postrm` 负责清掉这些文件；`preinst` 在完整安装前清理应用层目录，避免残留）；
 用户数据 `~/.local/share/lm-labeling-tool/` 会保留。
 

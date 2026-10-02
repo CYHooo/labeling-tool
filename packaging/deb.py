@@ -47,7 +47,7 @@ _DESKTOP_TEMPLATE = Path(__file__).resolve().parent / "linux" / \
 ICON_SIZES = (16, 32, 48, 256)
 
 # Qt's xcb platform plugin links against these X libraries. PyInstaller
-# collects most of them into the runtime layer when they are present at
+# collects most of them into the bundle (_internal/) when they are present at
 # build time, but declaring them as well keeps the dynamic linker from
 # ever falling back to a missing system copy: without them the package can
 # install cleanly and the app dies at startup with "could not load the Qt
@@ -57,8 +57,8 @@ ICON_SIZES = (16, 32, 48, 256)
 # repositories, so this list must stay within what a desktop install of the
 # supported Ubuntu releases already has. CI proves it: the smoke test must
 # install without `apt-get install -f`. If something is genuinely needed and
-# not present by default, collect it into the runtime layer instead of
-# declaring it here.
+# not present by default, bundle it in the deb (BUNDLED_LIBS below) instead
+# of declaring it here.
 RUNTIME_DEPENDS = (
     "libc6 (>= 2.35)",
     "libgl1",
@@ -81,7 +81,7 @@ RUNTIME_DEPENDS = (
 # cannot be Depends (see above): ubuntu-desktop-minimal on 22.04 lacks
 # libxcb-xinerama0, and dpkg -i refused the install (CI run 36842846563).
 # The build installs them alongside RUNTIME_DEPENDS so PyInstaller collects
-# them into the runtime layer -- its exclude list only skips glibc, libGL,
+# them into the bundle the deb ships -- its exclude list only skips glibc, libGL,
 # libdrm, libxcb itself and libxcb-dri*, none of which are listed here.
 BUNDLED_LIBS = (
     "libxcb-xinerama0",
@@ -202,7 +202,7 @@ def _dpkg_deb_build(root: Path, out_path: Path, fast: bool) -> None:
     # real release. dpkg-deb's xz is already multi-threaded across every
     # core on its own: measured on jammy's dpkg 1.21.1, it ignores XZ_OPT
     # (byte-identical output, same time) and has no --threads-max yet.
-    # Level 9, not xz's default 6: -6 left the v2.0.0 runtime deb at
+    # Level 9, not xz's default 6: -6 left the then-separate runtime deb at
     # 2,061,489,096 bytes, over the release asset ceiling (CI run
     # 36965987450); -9's 64 MB dictionary measured 8% smaller on the
     # torch + CUDA payload for ~37% more compression time.
