@@ -5,9 +5,13 @@ installer detached and exits immediately, handing over control; /RESTARTAPP
 makes the installer start the new version when it is done.
 
 Linux has no such restriction, so instead of handing over blindly, the app
-installs the .deb packages synchronously with `pkexec dpkg -i` and waits for
+installs the .deb package synchronously with `pkexec dpkg -i` and waits for
 dpkg to exit: a failed update can then be reported to the user -- including
 *why* it failed -- rather than silently not happening.
+
+An app-layer update zip is applied by labeling_tool.update.patch: in-process
+on Windows (the install dir is user-writable), and on Linux by running the
+installed app itself as root (build_apply_command) since /opt is root-owned.
 """
 
 from __future__ import annotations
@@ -67,15 +71,11 @@ class InstallOutcome(enum.Enum):
 
 
 def build_deb_command(paths) -> list[str]:
-    """Install every package in ONE dpkg call.
+    """Install the downloaded package (a full update is a single deb).
 
-    dpkg unpacks all the archives before configuring any of them, so the app
-    package's Depends on the runtime package is satisfied within the call and
-    the order on the command line does not matter.
-
-    dpkg -i rather than `apt install ./x.deb`: the runtime package's version
-    is a hash, not a sequence, so apt reads a runtime switch as a downgrade
-    and refuses it. dpkg merely warns."""
+    dpkg -i of the local file: the update was already downloaded and
+    verified against SHA256SUMS, so nothing needs fetching from a
+    repository except missing system libraries -- see MISSING_DEPS."""
     return ["pkexec", "dpkg", "-i", *[str(p) for p in paths]]
 
 
@@ -121,3 +121,30 @@ def install_debs(paths, runner=subprocess.run) -> tuple[InstallOutcome, str]:
                 "`sudo dpkg -i` on the downloaded packages by hand")
     stderr = (getattr(result, "stderr", "") or "").strip()
     return classify_dpkg_result(result.returncode, stderr), stderr
+
+
+# -- Linux: applying an app-layer zip ------------------------------------------
+
+def build_apply_command(exe: Path, zip_path: Path, sha256: str) -> list[str]:
+    """Linux: /opt is root-owned, so the installed app applies its own update
+    zip as root. The zip is re-verified there (see patch.apply_patch)."""
+    return ["pkexec", str(exe), "--apply-update", str(zip_path), "--sha256", sha256]
+
+
+def apply_zip_linux(exe: Path, zip_path: Path, sha256: str,
+                    runner=subprocess.run) -> tuple[InstallOutcome, str]:
+    """Apply the zip as root and wait. The app's own exit code is 0 or 1
+    (with the reason on stderr); 126/127 are pkexec's, as for dpkg."""
+    if not Path(zip_path).is_file():
+        raise FileNotFoundError(zip_path)
+    try:
+        result = runner(build_apply_command(exe, zip_path, sha256), capture_output=True,
+                        text=True, check=False, env={**os.environ, "LC_ALL": "C"})
+    except FileNotFoundError:
+        return InstallOutcome.FAILED, "pkexec not found: install polkit"
+    stderr = (getattr(result, "stderr", "") or "").strip()
+    if result.returncode == 0:
+        return InstallOutcome.OK, stderr
+    if result.returncode == PKEXEC_CANCELLED:
+        return InstallOutcome.CANCELLED, stderr
+    return InstallOutcome.FAILED, stderr

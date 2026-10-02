@@ -64,9 +64,10 @@ def test_frozen_models_are_runtime_layer():
 def test_nothing_runtime_layer_lives_under_the_cleared_directory():
     """The invariant this whole file exists for.
 
-    installer.iss clears {app}\\_internal\\labeling_tool before an app-layer
-    install, so EVERY path under it must be app layer -- otherwise the app
-    package deletes something it cannot restore. Broken once already: the
+    A zip update moves every installed file under _internal/labeling_tool/
+    that the zip does not carry into the backup, so EVERY path under it must
+    be app layer -- otherwise the first update deletes something it cannot
+    restore. Broken once already: the
     ONNX models were runtime layer while still sitting in that directory
     (CI run 36670089766).
     """

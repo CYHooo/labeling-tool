@@ -174,7 +174,8 @@ STRINGS = {
 
     # --- update dialog ---
     "update_title":                    "更新",
-    "update_available":                "有新版本可用：v{version}\n下载大小：约 {size} MB",
+    "update_available":                "有新版本可用：v{version}",
+    "update_download_size":            "\n下载大小：约 {size} MB",
     "update_full_warning":
         "\n\n⚠ torch / CUDA 组成已变更，需下载完整安装包。"
         "请确认网络和磁盘空间充足。",
@@ -182,6 +183,10 @@ STRINGS = {
     "update_btn_update":               "立即更新",
     "update_btn_later":                "稍后",
     "update_btn_skip":                 "跳过此版本",
+    "update_ready_status":             "新版本 v{version} 已就绪 — 关闭任务窗口后更新",
+    "update_btn_restart":              "立即重启并更新",
+    "update_ready_informative":        "更新已就绪，重启后立即生效。\n\n{notes}",
+    "update_apply_failed_msg":         "未能应用更新。请关闭所有程序窗口后重试。\n\n{exc}",
     "update_progress_label":           "正在下载更新…",
     "update_progress_template":        "正在下载更新… {done} / {total} MB",
     "update_cancel":                   "取消",

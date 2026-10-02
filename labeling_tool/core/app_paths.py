@@ -96,10 +96,11 @@ def user_cache_home() -> Path:
     Frozen on Windows: the system temp directory (``%TEMP%``), NOT
     app_home() / beside the exe. Unlike user_data_home(), this directory is
     not the published, portable install base -- it is scratch space for an
-    in-progress download. installer.iss's [InstallDelete] only clears
-    `{app}\\_internal` (full package) or its two app-package subdirectories;
-    it does not know about a download directory under `{app}`, and never
-    will, so anything placed there survives every future update and even an
+    in-progress download. installer.iss only clears `{app}\\_internal` and
+    the zip update's own leftovers (.update-backup / .update-staging /
+    .update-journal), and a zip update touches only app-layer files; none of
+    them knows about a download directory under `{app}`, and never will, so
+    anything placed there survives every future update and even an
     uninstall. The OS already reclaims %TEMP% on its own, which is exactly
     the property an abandoned 1.5 GB download needs.
     Frozen on Linux: XDG_CACHE_HOME (or ~/.cache), same reasoning as

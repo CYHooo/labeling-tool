@@ -1,4 +1,4 @@
-"""Picking the right installer. The app package's asset name carries the
+"""Picking the right package. The update zip's asset name carries the
 runtime id, so the client decides by name alone -- no extra metadata file."""
 
 import json
@@ -31,7 +31,7 @@ def _opener(release_json, sums_text):
     return _open
 
 
-APP = "LM_LabelingTool-App-v1.3.1-r3f8a1c92.exe"
+APP = "update-v1.3.1-r3f8a1c92-windows.zip"
 FULL = "LM_LabelingTool-Setup-v1.3.1.exe"
 H = "a" * 64
 
@@ -50,7 +50,7 @@ def test_app_package_is_preferred_when_the_runtime_matches():
 def test_falls_back_to_full_when_the_runtime_changed():
     """torch got upgraded: the release carries an app package built against
     a different runtime, which must not be installed here."""
-    other = "LM_LabelingTool-App-v1.3.1-rdeadbeef.exe"
+    other = "update-v1.3.1-rdeadbeef-windows.zip"
     rel = _release("v1.3.1", [(other, 31_000_000), (FULL, 1_610_000_000),
                               ("SHA256SUMS.txt", 200)])
     sums = f"{H}  {other}\n{H}  {FULL}\n"
@@ -113,9 +113,9 @@ def test_up_to_date_returns_none():
 
 def test_asset_name_templates_match_what_ci_builds():
     """These two strings are a contract with packaging/installer.iss's
-    OutputBaseFilename. CI asserts the same thing from the other side."""
-    assert checker.app_asset_name("1.3.1", "r3f8a1c92", checker.WINDOWS) == APP
-    assert checker.full_asset_names("1.3.1", checker.WINDOWS) == (FULL,)
+    OutputBaseFilename and the update zip builder."""
+    assert checker.update_asset_name("1.3.1", "r3f8a1c92", checker.WINDOWS) == APP
+    assert checker.full_asset_name("1.3.1", checker.WINDOWS) == FULL
 
 
 # ------------------------------------------------------------ the prompt
@@ -134,10 +134,11 @@ def _info(kind, size):
         notes="", kind=kind)
 
 
-def test_app_update_text_states_the_version_and_size():
+def test_app_update_text_states_the_version_but_no_download_size():
+    """The zip is already downloaded when the prompt appears."""
     text = update_ui.prompt_text(_info("app", 31 * 1024 * 1024))
     assert "1.3.1" in text
-    assert "31" in text
+    assert "31" not in text
 
 
 def test_app_update_text_carries_no_reinstall_warning():

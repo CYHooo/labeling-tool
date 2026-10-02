@@ -82,19 +82,21 @@ CI run 36974793419 的 runtime id 未变即为证据）。
 ### 3.1 zip 内容
 
 - 应用层文件（`layers.stage_app_layer` 的输出），保持安装目录内的相对路径；
-- `manifest.json`：`version`、`runtime_id`、`platform`、`files`（应用层**完整**文件清单，
+- `manifest.json`：`version`、`runtime`（运行时 id）、`platform`、`files`（应用层**完整**文件清单，
   每项含相对路径与 SHA256）。`build-info.json` 属于应用层，随 zip 一起更新版本号。
 
 ### 3.2 应用流程（两个平台共用同一个 Python 模块）
 
-1. 校验 zip 的 SHA256（来自 `SHA256SUMS.txt`）；读取 manifest，确认 `runtime_id` 与 `platform`
+1. 校验 zip 的 SHA256（来自 `SHA256SUMS.txt`）；读取 manifest，确认 `runtime` 与 `platform`
    与本机 `build-info.json` 一致，否则拒绝并改走完整更新。
 2. 解压到安装目录内的 `.update-staging/`，逐个核对文件 SHA256。
-3. 写入日志文件 `.update-journal`（标记“进行中”及待替换清单）。
+3. 写入日志文件 `.update-journal`（标记“进行中”及待替换清单）。每次写入都先写同目录的临时文件、
+   fsync，再原子替换，断电只会留下前一版或新一版日志，不会留下半截文件。
 4. 逐个替换：旧文件先**移动**到 `.update-backup/`，再把新文件移入。旧应用层中存在、
-   新 manifest 中不存在的文件同样移入备份（避免残留旧模块被加载）。
+   新 manifest 中不存在的文件同样移入备份（避免残留旧模块被加载）。可执行文件**最后**替换，
+   中途断电也不会留下没有 exe 的安装（还原需要它启动）。Windows 上被杀毒软件短暂锁定的移动会退避重试。
 5. 任一步失败：按日志从备份还原，删除 staging，保留旧版本并告知用户原因。
-6. 成功：删除日志与 staging，重启程序；备份在下次启动时删除。
+6. 成功：删除日志与 staging，重启程序；备份在 Windows 下次启动时、Linux 下一次应用更新时删除。
 
 ### 3.3 Windows
 
@@ -133,7 +135,7 @@ CI run 36974793419 的 runtime id 未变即为证据）。
 | 后台下载失败、校验不符 | 丢弃，下次检查重试；只写更新日志，不弹窗 |
 | 用户主动的完整更新下载失败 | 弹窗说明原因并附 Release 链接（现有） |
 | 替换失败（多开、杀毒软件锁定） | 按备份还原，继续运行旧版本，提示关闭所有窗口后重试 |
-| 替换中途断电或崩溃 | 启动时首先检查 `.update-journal`，未完成则自动还原后再启动 |
+| 替换中途断电或崩溃 | Windows：启动时首先检查 `.update-journal`，未完成则自动还原后再启动。Linux：普通用户启动动不了 `/opt`，在下一次应用更新（root）时还原，或重装 deb。日志无法解析时把 `.update-backup/` 里的全部文件放回原处，绝不连同备份一起删除 |
 | zip 的 runtime id 或平台不符 | 拒绝，改走完整更新 |
 | Linux 取消密码框 / 不允许提权 | pkexec 126 静默返回；127 报告原因（现有分类） |
 

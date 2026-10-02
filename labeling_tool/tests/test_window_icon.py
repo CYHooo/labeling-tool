@@ -131,14 +131,28 @@ def test_small_png_keeps_the_small_branch_tuning_not_a_256px_downscale():
     make_icon = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(make_icon)
 
+    from PIL import ImageChops
+
+    def max_channel_diff(first, second):
+        diff = ImageChops.difference(first, second)
+        return max(high for _, high in (band.getextrema() for band in diff.split()))
+
     shipped = Image.open(app_paths.resource_path("icon-16.png")).convert("RGBA")
     direct = make_icon.render(16).convert("RGBA")
     downscaled_from_256 = make_icon.render(256).resize((16, 16), Image.LANCZOS).convert("RGBA")
 
-    assert shipped.tobytes() == direct.tobytes(), (
-        "shipped icon-16.png does not match make_icon.render(16)"
+    assert shipped.size == direct.size
+    # The DejaVu Sans Bold that render() reads differs between distro
+    # releases (the Ubuntu 22.04 build container ships the 2016 revision, a
+    # dev machine a newer one), which moves antialiased edge pixels by up to
+    # ~33 levels. Compare with a tolerance well above that noise and well
+    # below the ~175 levels separating a plain downscale.
+    noise_tolerance = 64
+    assert max_channel_diff(shipped, direct) <= noise_tolerance, (
+        "shipped icon-16.png drifted from make_icon.render(16) beyond "
+        "antialiasing noise"
     )
-    assert shipped.tobytes() != downscaled_from_256.tobytes(), (
+    assert max_channel_diff(shipped, downscaled_from_256) > noise_tolerance, (
         "shipped icon-16.png matches a plain downscale of the 256px render "
         "-- the SMALL-branch tuning was not applied"
     )

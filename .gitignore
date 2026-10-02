@@ -46,3 +46,6 @@ dist/
 # packaging/ci/local-build.sh output
 out/
 out-bad/
+
+# diagnostics written by CI and local builds
+diag/

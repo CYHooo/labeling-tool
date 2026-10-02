@@ -50,17 +50,10 @@ def test_code_section_never_calls_blocking_msgbox(iss):
         "SuppressibleMsgBox so /SUPPRESSMSGBOXES cannot hang the install")
 
 
-def test_guard_reads_the_same_appid_the_setup_section_declares(iss):
-    """The guard looks the install up under
-    HKCU\\...\\Uninstall\\<AppId>_is1. If that GUID drifts from [Setup]'s
-    AppId the lookup silently returns nothing, the guard finds no install
-    and refuses (or, before the fix, let everything through)."""
-    # Two pairs, in the same order in both places: production first, then
-    # the /DMyTestInstall id used by local smoke tests.
+def test_production_appid_is_unchanged(iss):
+    """Every existing install upgrades in place through this AppId."""
     declared = re.findall(r"^AppId=\{\{([0-9A-Fa-f-]+)\}", iss, re.M)
-    used = re.findall(r"APP_GUID\s*=\s*'\{'\s*\+\s*'([0-9A-Fa-f-]+)'", _code_section(iss))
     assert len(declared) == 2, f"expected production + test AppId, got {declared}"
-    assert used == declared, f"AppIds {declared} != guard GUIDs {used}"
     assert declared[0] == "9E1E0C6B-6E0F-4E8E-9E2F-0F7B5C1A0F02", (
         "the production AppId changed: every existing install would stop "
         "upgrading in place")
@@ -78,14 +71,25 @@ def test_test_install_can_never_touch_the_real_install(iss):
     assert "DefaultGroupName={#MyAppName}" in setup
 
 
-def test_app_layer_installdelete_never_clears_internal_wholesale(iss):
-    """The app package does not ship the ~1.4 GB runtime layer; clearing
-    _internal would leave the program unable to start."""
-    block = _section(iss, "[InstallDelete]")
-    app_part = block[block.index('#if MyLayer == "app"'):block.index("#else")]
-    assert '"{app}\\_internal"' not in app_part
-    assert "_internal\\labeling_tool" in app_part
-    assert "_internal\\annotation_tool" in app_part
+def test_the_installer_has_no_app_layer_mode(iss):
+    assert "MyLayer" not in iss and "MyRuntime" not in iss
+    assert "OutputBaseFilename=LM_LabelingTool-Setup-v{#MyVersion}" in iss
+
+
+def test_install_replaces_internal_wholesale(iss):
+    assert 'Name: "{app}\\_internal"' in _section(iss, "[InstallDelete]")
+
+
+def test_uninstall_removes_update_leftovers(iss):
+    for name in (".update-backup", ".update-staging", ".update-journal"):
+        assert f'{{app}}\\{name}' in iss
+        assert f'{{app}}\\{name}' in _section(iss, "[UninstallDelete]")
+
+
+def test_uninstall_removes_files_a_zip_update_added(iss):
+    """Inno only uninstalls the files it installed; a zip update adds new
+    modules under _internal\\, which holds no user data (see [InstallDelete])."""
+    assert 'Type: filesandordirs; Name: "{app}\\_internal"' in _section(iss, "[UninstallDelete]")
 
 
 # ------------------------------------------------------------- CI workflow
@@ -152,11 +156,11 @@ def test_a_reused_full_installer_is_verified_before_it_is_republished(workflow):
     """A code-only release ships the previous full installer again under a
     fresh checksum line; it has to match the checksum it was first published
     with, or a corrupted download would be blessed."""
-    step = workflow[workflow.index("Reuse the previous full installer"):workflow.index("- name: Build installers")]
+    step = workflow[workflow.index("Reuse the previous full installer"):workflow.index("- name: Build the installer")]
     assert "reuse_full.py plan" in step
     assert "reuse_full.py verify" in step
     assert step.index("reuse_full.py verify") < step.index("LT_REUSE_FULL=")
-    build = workflow[workflow.index("- name: Build installers"):workflow.index("- name: Assert the asset names")]
+    build = workflow[workflow.index("- name: Build the installer"):workflow.index("- name: Assert the asset names")]
     assert 'Copy-Item $env:LT_REUSE_FULL "out\\LM_LabelingTool-Setup-v$ver.exe"' in build
 
 
@@ -233,11 +237,10 @@ def test_a_manual_run_can_rehearse_release_compression(workflow):
 
 
 def test_every_iscc_invocation_honours_the_compression_mode(workflow):
-    """CI compiles two packages, full and app, from one common argument list
-    that carries /DMyFast=1 on a dry run. (The deliberately mismatched
-    package is compiled locally, for the smoke test.)"""
+    """CI compiles one package, the Setup exe, from a common argument list
+    that carries /DMyFast=1 on a dry run."""
     assert workflow.count("/DMyFast=1") == 1, "only via the common list"
-    assert workflow.count("& $iscc @") == 2, "both invocations splat a full array"
+    assert workflow.count("& $iscc @") == 1, "the invocation splats a full array"
 
 
 def test_local_installers_never_carry_the_production_appid():
@@ -245,7 +248,7 @@ def test_local_installers_never_carry_the_production_appid():
     have the app installed for real."""
     text = LOCAL_BUILD.read_text(encoding="utf-8")
     assert '"/DMyTestInstall=1"' in text
-    assert text.count("& $iscc @") == 3
+    assert text.count("& $iscc @") == 1
     assert "9E1E0C6B" not in text, "the local script must not name the production AppId"
 
 
@@ -303,7 +306,70 @@ def test_release_asserts_all_four_assets_are_present():
     # only the other: clients look for one name and find nothing, silently.
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "LM_LabelingTool-Setup-v" in text
-    assert "lm-labeling-tool-runtime_" in text
+    release = text[text.index("\n  release:"):]
+    assert release.count("checker.full_asset_name(") == 2
+    assert release.count("checker.update_asset_name(") == 2
+
+
+def test_each_platform_publishes_one_package_and_one_zip(workflow):
+    assert "LM_LabelingTool-App-" not in workflow
+    assert "lm-labeling-tool-runtime" not in workflow
+    assert "reuse_runtime.py" not in workflow
+    assert workflow.count("packaging/update_zip.py") == 2
+
+
+def test_the_release_page_is_generated_and_korean(workflow):
+    assert "packaging/release_notes.py body" in workflow
+    assert "body_path:" in workflow
+    # checked before the 30-minute builds, not after them
+    yaml = pytest.importorskip("yaml")
+    steps = yaml.safe_load(workflow)["jobs"]["build-linux"]["steps"]
+    version = next(s for s in steps if s.get("name") == "Version")["run"]
+    assert "release_notes.py check" in version
+
+
+def _release_steps(workflow):
+    yaml = pytest.importorskip("yaml")
+    return yaml.safe_load(workflow)["jobs"]["release"]["steps"]
+
+
+def test_only_the_tag_message_reaches_the_release_notes(workflow):
+    """%(contents) of a signed tag carries its PGP signature too."""
+    yaml = pytest.importorskip("yaml")
+    linux = yaml.safe_load(workflow)["jobs"]["build-linux"]["steps"]
+    runs = [next(s for s in linux if s.get("name") == "Version")["run"],
+            next(s for s in _release_steps(workflow) if s.get("name") == "Release page")["run"]]
+    for run in runs:
+        assert "%(contents)'" not in run
+        assert "git tag -l --format='%(contents:subject)%0a%0a%(contents:body)'" in run
+    assert "%(contents)'" not in workflow
+
+
+def test_the_merged_checksums_are_verified_before_publishing(workflow):
+    steps = _release_steps(workflow)
+    names = [s.get("name") for s in steps]
+    verify = next(i for i, s in enumerate(steps)
+                  if "(cd out && sha256sum -c SHA256SUMS.txt)" in s.get("run", ""))
+    assert names.index("Merge the two platforms' assets and checksums into one release") < verify
+    publish = next(i for i, s in enumerate(steps)
+                   if "softprops/action-gh-release" in s.get("uses", ""))
+    assert verify < publish
+
+
+def test_the_release_stays_a_draft_until_every_asset_is_uploaded(workflow):
+    """/releases/latest must never show a release with half its assets."""
+    steps = _release_steps(workflow)
+    publish = next(i for i, s in enumerate(steps)
+                   if "softprops/action-gh-release" in s.get("uses", ""))
+    assert steps[publish]["with"]["draft"] is True
+    final = steps[publish + 1]
+    assert 'gh release edit "$GITHUB_REF_NAME" --draft=false' in final["run"]
+    assert final["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert len(steps) == publish + 2
+
+
+def test_ci_proves_a_zip_update_on_the_installed_app(workflow):
+    assert "--apply-update" in workflow
 
 
 def test_the_linux_dev_version_starts_with_a_digit():
@@ -352,10 +418,10 @@ def test_the_linux_build_installs_the_bundled_libraries_too():
 def test_the_runner_installs_the_debs_before_running_the_installed_app():
     # Smoke test 1/2 installs inside a throwaway container, so nothing it
     # installs survives onto the runner. Steps that run the installed app
-    # (or rely on the real runtime deb being present, like the mismatch
-    # guard) need their own install on the runner -- without it 2/2 failed
-    # with "/opt/lm-labeling-tool/LM_LabelingTool: not found" (CI run
-    # 36853951013) and the guard passed vacuously.
+    # (2/2, the zip update round trip) need their own install on the
+    # runner -- without it 2/2 failed with
+    # "/opt/lm-labeling-tool/LM_LabelingTool: not found" (CI run
+    # 36853951013).
     yaml = pytest.importorskip("yaml")
     steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["build-linux"]["steps"]
     runs = [s.get("run", "") for s in steps]
@@ -364,9 +430,9 @@ def test_the_runner_installs_the_debs_before_running_the_installed_app():
     assert uses_installed, "expected a runner-level step that runs the installed app"
     first = uses_installed[0]
     installs = [i for i, r in enumerate(runs)
-                if "sudo dpkg -i" in r and "lm-labeling-tool-runtime_" in r]
+                if "sudo dpkg -i" in r and "lm-labeling-tool_" in r]
     assert installs and installs[0] <= first, \
-        "the runner must install both debs before running the installed app"
+        "the runner must install the deb before running the installed app"
 
 
 def test_the_2404_cross_validation_overlaps_the_other_install_checks():

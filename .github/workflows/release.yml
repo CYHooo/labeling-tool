@@ -2,8 +2,8 @@
 # platforms -- Windows and Linux (.deb) -- from a single tag.
 #
 # Windows verification -- the test suite, the launch smoke test, the
-# install / upgrade / uninstall smoke test and the refusal of a mismatched
-# app package -- runs locally before tagging:
+# install / zip update / uninstall smoke test -- runs locally before
+# tagging:
 #
 #   powershell -File packaging\ci\local-build.ps1 -Venv C:\lt\venv
 #
@@ -12,11 +12,10 @@
 # release cannot do without, plus one 15-second selftest so a broken bundle
 # is never published.
 #
-# Linux has no equivalent local-build script yet, so its install and
-# dependency-guard smoke tests live in this CI job instead -- that is why
-# build-linux carries more verification steps than build-windows. Porting
-# them to a local script (mirroring local-build.ps1) is future work, not a
-# requirement of this change.
+# Linux's install and zip-update smoke tests run both here and locally
+# (packaging/ci/local-build.sh, which mirrors this job's checks one for
+# one) -- that is why build-linux carries more verification steps than
+# build-windows.
 #
 # The Linux job pins `ubuntu-22.04`, NOT `ubuntu-latest`. glibc only works
 # forwards: a binary linked against a newer glibc (24.04/noble ships 2.39)
@@ -27,9 +26,14 @@
 # 24.04 cross-validation step in build-linux exists to catch exactly that
 # class of mistake before it ships.
 #
+# Each platform publishes exactly two assets: the one full package a user
+# installs by hand (Setup exe / deb) and the app-layer update zip the
+# installed app applies to itself. The release page is generated from the
+# tag's annotation, which must be Korean (packaging/release_notes.py).
+#
 # Triggers: a version tag (v*) builds and publishes both platforms. A
-# manual run builds with fast compression and uploads the installers /
-# debs as workflow artifacts only -- a dry run of the release job's input.
+# manual run builds with fast compression and uploads the packages and
+# zips as workflow artifacts only -- a dry run of the release job's input.
 # Tick release_compression on a manual run to rehearse a tag exactly:
 # release compression on both platforms, and the asset size ceilings
 # enforced -- still without publishing anything.
@@ -68,6 +72,9 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          fetch-tags: true
 
       - uses: actions/setup-python@v5
         with:
@@ -177,10 +184,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "staging the app layer failed" }
           $app = (Get-ChildItem dist/app-layer -Recurse -File | Measure-Object -Property Length -Sum)
           Write-Host ("app layer: {0:N1} MB in {1} files" -f ($app.Sum/1MB), $app.Count)
-          # The app package is what every routine update downloads. If it
+          # The update zip is what every routine update downloads. If it
           # climbs back into the tens of MB something leaked out of the
           # runtime layer.
           if ($app.Sum -gt 20MB) { throw ("app layer unexpectedly large: {0:N1} MB" -f ($app.Sum/1MB)) }
+
+      - name: Build the update zip
+        run: |
+          # The app layer plus a manifest of every file's SHA-256, named for
+          # the runtime id it was built against (checker.update_asset_name):
+          # an installed app on that runtime applies it in place.
+          $ver = $env:LT_VERSION -replace '^v', ''
+          python packaging/update_zip.py dist/app-layer out $ver $env:LT_RUNTIME win32
+          if ($LASTEXITCODE -ne 0) { throw "update zip failed" }
 
       - name: Reuse the previous full installer if the runtime is unchanged
         env:
@@ -189,7 +205,7 @@ jobs:
           # Compressing the full installer is ~11 of ~18 minutes, and on a
           # code-only release its runtime layer is byte-identical to the
           # previous release's. Ship that installer again under this
-          # version's name; new users get the app package on first launch.
+          # version's name; new users get the update zip on first launch.
           # See packaging/reuse_full.py for why the name must be ours.
           New-Item -ItemType Directory -Force diag, prev | Out-Null
           $ErrorActionPreference = "Continue"
@@ -208,7 +224,7 @@ jobs:
           "LT_REUSE_FULL=$PWD\prev\$prevName" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "runtime $env:LT_RUNTIME unchanged since ${prevTag}, reusing $prevName"
 
-      - name: Build installers
+      - name: Build the installer
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
@@ -222,7 +238,7 @@ jobs:
           # `& $iscc /A @fast script.iss` passes a literal "@fast", which
           # ISCC reads as a second script filename and rejects.
           $common = @("/DMyVersion=$ver", "/DMyVersionInfo=$infoVer",
-                      "/DMySourceRoot=$PWD", "/DMyRuntime=$env:LT_RUNTIME")
+                      "/DMySourceRoot=$PWD")
           # Tags are what users download: maximum compression. A manual dry
           # run only needs to show that the release would build, unless it
           # asked to rehearse the release compression.
@@ -238,19 +254,13 @@ jobs:
             Copy-Item $env:LT_REUSE_FULL "out\LM_LabelingTool-Setup-v$ver.exe"
             Write-Host "full installer reused: $(Split-Path $env:LT_REUSE_FULL -Leaf)"
           } else {
-            $isccArgs = @("/DMyLayer=full", "/DMySource=$PWD\dist\LM_LabelingTool",
+            $isccArgs = @("/DMySource=$PWD\dist\LM_LabelingTool",
                           "/DMyOutDir=$PWD\out") + $common + @("packaging\installer.iss")
             & $iscc @isccArgs
             if ($LASTEXITCODE -ne 0) { throw "full installer failed ($LASTEXITCODE)" }
           }
-          $isccArgs = @("/DMyLayer=app", "/DMySource=$PWD\dist\app-layer",
-                        "/DMyOutDir=$PWD\out") + $common + @("packaging\installer.iss")
-          & $iscc @isccArgs
-          if ($LASTEXITCODE -ne 0) { throw "app installer failed ($LASTEXITCODE)" }
           $full = Get-ChildItem out\LM_LabelingTool-Setup-*.exe | Select-Object -First 1
-          $app  = Get-ChildItem out\LM_LabelingTool-App-*.exe   | Select-Object -First 1
           if (-not $full) { throw "ISCC produced no full installer" }
-          if (-not $app)  { throw "ISCC produced no app installer" }
           Get-ChildItem out\*.exe | ForEach-Object { "{0}  {1:N1} MB" -f $_.Name, ($_.Length/1MB) }
           # GitHub release assets must stay below 2 GiB. Checked whenever the
           # release compression is used: on a tag, or a rehearsal of one.
@@ -264,15 +274,15 @@ jobs:
           # one contract; change either alone and the client silently stops
           # finding updates.
           $ver = $env:LT_VERSION -replace '^v', ''
-          $names = (Get-ChildItem out\*.exe | ForEach-Object { $_.Name }) -join ","
-          python -c "import sys; from labeling_tool.update import checker; ver, rt, names = sys.argv[1], sys.argv[2], set(sys.argv[3].split(',')); [sys.exit(f'{w!r} not in {sorted(names)}') for w in (checker.full_asset_names(ver, checker.WINDOWS)[0], checker.app_asset_name(ver, rt, checker.WINDOWS)) if w not in names]; print('asset names agree with checker.py')" $ver $env:LT_RUNTIME $names
+          $names = (Get-ChildItem out\*.exe, out\*.zip | ForEach-Object { $_.Name }) -join ","
+          python -c "import sys; from labeling_tool.update import checker; ver, rt, names = sys.argv[1], sys.argv[2], set(sys.argv[3].split(',')); [sys.exit(f'{w!r} not in {sorted(names)}') for w in (checker.full_asset_name(ver, checker.WINDOWS), checker.update_asset_name(ver, rt, checker.WINDOWS)) if w not in names]; print('asset names agree with checker.py')" $ver $env:LT_RUNTIME $names
           if ($LASTEXITCODE -ne 0) { throw "asset names do not match checker.py" }
 
       - name: Checksums
         run: |
-          # both installers get a published checksum: the updater refuses any
-          # asset it cannot verify
-          Get-ChildItem out\*.exe | ForEach-Object {
+          # the installer and the zip both get a published checksum: the
+          # updater refuses any asset it cannot verify
+          Get-ChildItem out\*.exe, out\*.zip | ForEach-Object {
             $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
             "$hash  $($_.Name)" | Add-Content -Path "out\SHA256SUMS.txt" -Encoding ascii
           }
@@ -300,6 +310,9 @@ jobs:
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          fetch-tags: true
 
       - uses: actions/setup-python@v5
         with:
@@ -314,7 +327,7 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          # dpkg-dev: dpkg-deb, used to build the two .deb packages.
+          # dpkg-dev: dpkg-deb, used to build the .deb package.
           # xvfb: runs the Qt GUI headless for the selftest below.
           # build-essential: a C compiler, for any pinned package that has
           #   no prebuilt manylinux wheel.
@@ -355,6 +368,17 @@ jobs:
               exit 1
             fi
             ver="$GITHUB_REF_NAME"
+            # The tag's annotation becomes the release page's change notes,
+            # and they must be Korean. Checked here, before the 30-minute
+            # builds, not by the release job after them. actions/checkout
+            # leaves a lightweight copy of the tag behind; fetch the real
+            # annotated one. A manual run has no tag message to check.
+            # Subject and body only: %(contents) of a signed tag also carries
+            # its PGP signature. A lightweight tag yields the commit's
+            # (English) subject, which the check still rejects.
+            git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+            git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.txt"
+            python packaging/release_notes.py check "$RUNNER_TEMP/notes.txt"
           else
             ver="0.0.0-dev-${GITHUB_SHA:0:7}"
           fi
@@ -447,7 +471,7 @@ jobs:
           python packaging/layers.py stage dist/LM_LabelingTool dist/app-layer
           app_bytes=$(find dist/app-layer -type f -printf '%s\n' | awk '{sum += $1} END {print sum + 0}')
           printf 'app layer: %.1f MB\n' "$(awk -v b="$app_bytes" 'BEGIN{print b/1024/1024}')"
-          # The app package is what every routine update downloads. If it
+          # The update zip is what every routine update downloads. If it
           # climbs back into the tens of MB something leaked out of the
           # runtime layer.
           if [ "$app_bytes" -gt $((20 * 1024 * 1024)) ]; then
@@ -455,33 +479,7 @@ jobs:
             exit 1
           fi
 
-      - name: Reuse the previous runtime deb if the runtime is unchanged
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # Mirrors the Windows job's "Reuse the previous full installer"
-          # step: see packaging/reuse_runtime.py for why the runtime deb
-          # must exist in every release even when its bytes are unchanged.
-          mkdir -p diag prev
-          plan=""
-          if gh release view --repo "$GITHUB_REPOSITORY" --json tagName,assets > diag/prev-release.json; then
-            plan=$(python packaging/reuse_runtime.py plan diag/prev-release.json "$LT_RUNTIME")
-          else
-            echo "no previous release: full build"
-          fi
-          if [ -z "$plan" ]; then
-            echo "runtime $LT_RUNTIME is new (or no reusable previous release): full build"
-            exit 0
-          fi
-          prev_tag="${plan%%$'\t'*}"
-          prev_name="${plan#*$'\t'}"
-          gh release download "$prev_tag" --repo "$GITHUB_REPOSITORY" --dir prev --pattern "$prev_name" --pattern SHA256SUMS.txt
-          python packaging/reuse_runtime.py verify prev/SHA256SUMS.txt "prev/$prev_name"
-          echo "LT_REUSE_RUNTIME=$PWD/prev/$prev_name" >> "$GITHUB_ENV"
-          echo "runtime $LT_RUNTIME unchanged since $prev_tag, reusing $prev_name"
-
-      - name: Build debs
+      - name: Build the deb and the update zip
         run: |
           set -euo pipefail
           mkdir -p out
@@ -490,50 +488,33 @@ jobs:
             export LT_FAST=1
             echo "dry run: fast compression"
           fi
-          if [ -n "${LT_REUSE_RUNTIME:-}" ]; then
-            # Same runtime as the previous release: skip recompressing the
-            # ~1.8 GB runtime layer and build only the app deb -- see
-            # packaging/reuse_runtime.py's module docstring for why redoing
-            # that xz pass to reproduce identical bytes would be waste.
-            # deb.py's build() exposes --app-only as a public, unit-tested
-            # entry point for exactly this (labeling_tool/tests/test_deb.py)
-            # -- this step must never reach into deb.py's private staging
-            # helpers directly.
-            python packaging/deb.py build --app-only dist/LM_LabelingTool out "$ver"
-            # Named via checker.py, not hand-built: the same pattern
-            # reuse_runtime.py itself already follows (see its "derive the
-            # runtime deb name from checker" fix) -- a literal
-            # "lm-labeling-tool-runtime_..." string here would be a second
-            # place to forget the next time that naming changes.
-            runtime_name=$(python -c "from labeling_tool.update import checker; import sys; print(checker.full_asset_names(sys.argv[1], checker.LINUX)[0])" "$ver")
-            cp "$LT_REUSE_RUNTIME" "out/$runtime_name"
-            echo "runtime deb reused: $(basename "$LT_REUSE_RUNTIME")"
-          else
-            # No XZ_OPT: dpkg-deb ignores it and already compresses on every
-            # core (see deb.py's _dpkg_deb_build) -- on a 4-vCPU runner the
-            # xz -9 pass is CPU-bound at ~16 minutes, not under-threaded.
-            python packaging/deb.py build dist/LM_LabelingTool out "$ver"
-          fi
+          # No XZ_OPT: dpkg-deb ignores it and already compresses on every
+          # core (see deb.py's _dpkg_deb_build) -- on a 4-vCPU runner the
+          # xz -9 pass is CPU-bound at ~16 minutes, not under-threaded.
+          python packaging/deb.py build dist/LM_LabelingTool out "$ver"
+          # The app layer plus a manifest of every file's SHA-256, named for
+          # the runtime id it was built against (checker.update_asset_name).
+          python packaging/update_zip.py dist/app-layer out "$ver" "$LT_RUNTIME" linux
           ls -la out/
 
-      - name: Assert the runtime deb fits in a release asset
+      - name: Assert the deb fits in a release asset
         run: |
           set -euo pipefail
           # GitHub release assets must stay below 2 GiB -- the Windows job's
           # counterpart of this check (test_the_size_ceiling_only_binds_on_published_builds).
-          # The runtime deb carries the full CUDA wheel set at ~1.8 GB (xz -9;
-          # 1,895,565,776 bytes in CI run 36969300396), so
-          # it is the one Linux asset that could realistically grow into
-          # that ceiling. Checked whenever the release compression is used
-          # (a tag, or a manual rehearsal): a fast-compressed dry run is
-          # legitimately larger for the same bytes.
+          # The deb carries the full CUDA wheel set at ~1.8 GB (xz -9; the
+          # runtime part alone was 1,895,565,776 bytes in CI run
+          # 36969300396), so it is the one Linux asset that could
+          # realistically grow into that ceiling. Checked whenever the
+          # release compression is used (a tag, or a manual rehearsal): a
+          # fast-compressed dry run is legitimately larger for the same bytes.
           ver="${LT_VERSION#v}"
-          runtime_name=$(python -c "from labeling_tool.update import checker; import sys; print(checker.full_asset_names(sys.argv[1], checker.LINUX)[0])" "$ver")
-          runtime_deb="out/$runtime_name"
-          size=$(stat -c%s "$runtime_deb")
-          echo "$(basename "$runtime_deb"): $((size / 1024 / 1024)) MB"
+          deb_name=$(python -c "from labeling_tool.update import checker; import sys; print(checker.full_asset_name(sys.argv[1], checker.LINUX))" "$ver")
+          deb="out/$deb_name"
+          size=$(stat -c%s "$deb")
+          echo "$(basename "$deb"): $((size / 1024 / 1024)) MB"
           if [ "$LT_RELEASE_COMPRESSION" = "true" ] && [ "$size" -ge 2040109465 ]; then
-            echo "runtime deb too large for a release asset: $size bytes" >&2
+            echo "deb too large for a release asset: $size bytes" >&2
             exit 1
           fi
 
@@ -544,8 +525,8 @@ jobs:
           # are one contract; change either alone and the client silently
           # stops finding updates.
           ver="${LT_VERSION#v}"
-          names=$(cd out && ls -- *.deb | paste -sd, -)
-          python -c "import sys; from labeling_tool.update import checker; ver, rt, names = sys.argv[1], sys.argv[2], set(sys.argv[3].split(',')); wanted = [checker.full_asset_names(ver, checker.LINUX)[0], checker.app_asset_name(ver, rt, checker.LINUX)]; missing = [w for w in wanted if w not in names]; sys.exit(f'{missing!r} not in {sorted(names)}') if missing else print('asset names agree with checker.py')" "$ver" "$LT_RUNTIME" "$names"
+          names=$(cd out && ls -- *.deb *.zip | paste -sd, -)
+          python -c "import sys; from labeling_tool.update import checker; ver, rt, names = sys.argv[1], sys.argv[2], set(sys.argv[3].split(',')); wanted = [checker.full_asset_name(ver, checker.LINUX), checker.update_asset_name(ver, rt, checker.LINUX)]; missing = [w for w in wanted if w not in names]; sys.exit(f'{missing!r} not in {sorted(names)}') if missing else print('asset names agree with checker.py')" "$ver" "$LT_RUNTIME" "$names"
 
       - name: Start the Ubuntu 24.04 cross-validation in the background
         run: |
@@ -555,7 +536,7 @@ jobs:
           # RUNTIME_DEPENDS covers both names.
           #
           # Started here, collected by "Cross-validate the install on Ubuntu
-          # 24.04" below: it needs only the debs, so its ~3.5 minute desktop
+          # 24.04" below: it needs only the deb, so its ~3.5 minute desktop
           # install overlaps the 22.04 checks instead of following them.
           #
           # The baseline installed below is a stock Ubuntu DESKTOP, not
@@ -576,7 +557,7 @@ jobs:
           chmod +x /usr/sbin/policy-rc.d
           apt-get install -y ubuntu-desktop-minimal
           apt-get install -y --no-install-recommends xvfb
-          dpkg -i /out/lm-labeling-tool-runtime_*.deb /out/lm-labeling-tool_*.deb
+          dpkg -i /out/lm-labeling-tool_*.deb
           # Bounded: unbounded, this selftest once hung 23 minutes with no
           # output (CI run 36856399327). The selftest arms its own
           # faulthandler dump well inside this limit, so print both of
@@ -614,7 +595,7 @@ jobs:
           #
           # The baseline is ubuntu-desktop-minimal -- a metapackage that has
           # nothing to do with us -- because the question is "does a normal
-          # desktop already carry what the runtime package declares?". A CI
+          # desktop already carry what the package declares?". A CI
           # runner is not a desktop, so answering it against the runner was
           # wrong in both directions: it lacks libraries real desktops have,
           # and carries build tooling they do not (CI run 36841286350).
@@ -629,7 +610,7 @@ jobs:
             printf "#!/bin/sh\nexit 101\n" > /usr/sbin/policy-rc.d
             chmod +x /usr/sbin/policy-rc.d
             apt-get install -y ubuntu-desktop-minimal
-            dpkg -i /out/lm-labeling-tool-runtime_*.deb /out/lm-labeling-tool_*.deb
+            dpkg -i /out/lm-labeling-tool_*.deb
           '
 
       - name: Install smoke test 2/2 -- are the declared dependencies enough?
@@ -650,9 +631,8 @@ jobs:
           # "LM_LabelingTool: not found"). The runner already carries
           # RUNTIME_DEPENDS from the build step, so this install is NOT the
           # availability check -- that stays in 1/2's desktop container.
-          # The mismatch guard below also relies on this real runtime deb
-          # being installed; without it the guard passes vacuously.
-          sudo dpkg -i out/lm-labeling-tool-runtime_*.deb out/lm-labeling-tool_*.deb
+          # The update round trip below also runs against this install.
+          sudo dpkg -i out/lm-labeling-tool_*.deb
           rm -f "$HOME/.local/share/lm-labeling-tool/selftest.log"
           set +e
           timeout 300 xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest=full
@@ -667,29 +647,37 @@ jobs:
           fi
           echo "installed app selftest passed"
 
-      - name: Dependency guard -- a mismatched app deb must be rejected
+      - name: Update round trip -- the installed app applies its own zip
         run: |
           set -euo pipefail
-          # The real runtime deb installed above carries this build's own
-          # id. An app deb built against a DIFFERENT id must be refused by
-          # dpkg on its own -- this one Depends line is the Linux
-          # counterpart of installer.iss's hand-written guard.
-          ver="${LT_VERSION#v}"
-          bad_stage=$(mktemp -d)
-          # build()'s --runtime-id override is the public, unit-tested entry
-          # point for exactly this (labeling_tool/tests/test_deb.py) -- it
-          # exists only for this guard test and refuses to pair with a real
-          # runtime deb (see deb.py's build() docstring).
-          LT_FAST=1 python packaging/deb.py build --app-only --runtime-id rdeadbeef \
-            dist/LM_LabelingTool "$bad_stage" "$ver"
-          bad_deb=$(ls "$bad_stage"/lm-labeling-tool_*.deb)
-          if sudo dpkg -i "$bad_deb"; then
-            echo "a mismatched-runtime app deb installed; it must be rejected" >&2
+          # The path every routine update takes, run for real: the installed
+          # app (as root, as pkexec runs it for a user) verifies and applies
+          # this release's zip to /opt. A zip that does not fit the install
+          # it was built for -- wrong runtime id, wrong platform, a file
+          # outside the app layer -- fails here instead of on users' machines.
+          zip=$(ls out/update-v*-linux.zip)
+          sha=$(sha256sum "$zip" | cut -d' ' -f1)
+          # Damage one installed app-layer file, then let the zip repair it.
+          # (build-info.json must stay intact: apply_patch reads its runtime id.)
+          # -print -quit, not `| head -1`: under pipefail, find dies of
+          # SIGPIPE once head has exited and fails the step at random.
+          victim=$(cd /opt/lm-labeling-tool && find _internal/labeling_tool -name '*.pyc' -print -quit)
+          test -n "$victim"
+          sudo rm "/opt/lm-labeling-tool/$victim"
+          timeout 300 sudo /opt/lm-labeling-tool/LM_LabelingTool --apply-update "$zip" --sha256 "$sha"
+          test -f "/opt/lm-labeling-tool/$victim"
+          test ! -e /opt/lm-labeling-tool/.update-journal
+          rm -f "$HOME/.local/share/lm-labeling-tool/selftest.log"
+          set +e
+          timeout 300 xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest=full
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then
+            cat "$HOME/.local/share/lm-labeling-tool/selftest.log" 2>/dev/null || true
+            echo "selftest after the zip update failed with exit code $code" >&2
             exit 1
           fi
-          echo "mismatched-runtime app deb correctly rejected by dpkg"
-          sudo dpkg --remove --force-remove-reinstreq lm-labeling-tool >/dev/null 2>&1 || true
-          rm -rf "$bad_stage"
+          echo "zip update applied and the app still passes its selftest"
 
       - name: Cross-validate the install on Ubuntu 24.04
         run: |
@@ -711,10 +699,10 @@ jobs:
       - name: Checksums
         run: |
           set -euo pipefail
-          # Both debs get a published checksum: the updater refuses any
-          # asset it cannot verify.
+          # The deb and the zip both get a published checksum: the updater
+          # refuses any asset it cannot verify.
           cd out
-          for f in *.deb; do
+          for f in *.deb *.zip; do
             hash=$(sha256sum "$f" | cut -d' ' -f1)
             echo "$hash  $f" >> SHA256SUMS.txt
           done
@@ -743,7 +731,8 @@ jobs:
       # Needed so the gate step below can import labeling_tool.update.checker
       # -- the single source of truth for asset-name templates -- instead of
       # hand-building the same filename strings deb.py/installer.iss already
-      # own (see reuse_runtime.py / reuse_full.py for the same reasoning).
+      # own (see reuse_full.py for the same reasoning), and so the release
+      # page can be built from the tag's annotation.
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
@@ -752,7 +741,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          # Only the installers/debs: the runtime manifests are diagnostics,
+          # Only the packages and zips: the runtime manifests are diagnostics,
           # not something to publish. No merge-multiple here on purpose --
           # each platform's artifact lands in its own
           # artifacts/<artifact-name>/ subdirectory, so the two platforms'
@@ -785,6 +774,13 @@ jobs:
           sed -i '/^$/d' out/SHA256SUMS.txt
           ls -la out/
 
+      - name: Verify the merged checksums
+        run: |
+          set -euo pipefail
+          # The merged file is what every client verifies against: prove
+          # each line matches the file it names before anything is published.
+          (cd out && sha256sum -c SHA256SUMS.txt)
+
       - name: Assert all four release assets, and their checksums, are present
         run: |
           set -euo pipefail
@@ -812,12 +808,13 @@ jobs:
           sums = checker.parse_sha256sums(sums_file.read_text(encoding='utf-8')) if sums_file.is_file() else {}
 
           exact = {
-              'Windows full installer': checker.full_asset_names(ver, checker.WINDOWS)[0],
-              'Linux runtime deb': checker.full_asset_names(ver, checker.LINUX)[0],
+              'Windows full installer': checker.full_asset_name(ver, checker.WINDOWS),
+              'Linux deb': checker.full_asset_name(ver, checker.LINUX),
           }
+          # The zips carry the runtime id in their names; any id will do.
           globs = {
-              'Windows app installer': f'{checker.APP_PREFIX}-v{ver}-r*.exe',
-              'Linux app deb': f'{checker.DEB_APP}_{ver}-r*_{checker.DEB_ARCH}.deb',
+              'Windows update zip': checker.update_asset_name(ver, 'r*', checker.WINDOWS),
+              'Linux update zip': checker.update_asset_name(ver, 'r*', checker.LINUX),
           }
 
           missing = []
@@ -838,7 +835,29 @@ jobs:
           print('all four release assets and their checksums are present')
           " "$ver"
 
-      - name: Publish release assets
+      - name: Release page
+        run: |
+          set -euo pipefail
+          # The download table, the tag's (Korean) change notes between the
+          # markers the updater's dialog reads, and a guide to which file to
+          # take. actions/checkout leaves a lightweight copy of the tag; the
+          # annotation needs the real one.
+          git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$GITHUB_REF_NAME" > notes.txt
+          python packaging/release_notes.py body "${GITHUB_REF_NAME#v}" notes.txt body.md
+          cat body.md
+
+      # Uploaded as a draft, then published in one step once every asset
+      # is there: /releases/latest never shows a release with half its
+      # assets, which a client polling mid-upload would take as "no update".
+      - name: Upload release assets to a draft
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
           files: out/*
+          body_path: body.md
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --repo "$GITHUB_REPOSITORY"

@@ -1,5 +1,14 @@
 # Linux deb 分发 — 设计文档
 
+> **已被部分取代（2026-10-02）**：`2026-10-02-single-package-release-design.md` 取代了本文的
+> 以下部分：runtime / app 双 deb 结构（改为单个 `lm-labeling-tool_<版本>_amd64.deb`）、
+> app deb 的 `Depends: lm-labeling-tool-runtime (= 0~<id>)` 精确锁定与“错配守卫”、
+> `reuse_runtime.py` 对 runtime deb 的复用（Linux 现在每次发布都重建单个 deb）、
+> `deb.py` 的 `--app-only` / `--runtime-id` 模式、依赖守卫步骤，以及“日常更新安装 app deb”
+> 的更新方式（改为约 1–2 MB 的 `update-*-linux.zip`，由程序用 `pkexec` 自行应用）。
+> 仍然有效的部分：22.04 构建、24.04 兼容、`RUNTIME_DEPENDS` 依赖声明、runtime id 的测量方式、
+> 安装冒烟测试的思路。版本号也已重排（下一个版本为 v0.2.0），下文出现的 1.x / 2.x 版本号仅为历史记录。
+
 - 日期：2026-09-30
 - 状态：设计已确认，待实现
 - 起点：main @ bab9299（v1.4.1 已发布，Windows 侧分层增量更新已稳定运行）

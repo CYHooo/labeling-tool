@@ -148,3 +148,9 @@ def test_matches_release_yml_dependency_install_order():
     assert "pyinstaller-hooks-contrib" in text
     assert "torch==2.5.1" in text
     assert "2b90b9f5ceec907a1c18123530e92e794ad901a4" in text
+
+
+def test_smoke_proves_a_zip_update():
+    text = SH.read_text(encoding="utf-8")
+    assert "--apply-update" in text
+    assert "--app-only" not in text and "rdeadbeef" not in text

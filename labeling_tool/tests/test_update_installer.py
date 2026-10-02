@@ -44,14 +44,11 @@ def test_missing_installer_raises(tmp_path):
                                    popen=lambda *a, **k: None)
 
 
-def test_deb_command_installs_every_package_in_one_call(tmp_path):
-    # dpkg unpacks all of them before configuring any, so the app deb's
-    # dependency on the runtime deb is satisfied within a single call.
-    runtime = tmp_path / "lm-labeling-tool-runtime_1.0.1_amd64.deb"
-    app = tmp_path / "lm-labeling-tool_1.0.1-r1_amd64.deb"
-    cmd = installer.build_deb_command([runtime, app])
-    assert cmd[:3] == ["pkexec", "dpkg", "-i"]
-    assert cmd[3:] == [str(runtime), str(app)]
+def test_deb_command_installs_the_single_package(tmp_path):
+    # A full update on Linux is one deb carrying the whole install.
+    deb = tmp_path / "lm-labeling-tool_1.0.1_amd64.deb"
+    cmd = installer.build_deb_command([deb])
+    assert cmd == ["pkexec", "dpkg", "-i", str(deb)]
 
 
 @pytest.mark.parametrize("code,stderr,expected", [
@@ -120,3 +117,36 @@ def test_install_debs_forces_c_locale(tmp_path):
 
     installer.install_debs([deb], runner=_runner)
     assert seen_kwargs["env"]["LC_ALL"] == "C"
+
+
+def test_apply_command_runs_the_installed_app_as_root(tmp_path):
+    cmd = installer.build_apply_command(tmp_path / "LM_LabelingTool", tmp_path / "u.zip", "a" * 64)
+    assert cmd == ["pkexec", str(tmp_path / "LM_LabelingTool"), "--apply-update",
+                   str(tmp_path / "u.zip"), "--sha256", "a" * 64]
+
+
+def test_apply_zip_linux_classifies_cancel_and_failure(tmp_path):
+    from types import SimpleNamespace
+    z = tmp_path / "u.zip"
+    z.write_bytes(b"x")
+    ok = installer.apply_zip_linux(tmp_path / "exe", z, "a" * 64,
+                                   runner=lambda *a, **k: SimpleNamespace(returncode=0, stderr=""))
+    assert ok[0] is installer.InstallOutcome.OK
+    cancel = installer.apply_zip_linux(tmp_path / "exe", z, "a" * 64,
+                                       runner=lambda *a, **k: SimpleNamespace(returncode=126, stderr=""))
+    assert cancel[0] is installer.InstallOutcome.CANCELLED
+    bad = installer.apply_zip_linux(tmp_path / "exe", z, "a" * 64,
+                                    runner=lambda *a, **k: SimpleNamespace(returncode=1, stderr="runtime mismatch"))
+    assert bad == (installer.InstallOutcome.FAILED, "runtime mismatch")
+
+
+def test_apply_zip_linux_reports_missing_pkexec(tmp_path):
+    z = tmp_path / "u.zip"
+    z.write_bytes(b"x")
+
+    def _runner(cmd, **kwargs):
+        raise FileNotFoundError(cmd[0])
+
+    outcome, detail = installer.apply_zip_linux(tmp_path / "exe", z, "a" * 64, runner=_runner)
+    assert outcome is installer.InstallOutcome.FAILED
+    assert "pkexec" in detail

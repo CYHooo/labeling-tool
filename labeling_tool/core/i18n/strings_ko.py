@@ -179,7 +179,8 @@ STRINGS = {
 
     # --- update dialog ---
     "update_title":                    "업데이트",
-    "update_available":                "새 버전이 있습니다: v{version}\n다운로드 크기: 약 {size} MB",
+    "update_available":                "새 버전이 있습니다: v{version}",
+    "update_download_size":            "\n다운로드 크기: 약 {size} MB",
     "update_full_warning":
         "\n\n⚠ torch / CUDA 구성이 바뀌어 전체 설치 파일을 내려받습니다. "
         "충분한 네트워크/디스크 공간을 확인하세요.",
@@ -187,6 +188,10 @@ STRINGS = {
     "update_btn_update":               "지금 업데이트",
     "update_btn_later":                "나중에",
     "update_btn_skip":                 "이 버전 건너뛰기",
+    "update_ready_status":             "새 버전 v{version} 준비됨 — 작업 창을 닫으면 업데이트합니다",
+    "update_btn_restart":              "지금 재시작하여 업데이트",
+    "update_ready_informative":        "업데이트가 준비되었습니다. 재시작하면 바로 적용됩니다.\n\n{notes}",
+    "update_apply_failed_msg":         "업데이트를 적용하지 못했습니다. 프로그램을 모두 닫고 다시 시도하세요.\n\n{exc}",
     "update_progress_label":           "업데이트 다운로드 중…",
     "update_progress_template":        "업데이트 다운로드 중… {done} / {total} MB",
     "update_cancel":                   "취소",

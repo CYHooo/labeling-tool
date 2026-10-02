@@ -8,11 +8,7 @@ import pytest
 from labeling_tool.update import checker
 
 
-def test_asset_name_and_version_parsing():
-    assert (checker.full_asset_names("1.2.3", checker.WINDOWS)
-            == ("LM_LabelingTool-Setup-v1.2.3.exe",))
-    assert (checker.app_asset_name("1.2.3", "r3f8a1c92", checker.WINDOWS)
-            == "LM_LabelingTool-App-v1.2.3-r3f8a1c92.exe")
+def test_version_parsing():
     assert checker.parse_version("v1.2.3") == (1, 2, 3)
     assert checker.parse_version("1.0.10") == (1, 0, 10)
     assert checker.parse_version("nightly") is None
@@ -110,23 +106,14 @@ def test_find_update_propagates_network_errors():
         checker.find_update("1.0.0", "lite", opener=boom)
 
 
-def test_windows_asset_names_are_unchanged():
-    # Every client ever shipped looks for exactly these names.
-    assert (checker.full_asset_names("1.2.3", checker.WINDOWS)
-            == ("LM_LabelingTool-Setup-v1.2.3.exe",))
-    assert (checker.app_asset_name("1.2.3", "r3f8a1c92", checker.WINDOWS)
-            == "LM_LabelingTool-App-v1.2.3-r3f8a1c92.exe")
+def test_one_full_asset_per_platform():
+    assert checker.full_asset_name("0.2.0", checker.WINDOWS) == "LM_LabelingTool-Setup-v0.2.0.exe"
+    assert checker.full_asset_name("0.2.0", checker.LINUX) == "lm-labeling-tool_0.2.0_amd64.deb"
 
 
-def test_linux_asset_names():
-    # The runtime deb's FILENAME carries no runtime id: a client taking a full
-    # update knows the target version but not the new runtime id, so it could
-    # not spell the name otherwise. The id lives in its Version field instead.
-    assert (checker.full_asset_names("1.2.3", checker.LINUX)
-            == ("lm-labeling-tool-runtime_1.2.3_amd64.deb",
-                "lm-labeling-tool_1.2.3-RUNTIME_amd64.deb"))
-    assert (checker.app_asset_name("1.2.3", "r3f8a1c92", checker.LINUX)
-            == "lm-labeling-tool_1.2.3-r3f8a1c92_amd64.deb")
+def test_update_zip_name_carries_runtime_and_platform():
+    assert checker.update_asset_name("0.2.1", "r88c8d3f0", checker.WINDOWS) == "update-v0.2.1-r88c8d3f0-windows.zip"
+    assert checker.update_asset_name("0.2.1", "ra493a449", checker.LINUX) == "update-v0.2.1-ra493a449-linux.zip"
 
 
 def test_windows_update_carries_exactly_one_asset():
@@ -138,45 +125,69 @@ def test_windows_update_carries_exactly_one_asset():
     assert info.total_size == info.assets[0].size
 
 
-def test_linux_full_update_carries_both_debs():
-    names = ("lm-labeling-tool-runtime_1.0.1_amd64.deb",
-             "lm-labeling-tool_1.0.1-rdeadbeef_amd64.deb", "SHA256SUMS.txt")
-    info = checker.find_update("1.0.0", "full",
-                               opener=_opener(_release(names=names)),
-                               platform=checker.LINUX)
-    assert info.kind == "full"
-    assert [a.name for a in info.assets] == list(names[:2])
-    assert info.total_size == sum(a.size for a in info.assets)
+
+def _json_release(names, body=""):
+    assets = [{"name": n, "browser_download_url": f"https://x/{n}", "size": 10} for n in names]
+    return json.dumps({"tag_name": "v0.2.1", "body": body, "assets": assets})
 
 
-def test_linux_app_update_carries_one_deb():
-    names = ("lm-labeling-tool-runtime_1.0.1_amd64.deb",
-             "lm-labeling-tool_1.0.1-r3f8a1c92_amd64.deb", "SHA256SUMS.txt")
-    info = checker.find_update("1.0.0", "full", runtime="r3f8a1c92",
-                               opener=_opener(_release(names=names)),
-                               platform=checker.LINUX)
+def _sums_opener(release_json, sums):
+    def opener(url, timeout=None):
+        return io.BytesIO((sums if url.endswith("SHA256SUMS.txt") else release_json).encode())
+    return opener
+
+
+SUMS = "\n".join(f"{c * 64}  {n}" for c, n in [
+    ("a", "LM_LabelingTool-Setup-v0.2.1.exe"),
+    ("b", "update-v0.2.1-r88c8d3f0-windows.zip"),
+    ("c", "lm-labeling-tool_0.2.1_amd64.deb"),
+    ("d", "update-v0.2.1-ra493a449-linux.zip"),
+])
+ALL = ["LM_LabelingTool-Setup-v0.2.1.exe", "update-v0.2.1-r88c8d3f0-windows.zip",
+       "lm-labeling-tool_0.2.1_amd64.deb", "update-v0.2.1-ra493a449-linux.zip", "SHA256SUMS.txt"]
+
+
+def test_same_runtime_gets_the_zip():
+    info = checker.find_update("0.2.0", "full", opener=_sums_opener(_json_release(ALL), SUMS),
+                               runtime="r88c8d3f0", platform=checker.WINDOWS)
     assert info.kind == "app"
-    assert [a.name for a in info.assets] == ["lm-labeling-tool_1.0.1-r3f8a1c92_amd64.deb"]
+    assert [a.name for a in info.assets] == ["update-v0.2.1-r88c8d3f0-windows.zip"]
+    assert info.assets[0].sha256 == "b" * 64
 
 
-def test_linux_full_update_is_refused_when_the_runtime_deb_is_missing():
-    # spec 7.2.1: a release that lost its runtime deb must not produce a
-    # half-installable update. Offering the app deb alone would hand the user
-    # a download that dpkg then refuses.
-    names = ("lm-labeling-tool_1.0.1-rdeadbeef_amd64.deb", "SHA256SUMS.txt")
-    info = checker.find_update("1.0.0", "full",
-                               opener=_opener(_release(names=names)),
-                               platform=checker.LINUX)
-    assert info is None
+def test_changed_runtime_gets_the_full_package():
+    info = checker.find_update("0.2.0", "full", opener=_sums_opener(_json_release(ALL), SUMS),
+                               runtime="rdeadbeef", platform=checker.LINUX)
+    assert info.kind == "full"
+    assert [a.name for a in info.assets] == ["lm-labeling-tool_0.2.1_amd64.deb"]
 
 
-def test_an_asset_without_a_published_checksum_is_never_offered():
-    # Already true before this change; it must stay true per asset, not just
-    # for the first one.
-    names = ("lm-labeling-tool-runtime_1.0.1_amd64.deb",
-             "lm-labeling-tool_1.0.1-rdeadbeef_amd64.deb", "SHA256SUMS.txt")
-    info = checker.find_update("1.0.0", "full",
-                               opener=_opener(_release(names=names),
-                                              omit_sum=names[0]),
-                               platform=checker.LINUX)
-    assert info is None
+def test_an_asset_without_a_checksum_is_never_offered():
+    sums = "\n".join(l for l in SUMS.splitlines() if "windows.zip" not in l)
+    info = checker.find_update("0.2.0", "full", opener=_sums_opener(_json_release(ALL), sums),
+                               runtime="r88c8d3f0", platform=checker.WINDOWS)
+    assert info.kind == "full"
+
+
+def test_a_full_package_without_a_checksum_is_not_offered():
+    sums = "\n".join(l for l in SUMS.splitlines() if ".deb" not in l)
+    assert checker.find_update("0.2.0", "full", opener=_sums_opener(_json_release(ALL), sums),
+                               runtime="rdeadbeef", platform=checker.LINUX) is None
+
+
+def test_find_update_returns_only_the_notes_section():
+    body = "| t |\n<!-- notes:start -->\n- fixed\n<!-- notes:end -->\ntrailer"
+    info = checker.find_update("0.2.0", "full",
+                               opener=_sums_opener(_json_release(ALL, body), SUMS),
+                               runtime="r88c8d3f0", platform=checker.WINDOWS)
+    assert info.notes == "- fixed"
+
+
+def test_extract_notes_returns_only_the_marked_section():
+    body = "| table |\n<!-- notes:start -->\n- 버그 수정\n- 속도 개선\n<!-- notes:end -->\n### 어떤 파일"
+    assert checker.extract_notes(body) == "- 버그 수정\n- 속도 개선"
+
+
+def test_extract_notes_without_markers_falls_back_to_eight_lines():
+    body = "\n".join(f"line {i}" for i in range(20))
+    assert checker.extract_notes(body) == "\n".join(f"line {i}" for i in range(8))
