@@ -71,7 +71,9 @@ def test_a_zip_for_another_runtime_or_platform_is_refused(tmp_path, runtime, pla
     assert (root / "_internal/labeling_tool/a.pyc").read_bytes() == b"old a"
 
 
-@pytest.mark.parametrize("bad", ["../evil.pyc", "/abs.pyc", "_internal/torch/lib.dll"])
+@pytest.mark.parametrize("bad", ["../evil.pyc", "/abs.pyc", "_internal/torch/lib.dll",
+                                 "_internal/labeling_tool/..\\..\\..\\evil.exe",
+                                 "_internal/labeling_tool/C:evil.pyc"])
 def test_a_path_escaping_the_install_dir_is_refused(tmp_path, bad):
     root = _install(tmp_path / "app")
     z, sha = _zip(tmp_path / "u.zip", {**NEW, bad: b"x"})
@@ -142,3 +144,96 @@ def test_cleanup_removes_the_backup_only_after_success(tmp_path):
     assert (root / patch.BACKUP).exists()
     patch.cleanup(root)
     assert not (root / patch.BACKUP).exists()
+
+
+def _interrupt_apply(root, z, sha, monkeypatch, at):
+    real = patch._move
+    calls = {"n": 0}
+
+    def crash(src, dst):
+        calls["n"] += 1
+        if calls["n"] == at:
+            raise SystemExit("power cut")
+        real(src, dst)
+    monkeypatch.setattr(patch, "_move", crash)
+    with pytest.raises(SystemExit):
+        patch.apply_patch(z, root, sha, platform="win32")
+    monkeypatch.setattr(patch, "_move", real)
+    return real
+
+
+def _assert_old_files(root):
+    assert (root / "LM_LabelingTool.exe").read_bytes() == b"old exe"
+    assert (root / "_internal/labeling_tool/a.pyc").read_bytes() == b"old a"
+    assert (root / "_internal/labeling_tool/gone.pyc").read_bytes() == b"old gone"
+
+
+def test_the_executable_bit_survives_the_swap_on_linux(tmp_path):
+    root = _install(tmp_path / "app")
+    (root / "LM_LabelingTool.exe").unlink()
+    (root / "LM_LabelingTool").write_bytes(b"old")
+    listing = {"LM_LabelingTool": hashlib.sha256(b"new").hexdigest()}
+    z = tmp_path / "u.zip"
+    manifest = {"version": "0.2.1", "runtime": "r11111111", "platform": "linux",
+                "files": listing}
+    with zipfile.ZipFile(z, "w") as zf:
+        zf.writestr(patch.MANIFEST_NAME, json.dumps(manifest))
+        info = zipfile.ZipInfo("LM_LabelingTool")
+        info.external_attr = 0o100755 << 16
+        zf.writestr(info, b"new")
+    sha = hashlib.sha256(z.read_bytes()).hexdigest()
+    patch.apply_patch(z, root, sha, platform="linux")
+    assert (root / "LM_LabelingTool").read_bytes() == b"new"
+    assert (root / "LM_LabelingTool").stat().st_mode & 0o100
+
+
+def test_an_interrupted_recover_can_be_rerun(tmp_path, monkeypatch):
+    root = _install(tmp_path / "app")
+    z, sha = _zip(tmp_path / "u.zip", NEW)
+    real = _interrupt_apply(root, z, sha, monkeypatch, at=5)
+    calls = {"n": 0}
+
+    def crash(src, dst):
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise SystemExit("power cut during recover")
+        real(src, dst)
+    monkeypatch.setattr(patch, "_move", crash)
+    with pytest.raises(SystemExit):
+        patch.recover(root)
+    monkeypatch.setattr(patch, "_move", real)
+    assert patch.recover(root) is True
+    _assert_old_files(root)
+    assert not (root / patch.JOURNAL).exists()
+
+
+def test_apply_first_recovers_a_leftover_journal(tmp_path, monkeypatch):
+    root = _install(tmp_path / "app")
+    z, sha = _zip(tmp_path / "u.zip", NEW)
+    _interrupt_apply(root, z, sha, monkeypatch, at=3)
+    assert (root / patch.JOURNAL).exists()
+    seen = {}
+    real_stage = patch._stage
+
+    def spy(*args, **kwargs):
+        seen["old_back"] = (root / "_internal/labeling_tool/a.pyc").exists() \
+            or (root / "LM_LabelingTool.exe").read_bytes() == b"old exe"
+        return real_stage(*args, **kwargs)
+    monkeypatch.setattr(patch, "_stage", spy)
+    patch.apply_patch(z, root, sha, platform="win32")
+    assert seen["old_back"]
+    assert (root / "LM_LabelingTool.exe").read_bytes() == b"new exe"
+    assert not (root / "_internal/labeling_tool/gone.pyc").exists()
+    assert not (root / patch.JOURNAL).exists()
+
+
+def test_the_zip_is_read_from_a_private_copy_that_is_not_left_behind(tmp_path):
+    root = _install(tmp_path / "app")
+    z, sha = _zip(tmp_path / "u.zip", NEW)
+    patch.apply_patch(z, root, sha, platform="win32")
+    assert not (root / patch.STAGING).exists()
+    root2 = _install(tmp_path / "app2")
+    with pytest.raises(patch.PatchError):
+        patch.apply_patch(z, root2, "0" * 64, platform="win32")
+    assert not (root2 / patch.STAGING).exists()
+    assert z.exists()

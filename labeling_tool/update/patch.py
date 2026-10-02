@@ -56,7 +56,10 @@ def _is_app_layer(rel: str, platform: str) -> bool:
 
 def _safe_rel(rel: str, platform: str) -> str:
     p = PurePosixPath(rel)
-    if p.is_absolute() or ".." in p.parts or rel != p.as_posix():
+    # A backslash or drive colon is a separator or root on Windows, where
+    # "a/..\\..\\x" would walk out of the install dir past the POSIX check.
+    if "\\" in rel or ":" in rel or p.is_absolute() or ".." in p.parts \
+            or rel != p.as_posix():
         raise PatchError(f"unsafe path in update: {rel!r}")
     if not _is_app_layer(rel, platform):
         raise PatchError(f"not an app-layer file: {rel!r}")
@@ -97,19 +100,24 @@ def _installed_app_files(root: Path, platform: str) -> list[str]:
 
 
 def _rollback(root: Path, journal: list[list[str]]) -> None:
-    for op, a, b in reversed(journal):
+    journal_path = root / JOURNAL
+    while journal:
+        op, a, b = journal[-1]
         src, dst = Path(b), Path(a)   # undo: move it back where it came from
         if src.exists():
             _move(src, dst)
+        # Shrink the journal as we go so an interrupted rollback can be re-run
+        # without undoing the same entry twice (which would clobber a restored file).
+        journal.pop()
+        if journal:
+            journal_path.write_text(json.dumps(journal), encoding="utf-8")
     shutil.rmtree(root / STAGING, ignore_errors=True)
     (root / JOURNAL).unlink(missing_ok=True)
 
 
-def apply_patch(zip_path: Path, install_dir: Path, expected_sha256: str,
-                platform: str | None = None) -> PatchManifest:
-    platform = platform or checker.current_platform()
-    root = Path(install_dir)
-    zip_path = Path(zip_path)
+def _stage(zip_path: Path, root: Path, staging: Path, expected_sha256: str,
+           platform: str) -> PatchManifest:
+    """Verify the zip and unpack it into staging; touches nothing else."""
     if _sha256(zip_path) != expected_sha256.lower():
         raise PatchError("update zip does not match its published checksum")
     m = read_manifest(zip_path)
@@ -120,21 +128,48 @@ def apply_patch(zip_path: Path, install_dir: Path, expected_sha256: str,
         raise PatchError(f"update needs runtime {m.runtime}, installed is {installed.runtime}")
     for rel in m.files:
         _safe_rel(rel, platform)
-
-    staging = root / STAGING
-    shutil.rmtree(staging, ignore_errors=True)
     with zipfile.ZipFile(zip_path) as z:
         names = set(z.namelist()) - {MANIFEST_NAME}
         if names != set(m.files):
             raise PatchError("zip contents do not match its manifest")
         for rel in m.files:
-            _safe_rel(rel, platform)
             target = staging / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(z.read(rel))
             if _sha256(target) != m.files[rel]:
-                shutil.rmtree(staging, ignore_errors=True)
                 raise PatchError(f"{rel} does not match the manifest")
+            # write_bytes drops the mode; keep the executable bit the zip
+            # carries, else the file being replaced has.
+            mode = (z.getinfo(rel).external_attr >> 16) & 0o777
+            if not mode and (root / rel).exists():
+                mode = (root / rel).stat().st_mode & 0o777
+            if mode:
+                target.chmod(mode)
+    return m
+
+
+def apply_patch(zip_path: Path, install_dir: Path, expected_sha256: str,
+                platform: str | None = None) -> PatchManifest:
+    platform = platform or checker.current_platform()
+    root = Path(install_dir)
+    # A swap that never finished holds the only copy of the old files in the
+    # backup; undo it before anything below deletes the backup. On Linux this
+    # is the recovery path, since only the root-run apply can touch /opt.
+    if (root / JOURNAL).exists():
+        recover(root)
+    staging = root / STAGING
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True)
+    try:
+        # Work on a private copy: the original may sit in a user-writable cache
+        # while this runs as root, so hash and read only what we copied.
+        local_zip = staging / "update.zip"
+        shutil.copyfile(Path(zip_path), local_zip)
+        m = _stage(local_zip, root, staging, expected_sha256, platform)
+        local_zip.unlink()
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
 
     backup = root / BACKUP
     shutil.rmtree(backup, ignore_errors=True)
