@@ -42,3 +42,7 @@ labeling_tool/models/sam/*.pt
 # PyInstaller output
 build/
 dist/
+
+# packaging/ci/local-build.sh output
+out/
+out-bad/

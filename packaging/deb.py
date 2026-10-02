@@ -250,7 +250,9 @@ def _dpkg_deb_build(root: Path, out_path: Path, fast: bool) -> None:
     args = ["dpkg-deb", "--build", "--root-owner-group"]
     # Compression controlled the same way the Windows build picks its
     # compressor via /DMyFast=1: fast gzip for local iteration, xz for a
-    # real release (XZ_OPT=-T4 is set by the caller to parallelize it).
+    # real release. dpkg-deb's xz is already multi-threaded across every
+    # core on its own: measured on jammy's dpkg 1.21.1, it ignores XZ_OPT
+    # (byte-identical output, same time) and has no --threads-max yet.
     # Level 9, not xz's default 6: -6 left the v2.0.0 runtime deb at
     # 2,061,489,096 bytes, over the release asset ceiling (CI run
     # 36965987450); -9's 64 MB dictionary measured 8% smaller on the

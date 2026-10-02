@@ -475,3 +475,10 @@ def test_inline_python_only_references_real_checker_layers_deb_names():
                 problems.append(f"{job_name} / {step_name!r}: "
                                  f"{node.value.id}.{node.attr} does not exist")
     assert not problems, "\n".join(problems)
+
+
+def test_the_workflow_does_not_pretend_to_tune_dpkg_deb_threads(workflow):
+    # dpkg-deb on jammy (1.21.1) ignores XZ_OPT -- measured: byte-identical
+    # output in the same time -- and is already multi-threaded by default.
+    # Leaving XZ_OPT=-T4 in place suggested a tuning knob that does nothing.
+    assert "XZ_OPT=" not in workflow

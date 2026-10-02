@@ -499,7 +499,7 @@ jobs:
             # entry point for exactly this (labeling_tool/tests/test_deb.py)
             # -- this step must never reach into deb.py's private staging
             # helpers directly.
-            XZ_OPT=-T4 python packaging/deb.py build --app-only dist/LM_LabelingTool out "$ver"
+            python packaging/deb.py build --app-only dist/LM_LabelingTool out "$ver"
             # Named via checker.py, not hand-built: the same pattern
             # reuse_runtime.py itself already follows (see its "derive the
             # runtime deb name from checker" fix) -- a literal
@@ -509,7 +509,10 @@ jobs:
             cp "$LT_REUSE_RUNTIME" "out/$runtime_name"
             echo "runtime deb reused: $(basename "$LT_REUSE_RUNTIME")"
           else
-            XZ_OPT=-T4 python packaging/deb.py build dist/LM_LabelingTool out "$ver"
+            # No XZ_OPT: dpkg-deb ignores it and already compresses on every
+            # core (see deb.py's _dpkg_deb_build) -- on a 4-vCPU runner the
+            # xz -9 pass is CPU-bound at ~16 minutes, not under-threaded.
+            python packaging/deb.py build dist/LM_LabelingTool out "$ver"
           fi
           ls -la out/
 

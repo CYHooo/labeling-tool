@@ -48,23 +48,12 @@
 # bounded.ps1). A verification script that can hang forever is worse than
 # no verification script, because the failure mode is silence, not an error.
 #
-# Why "smoke" needs TWO separate fresh containers, not one bare environment:
-# this script's own outer container (the one running tests/build/selftest)
-# needs Qt's xcb platform to actually start, which needs real X11/GL
-# libraries -- without them Qt does not fail cleanly, it HANGS (confirmed:
-# QApplication() under xvfb-run with only xvfb's own transitive deps
-# installed blocks forever; installing packaging/deb.py's RUNTIME_DEPENDS
-# equivalents fixes it immediately). So the outer container is deliberately
-# NOT minimal. That means it can no longer serve as the "does dpkg -i
-# succeed on a machine that only has what RUNTIME_DEPENDS lists filled in
-# the Depends line, not pre-installed" question -- asking it in the outer
-# container would be the exact tautology the brief warns about (install the
-# dependency, then verify the dependency is satisfied). So the sufficiency
-# check and the mismatched-deb guard run in a FRESH ubuntu:22.04 sibling
-# container that only ever gets dpkg-dev/xvfb/build-essential, mirroring
-# release.yml's build-linux job's own (GH-runner-hosted) minimal baseline.
-# The existing 24.04 "usability" cross-check already followed this pattern;
-# it now has a sibling for the same reason, not a new one.
+# The "smoke" step mirrors release.yml's build-linux install checks one
+# for one -- see step_smoke() below for the four checks and why each runs
+# where it does. In short: availability on a stock 22.04 desktop container
+# (dpkg -i only), sufficiency and the dependency guard in THIS outer
+# container (which, like CI's runner, carries the libraries the build
+# needs), and a 24.04 desktop container for the cross-validation.
 
 set -euo pipefail
 
@@ -335,106 +324,109 @@ step_deb() {
 }
 
 step_smoke() {
-    local runtime_deb app_deb bad_stage bad_deb
-    runtime_deb=$(ls out/lm-labeling-tool-runtime_*.deb)
-    app_deb=$(ls out/lm-labeling-tool_*.deb)
+    # Mirrors release.yml's build-linux install checks one for one (CI runs
+    # 36841286350..36969300396 settled their shape):
+    #
+    #   1. availability -- a stock 22.04 DESKTOP (ubuntu-desktop-minimal),
+    #      dpkg -i only: does a normal desktop already carry everything
+    #      RUNTIME_DEPENDS declares? Needing apt's fix-up would mean users
+    #      cannot install either.
+    #   2. sufficiency -- THIS outer container, which (like CI's runner)
+    #      already has RUNTIME_DEPENDS + deb.BUNDLED_LIBS installed for the
+    #      build: install both debs and run the installed app's selftest.
+    #   3. dependency guard -- with the real runtime deb installed here, an
+    #      app deb built against another runtime id must be refused by dpkg.
+    #      It has to run where the real runtime IS installed: with no
+    #      runtime at all, any app deb is refused and the check proves
+    #      nothing.
+    #   4. 24.04 cross-validation -- a stock 24.04 desktop: install AND run
+    #      the selftest (glibc only works forwards). Started in the
+    #      background so its desktop install overlaps check 1, as in CI.
+    #
+    # This replaces an earlier design that ran 2+3 in a bare ubuntu:22.04
+    # sibling with only dpkg-dev/xvfb/build-essential: there dpkg -i cannot
+    # succeed (the declared libraries are simply absent -- the same wall CI
+    # run 36841286350 hit) and the step hung or failed for reasons unrelated
+    # to the package. Check 1 answers the question that design was after.
+    local bad_stage bad_deb noble_log noble_exit noble_pid code
 
-    # Built here (in the outer container, which already has python+deb.py)
-    # but installed only inside the fresh sibling container below -- see
-    # the module docstring for why the sufficiency/guard check cannot run
-    # in this (deliberately non-minimal) outer container.
+    echo "-- 24.04 cross-validation: started in the background --"
+    noble_log="$(mktemp /tmp/lt-noble.XXXXXX)"; noble_exit="$noble_log.exit"
+    (
+        set +e
+        timeout --kill-after=10 1800 docker run --rm -v "$HOST_REPO_ROOT/out:/out:ro" \
+            -e DEBIAN_FRONTEND=noninteractive ubuntu:24.04 bash -euo pipefail -c '
+            apt-get update
+            # A desktop metapackage postinst may try to start services; a
+            # container has no init system to receive them.
+            printf "#!/bin/sh\nexit 101\n" > /usr/sbin/policy-rc.d
+            chmod +x /usr/sbin/policy-rc.d
+            apt-get install -y ubuntu-desktop-minimal
+            apt-get install -y --no-install-recommends xvfb
+            dpkg -i /out/lm-labeling-tool-runtime_*.deb /out/lm-labeling-tool_*.deb
+            set +e
+            timeout --kill-after=10 300 xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest=full
+            code=$?
+            set -e
+            for f in selftest.log selftest-hang.txt; do
+              p="$HOME/.local/share/lm-labeling-tool/$f"
+              if [ -s "$p" ]; then echo "--- $f"; cat "$p"; fi
+            done
+            exit "$code"
+        '
+        echo $? > "$noble_exit"
+    ) > "$noble_log" 2>&1 < /dev/null &
+    noble_pid=$!
+
+    echo "-- 1/4 availability: dpkg -i on a stock 22.04 desktop, no fix-up --"
+    bounded 1800 "22.04 desktop availability check" \
+        docker run --rm -v "$HOST_REPO_ROOT/out:/out:ro" -e DEBIAN_FRONTEND=noninteractive ubuntu:22.04 bash -euo pipefail -c '
+        apt-get update
+        printf "#!/bin/sh\nexit 101\n" > /usr/sbin/policy-rc.d
+        chmod +x /usr/sbin/policy-rc.d
+        apt-get install -y ubuntu-desktop-minimal
+        dpkg -i /out/lm-labeling-tool-runtime_*.deb /out/lm-labeling-tool_*.deb
+    '
+
+    echo "-- 2/4 sufficiency: install here and run the installed app --"
+    bounded 600 "dpkg -i (outer container)" dpkg -i out/lm-labeling-tool-runtime_*.deb out/lm-labeling-tool_*.deb
+    rm -f "$HOME/.local/share/lm-labeling-tool/selftest.log" "$HOME/.local/share/lm-labeling-tool/selftest-hang.txt"
+    code=0
+    timeout --kill-after=10 300 xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest=full || code=$?
+    for f in selftest.log selftest-hang.txt; do
+        if [ -s "$HOME/.local/share/lm-labeling-tool/$f" ]; then
+            echo "--- $f"; cat "$HOME/.local/share/lm-labeling-tool/$f"
+        fi
+    done
+    if [ "$code" -ne 0 ]; then
+        echo "installed-app selftest failed with exit code $code" >&2
+        return 1
+    fi
+
+    echo "-- 3/4 dependency guard: a mismatched app deb must be refused --"
     bad_stage="$REPO_ROOT/out-bad"
     rm -rf "$bad_stage"
     bounded 300 "building a mismatched-runtime app deb" \
         env LT_FAST=1 "$PY" packaging/deb.py build --app-only --runtime-id rdeadbeef \
             "$DIST" "$bad_stage" "$version"
     bad_deb=$(ls "$bad_stage"/lm-labeling-tool_*.deb)
-
-    echo "-- sufficiency + dependency guard, in a fresh minimal sibling container --"
-    # This sibling container only ever gets dpkg-dev/xvfb/build-essential --
-    # NOT packaging/deb.py's RUNTIME_DEPENDS. dpkg -i succeeding is a real
-    # check (not a tautology: install a dependency, then verify the
-    # dependency is satisfied), and it is also the one place a genuinely
-    # missing-but-undeclared library would surface as a selftest crash
-    # instead of a clean dpkg -i failure.
-    #
-    # KNOWN OPEN ISSUE, not yet root-caused (2026-09-30 investigation):
-    # xvfb-run'ing a Qt app under the xcb platform in a container this bare
-    # can HANG instead of failing cleanly. Confirmed directly: a plain
-    # `pip install PyQt5` + `QApplication(["x"])` under `xvfb-run -a` in a
-    # throwaway `ubuntu:22.04` container that only had
-    # dpkg-dev/xvfb/build-essential/software-properties-common/ca-
-    # certificates/gnupg/git/curl installed (i.e. this sufficiency
-    # sibling's own package set) hung indefinitely -- `QT_QPA_PLATFORM=
-    # offscreen` with the exact same binary printed "OK offscreen" and
-    # exited immediately. Ruled out: a missing shared library at dlopen
-    # time -- that fails fast with "Cannot load library ...: ... .so:
-    # cannot open shared object file" (seen for libqoffscreen.so before
-    # libfontconfig1 was installed), not a hang; adding libfontconfig1
-    # alone did not fix the xcb hang, so it is not simply the offscreen
-    # plugin's missing dependency recurring under xcb. Confirmed fix (for
-    # the OUTER build container only, not here): explicitly installing
-    # libgl1, libglib2.0-0, libxkbcommon-x11-0, libxcb-xinerama0,
-    # libxcb-icccm4, libxcb-image0, libxcb-keysyms1, libxcb-randr0,
-    # libxcb-render-util0, libxcb-shape0, libdbus-1-3 and libfontconfig1
-    # (i.e. packaging/deb.py's RUNTIME_DEPENDS by name, plus fontconfig)
-    # made the same QApplication() call under xcb succeed within seconds.
-    # That fix is deliberately NOT applied to this sibling: doing so here
-    # would be the exact tautology the brief warns against (pre-install the
-    # dependency, then verify the dependency is satisfied). What was NOT
-    # established before this investigation was time-boxed: whether apt's
-    # own transitive dependencies of dpkg-dev/xvfb/build-essential already
-    # cover enough of that list for THIS sibling to avoid the same hang --
-    # i.e. whether RUNTIME_DEPENDS is genuinely sufficient on a truly
-    # minimal base, which is the one question this check exists to answer.
-    # Suspected but unconfirmed direction: Qt's xcb integration has known
-    # failure modes that block indefinitely rather than erroring out (e.g.
-    # a D-Bus/session-bus autolaunch attempt that never completes) when a
-    # soft dependency is present but incomplete; confirming this would need
-    # attaching strace/gdb to the hung process, which was not done. The
-    # `bounded` wrapper below turns a recurrence of this hang into a clean
-    # TIMEOUT failure after 900s rather than a silent, indefinite wait --
-    # if this step times out, treat it as this same open issue, not a
-    # regression in this script, and check whether CI's build-linux job
-    # (a real GH-hosted ubuntu-22.04 runner, not a bare docker image, so it
-    # may simply carry more of this out of the box) hits the same wall.
-    bounded 900 "fresh-container sufficiency + dependency-guard check" \
-        docker run --rm \
-            -v "$HOST_REPO_ROOT/out:/out:ro" -v "$HOST_REPO_ROOT/out-bad:/bad:ro" \
-            -e DEBIAN_FRONTEND=noninteractive ubuntu:22.04 bash -euo pipefail -c '
-        apt-get update
-        apt-get install -y --no-install-recommends dpkg-dev xvfb build-essential
-        dpkg -i /out/lm-labeling-tool-runtime_*.deb /out/lm-labeling-tool_*.deb
-        timeout --kill-after=10 300 xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest=full
-        echo "installed app selftest passed"
-        if dpkg -i /bad/lm-labeling-tool_*.deb; then
-            echo "a mismatched-runtime app deb installed; it must be rejected" >&2
-            exit 1
-        fi
-        echo "mismatched-runtime app deb correctly rejected by dpkg"
-    '
+    if dpkg -i "$bad_deb"; then
+        echo "a mismatched-runtime app deb installed; it must be rejected" >&2
+        return 1
+    fi
+    echo "mismatched-runtime app deb correctly rejected by dpkg"
+    dpkg --remove --force-remove-reinstreq lm-labeling-tool >/dev/null 2>&1 || true
     rm -rf "$bad_stage"
 
-    echo "-- usability: a stock desktop, not RUNTIME_DEPENDS itself, must already cover it --"
-    # ubuntu-desktop-minimal, not packaging/deb.py's RUNTIME_DEPENDS: pre-
-    # installing RUNTIME_DEPENDS before dpkg -i would make "no dependency
-    # fixup needed afterwards" a tautology. This also doubles as the "built
-    # on 22.04, runs on 24.04" cross-validation release.yml does, since
-    # glibc only works forwards. Runs as a sibling container (via the
-    # host's docker socket) rather than nested docker-in-docker.
-    bounded 1800 "24.04 desktop usability cross-check" \
-        docker run --rm -v "$HOST_REPO_ROOT/out:/out:ro" -e DEBIAN_FRONTEND=noninteractive ubuntu:24.04 bash -euo pipefail -c '
-        apt-get update
-        # A desktop metapackage postinst may try to start services; a
-        # container has no init system to receive them. This is the
-        # standard way to install such packages under plain docker run.
-        printf "#!/bin/sh\nexit 101\n" > /usr/sbin/policy-rc.d
-        chmod +x /usr/sbin/policy-rc.d
-        apt-get install -y ubuntu-desktop-minimal
-        apt-get install -y --no-install-recommends xvfb
-        dpkg -i /out/lm-labeling-tool-runtime_*.deb /out/lm-labeling-tool_*.deb
-        timeout --kill-after=10 300 xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest=full
-    '
+    echo "-- 4/4 24.04 cross-validation: collecting --"
+    wait "$noble_pid" || true
+    cat "$noble_log"
+    code=$(cat "$noble_exit" 2>/dev/null || echo 1)
+    rm -f "$noble_log" "$noble_exit"
+    if [ "$code" -ne 0 ]; then
+        echo "24.04 desktop install + selftest failed (exit $code)" >&2
+        return 1
+    fi
     echo "24.04 desktop install + selftest passed"
 }
 
