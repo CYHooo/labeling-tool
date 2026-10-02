@@ -266,10 +266,12 @@ def test_splats_are_always_the_whole_argument_list(powershell_source):
 def test_the_linux_job_pins_2204_not_latest():
     # glibc only works forwards: a 24.04 build cannot run on 22.04. A casual
     # bump to ubuntu-latest would silently drop half the supported users.
-    text = WORKFLOW.read_text(encoding="utf-8")
-    assert "ubuntu-22.04" in text
-    assert "runs-on: ubuntu-latest" not in [l.strip() for l in text.splitlines()
-                                            if "build-linux" in l]
+    # Read the job's own runs-on: a text search for the line can never tell
+    # which job a `runs-on:` belongs to (the old filter on "build-linux" in
+    # the same line matched nothing, so ubuntu-latest slipped through).
+    yaml = pytest.importorskip("yaml")
+    job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["build-linux"]
+    assert job["runs-on"] == "ubuntu-22.04"
 
 
 def test_release_needs_both_builds():
