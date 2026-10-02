@@ -7,6 +7,10 @@
 # runtime id printed here is the one the release will carry. That is the
 # answer to "will this release be a small update or a full install?".
 #
+# The smoke step proves both halves of a release: the Setup exe installs
+# and runs, and the installed app applies this build's update zip to
+# itself -- the path every routine update takes.
+#
 # One-time setup (Python 3.12.10 and Inno Setup 6 installed). The venv must
 # be FRESH -- stray packages in it get bundled and move the runtime id:
 #   & "C:\Program Files\Python312\python.exe" -m venv C:\lt\venv
@@ -120,21 +124,18 @@ Step "installer" {
     # MyTestInstall: a separate AppId and Start menu name, so the smoke step
     # can install and uninstall next to a real install. Local installers are
     # never published -- releases are built by CI from the tag.
-    $common = @("/DMyVersion=$Version", "/DMyVersionInfo=0.0.0", "/DMySourceRoot=$PWD",
-                "/DMyFast=1", "/DMyTestInstall=1", "/Q")
-    $isccArgs = @("/DMyLayer=full", "/DMySource=$PWD\$dist", "/DMyOutDir=$PWD\out",
-                  "/DMyRuntime=$script:runtimeId") + $common + @("packaging\installer.iss")
+    # Splatting only expands when it IS the whole argument list, so build
+    # the array first.
+    $isccArgs = @("/DMyVersion=$Version", "/DMyVersionInfo=0.0.0", "/DMySourceRoot=$PWD",
+                  "/DMyFast=1", "/DMyTestInstall=1", "/Q",
+                  "/DMySource=$PWD\$dist", "/DMyOutDir=$PWD\out", "packaging\installer.iss")
     & $iscc @isccArgs
     if ($LASTEXITCODE -ne 0) { throw "full installer failed" }
-    $isccArgs = @("/DMyLayer=app", "/DMySource=$PWD\dist\app-layer", "/DMyOutDir=$PWD\out",
-                  "/DMyRuntime=$script:runtimeId") + $common + @("packaging\installer.iss")
-    & $iscc @isccArgs
-    if ($LASTEXITCODE -ne 0) { throw "app installer failed" }
-    $isccArgs = @("/DMyLayer=app", "/DMySource=$PWD\dist\app-layer", "/DMyOutDir=$PWD\out-bad",
-                  "/DMyRuntime=rbadbad00") + $common + @("packaging\installer.iss")
-    & $iscc @isccArgs
-    if ($LASTEXITCODE -ne 0) { throw "could not build the mismatched app package" }
-    Get-ChildItem out\*.exe, out-bad\*.exe | ForEach-Object { "{0}  {1:N1} MB" -f $_.Name, ($_.Length / 1MB) }
+    # The app-layer update zip, named for the runtime id it was built
+    # against -- what the smoke step applies to the installed app.
+    & $py packaging/update_zip.py dist/app-layer out $Version $script:runtimeId win32
+    if ($LASTEXITCODE -ne 0) { throw "update zip failed" }
+    Get-ChildItem out\*.exe, out\*.zip | ForEach-Object { "{0}  {1:N1} MB" -f $_.Name, ($_.Length / 1MB) }
 }
 
 Step "smoke" {
@@ -149,8 +150,9 @@ Step "smoke" {
         Start-Sleep -Seconds 5
     }
     $full = Get-ChildItem out\LM_LabelingTool-Setup-*.exe | Select-Object -First 1
-    $app = Get-ChildItem out\LM_LabelingTool-App-*.exe | Select-Object -First 1
-    $bad = Get-ChildItem out-bad\LM_LabelingTool-App-*.exe | Select-Object -First 1
+    $zip = Get-ChildItem out\update-v*-windows.zip | Select-Object -First 1
+    if (-not $full) { throw "no Setup exe in out\; run the installer step first" }
+    if (-not $zip) { throw "no update zip in out\; run the installer step first" }
     $target = Join-Path $env:TEMP "lt-install"
     $code = Invoke-Installer -Path $full.FullName -InstallerArgs @("/DIR=$target", "/LOG=$env:TEMP\lt-install.log") -TimeoutSec 900
     if ($code -ne 0) { throw "install failed ($code)" }
@@ -159,22 +161,30 @@ Step "smoke" {
     Write-Host "full install: selftest PASS"
     $sentinels = @("$target\_internal\torch\version.py", "$target\_internal\sam2\build_sam.py",
                    "$target\_internal\PyQt5\QtWidgets.pyd") | Where-Object { Test-Path $_ }
-    $code = Invoke-Installer -Path $app.FullName -InstallerArgs @("/DIR=$target") -TimeoutSec 300
-    if ($code -ne 0) { throw "app install failed ($code)" }
-    foreach ($f in $sentinels) { if (-not (Test-Path $f)) { throw "the app package deleted $f" } }
-    $code = Invoke-Bounded -Path "$target\LM_LabelingTool.exe" -CallArgs @("--selftest=full") -TimeoutSec 300 -What "selftest after the app-layer install"
-    if ($code -ne 0) { Get-Content "$target\selftest.log"; throw "selftest after the app-layer install failed" }
-    Write-Host "app-layer install: selftest PASS"
-    $stamp = (Get-Item "$target\LM_LabelingTool.exe").LastWriteTimeUtc
-    $code = Invoke-Installer -Path $bad.FullName -TimeoutSec 300
-    if ($code -eq 0) { throw "the mismatched app package installed anyway" }
-    if ((Get-Item "$target\LM_LabelingTool.exe").LastWriteTimeUtc -ne $stamp) { throw "the refused package still wrote to the install" }
-    Write-Host "mismatched app package refused ($code)"
+    # Damage one installed app-layer file, then let the zip repair it.
+    # (build-info.json must stay intact: the update reads its runtime id.)
+    $victim = Get-ChildItem "$target\_internal\labeling_tool" -Recurse -File -Filter *.pyc | Select-Object -First 1
+    if (-not $victim) { throw "no installed app-layer .pyc to damage" }
+    $victimPath = $victim.FullName
+    Remove-Item $victimPath
+    $sha = (Get-FileHash $zip.FullName -Algorithm SHA256).Hash.ToLower()
+    # Start-Process joins -ArgumentList with spaces and quotes nothing; a
+    # checkout path with a space in it would split the zip path in two.
+    $zipArg = '"' + $zip.FullName + '"'
+    $code = Invoke-Bounded -Path "$target\LM_LabelingTool.exe" -CallArgs @("--apply-update", $zipArg, "--sha256", $sha) -TimeoutSec 300 -What "applying the update zip"
+    if ($code -ne 0) { throw "applying the update zip failed ($code)" }
+    if (-not (Test-Path $victimPath)) { throw "the update zip did not restore $victimPath" }
+    if (Test-Path "$target\.update-journal") { throw "the update zip left its journal behind" }
+    foreach ($f in $sentinels) { if (-not (Test-Path $f)) { throw "the update zip deleted $f" } }
+    $code = Invoke-Bounded -Path "$target\LM_LabelingTool.exe" -CallArgs @("--selftest=full") -TimeoutSec 300 -What "selftest after the zip update"
+    if ($code -ne 0) { Get-Content "$target\selftest.log"; throw "selftest after the zip update failed" }
+    Write-Host "zip update: applied, selftest PASS"
     $u = Get-ChildItem "$target\unins*.exe" | Select-Object -First 1
     $null = Invoke-Installer -Path $u.FullName -TimeoutSec 600
     Start-Sleep -Seconds 10
     foreach ($f in $sentinels) { if (Test-Path $f) { throw "uninstall left $f behind" } }
-    Write-Host "uninstall removed the runtime layer"
+    if (Test-Path "$target\.update-backup") { throw "uninstall left $target\.update-backup behind" }
+    Write-Host "uninstall removed the runtime layer and the update leftovers"
 }
 
 Write-Host ""

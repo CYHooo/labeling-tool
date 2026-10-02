@@ -150,11 +150,11 @@ def test_a_reused_full_installer_is_verified_before_it_is_republished(workflow):
     """A code-only release ships the previous full installer again under a
     fresh checksum line; it has to match the checksum it was first published
     with, or a corrupted download would be blessed."""
-    step = workflow[workflow.index("Reuse the previous full installer"):workflow.index("- name: Build installers")]
+    step = workflow[workflow.index("Reuse the previous full installer"):workflow.index("- name: Build the installer")]
     assert "reuse_full.py plan" in step
     assert "reuse_full.py verify" in step
     assert step.index("reuse_full.py verify") < step.index("LT_REUSE_FULL=")
-    build = workflow[workflow.index("- name: Build installers"):workflow.index("- name: Assert the asset names")]
+    build = workflow[workflow.index("- name: Build the installer"):workflow.index("- name: Assert the asset names")]
     assert 'Copy-Item $env:LT_REUSE_FULL "out\\LM_LabelingTool-Setup-v$ver.exe"' in build
 
 
@@ -231,11 +231,10 @@ def test_a_manual_run_can_rehearse_release_compression(workflow):
 
 
 def test_every_iscc_invocation_honours_the_compression_mode(workflow):
-    """CI compiles two packages, full and app, from one common argument list
-    that carries /DMyFast=1 on a dry run. (The deliberately mismatched
-    package is compiled locally, for the smoke test.)"""
+    """CI compiles one package, the Setup exe, from a common argument list
+    that carries /DMyFast=1 on a dry run."""
     assert workflow.count("/DMyFast=1") == 1, "only via the common list"
-    assert workflow.count("& $iscc @") == 2, "both invocations splat a full array"
+    assert workflow.count("& $iscc @") == 1, "the invocation splats a full array"
 
 
 def test_local_installers_never_carry_the_production_appid():
@@ -243,7 +242,7 @@ def test_local_installers_never_carry_the_production_appid():
     have the app installed for real."""
     text = LOCAL_BUILD.read_text(encoding="utf-8")
     assert '"/DMyTestInstall=1"' in text
-    assert text.count("& $iscc @") == 3
+    assert text.count("& $iscc @") == 1
     assert "9E1E0C6B" not in text, "the local script must not name the production AppId"
 
 
@@ -301,7 +300,30 @@ def test_release_asserts_all_four_assets_are_present():
     # only the other: clients look for one name and find nothing, silently.
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "LM_LabelingTool-Setup-v" in text
-    assert "lm-labeling-tool-runtime_" in text
+    release = text[text.index("\n  release:"):]
+    assert release.count("checker.full_asset_name(") == 2
+    assert release.count("checker.update_asset_name(") == 2
+
+
+def test_each_platform_publishes_one_package_and_one_zip(workflow):
+    assert "LM_LabelingTool-App-" not in workflow
+    assert "lm-labeling-tool-runtime" not in workflow
+    assert "reuse_runtime.py" not in workflow
+    assert workflow.count("packaging/update_zip.py") == 2
+
+
+def test_the_release_page_is_generated_and_korean(workflow):
+    assert "packaging/release_notes.py body" in workflow
+    assert "body_path:" in workflow
+    # checked before the 30-minute builds, not after them
+    yaml = pytest.importorskip("yaml")
+    steps = yaml.safe_load(workflow)["jobs"]["build-linux"]["steps"]
+    version = next(s for s in steps if s.get("name") == "Version")["run"]
+    assert "release_notes.py check" in version
+
+
+def test_ci_proves_a_zip_update_on_the_installed_app(workflow):
+    assert "--apply-update" in workflow
 
 
 def test_the_linux_dev_version_starts_with_a_digit():
@@ -350,10 +372,10 @@ def test_the_linux_build_installs_the_bundled_libraries_too():
 def test_the_runner_installs_the_debs_before_running_the_installed_app():
     # Smoke test 1/2 installs inside a throwaway container, so nothing it
     # installs survives onto the runner. Steps that run the installed app
-    # (or rely on the real runtime deb being present, like the mismatch
-    # guard) need their own install on the runner -- without it 2/2 failed
-    # with "/opt/lm-labeling-tool/LM_LabelingTool: not found" (CI run
-    # 36853951013) and the guard passed vacuously.
+    # (2/2, the zip update round trip) need their own install on the
+    # runner -- without it 2/2 failed with
+    # "/opt/lm-labeling-tool/LM_LabelingTool: not found" (CI run
+    # 36853951013).
     yaml = pytest.importorskip("yaml")
     steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["build-linux"]["steps"]
     runs = [s.get("run", "") for s in steps]
@@ -362,9 +384,9 @@ def test_the_runner_installs_the_debs_before_running_the_installed_app():
     assert uses_installed, "expected a runner-level step that runs the installed app"
     first = uses_installed[0]
     installs = [i for i, r in enumerate(runs)
-                if "sudo dpkg -i" in r and "lm-labeling-tool-runtime_" in r]
+                if "sudo dpkg -i" in r and "lm-labeling-tool_" in r]
     assert installs and installs[0] <= first, \
-        "the runner must install both debs before running the installed app"
+        "the runner must install the deb before running the installed app"
 
 
 def test_the_2404_cross_validation_overlaps_the_other_install_checks():

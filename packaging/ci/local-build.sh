@@ -12,8 +12,8 @@
 # real `dpkg -i` into /opt.
 #
 # Usage, from the repository root (needs the host's docker socket so the
-# "smoke" step's sufficiency/guard and 24.04 cross-validation checks can
-# each start a fresh sibling container -- NOT nested docker-in-docker, a
+# "smoke" step's availability and 24.04 cross-validation checks can each
+# start a fresh sibling container -- NOT nested docker-in-docker, a
 # sibling started via the HOST's own dockerd through the mounted socket;
 # --tmpfs /repo/.venv shadows a host dev venv if one exists -- see the
 # check below for why that matters):
@@ -51,7 +51,7 @@
 # The "smoke" step mirrors release.yml's build-linux install checks one
 # for one -- see step_smoke() below for the four checks and why each runs
 # where it does. In short: availability on a stock 22.04 desktop container
-# (dpkg -i only), sufficiency and the dependency guard in THIS outer
+# (dpkg -i only), sufficiency and the zip-update round trip in THIS outer
 # container (which, like CI's runner, carries the libraries the build
 # needs), and a 24.04 desktop container for the cross-validation.
 
@@ -180,7 +180,7 @@ fi
 echo "==> system packages"
 export DEBIAN_FRONTEND=noninteractive
 bounded 300 "apt-get update" apt-get update
-# dpkg-dev: dpkg-deb, used to build the two .deb packages.
+# dpkg-dev: dpkg-deb, used to build the .deb package.
 # xvfb: runs the Qt GUI headless for the tests/selftest steps.
 # build-essential: a C compiler, for any pinned package with no prebuilt wheel.
 # software-properties-common: add-apt-repository, for deadsnakes below.
@@ -315,11 +315,21 @@ step_deb() {
     if [ -z "$RUNTIME_ID" ] && [ -f "$DIST/build-info.json" ]; then
         RUNTIME_ID=$("$PY" -c "import json,sys; print(json.load(open(sys.argv[1]))['runtime'])" "$DIST/build-info.json")
     fi
+    if [ -z "$RUNTIME_ID" ]; then
+        echo "no runtime id: run the layers step first" >&2
+        exit 1
+    fi
+    if [ ! -d dist/app-layer ]; then
+        "$PY" packaging/layers.py stage "$DIST" dist/app-layer
+    fi
     mkdir -p out
-    rm -f out/*.deb
+    rm -f out/*.deb out/*.zip
     # Fast gzip compression for local iteration (LT_FAST=1); a release build
     # uses xz via CI's own invocation of this same function.
     bounded 300 "deb.py build" env LT_FAST=1 "$PY" packaging/deb.py build "$DIST" out "$version"
+    # The app-layer update zip, named for the runtime id it was built
+    # against -- what the smoke step's update round trip applies.
+    bounded 300 "update_zip.py" "$PY" packaging/update_zip.py dist/app-layer out "$version" "$RUNTIME_ID" linux
     ls -la out/
 }
 
@@ -333,22 +343,21 @@ step_smoke() {
     #      cannot install either.
     #   2. sufficiency -- THIS outer container, which (like CI's runner)
     #      already has RUNTIME_DEPENDS + deb.BUNDLED_LIBS installed for the
-    #      build: install both debs and run the installed app's selftest.
-    #   3. dependency guard -- with the real runtime deb installed here, an
-    #      app deb built against another runtime id must be refused by dpkg.
-    #      It has to run where the real runtime IS installed: with no
-    #      runtime at all, any app deb is refused and the check proves
-    #      nothing.
+    #      build: install the deb and run the installed app's selftest.
+    #   3. update round trip -- damage one installed app-layer file, let
+    #      the installed app apply this build's update zip (the path every
+    #      routine update takes), and check the file is back, the journal
+    #      is gone and the selftest still passes.
     #   4. 24.04 cross-validation -- a stock 24.04 desktop: install AND run
     #      the selftest (glibc only works forwards). Started in the
     #      background so its desktop install overlaps check 1, as in CI.
     #
-    # This replaces an earlier design that ran 2+3 in a bare ubuntu:22.04
+    # This replaces an earlier design that ran check 2 in a bare ubuntu:22.04
     # sibling with only dpkg-dev/xvfb/build-essential: there dpkg -i cannot
     # succeed (the declared libraries are simply absent -- the same wall CI
     # run 36841286350 hit) and the step hung or failed for reasons unrelated
     # to the package. Check 1 answers the question that design was after.
-    local bad_stage bad_deb noble_log noble_exit noble_pid code
+    local zip sha victim noble_log noble_exit noble_pid code
 
     echo "-- 24.04 cross-validation: started in the background --"
     noble_log="$(mktemp /tmp/lt-noble.XXXXXX)"; noble_exit="$noble_log.exit"
@@ -363,7 +372,7 @@ step_smoke() {
             chmod +x /usr/sbin/policy-rc.d
             apt-get install -y ubuntu-desktop-minimal
             apt-get install -y --no-install-recommends xvfb
-            dpkg -i /out/lm-labeling-tool-runtime_*.deb /out/lm-labeling-tool_*.deb
+            dpkg -i /out/lm-labeling-tool_*.deb
             set +e
             timeout --kill-after=10 300 xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest=full
             code=$?
@@ -385,11 +394,11 @@ step_smoke() {
         printf "#!/bin/sh\nexit 101\n" > /usr/sbin/policy-rc.d
         chmod +x /usr/sbin/policy-rc.d
         apt-get install -y ubuntu-desktop-minimal
-        dpkg -i /out/lm-labeling-tool-runtime_*.deb /out/lm-labeling-tool_*.deb
+        dpkg -i /out/lm-labeling-tool_*.deb
     '
 
     echo "-- 2/4 sufficiency: install here and run the installed app --"
-    bounded 600 "dpkg -i (outer container)" dpkg -i out/lm-labeling-tool-runtime_*.deb out/lm-labeling-tool_*.deb
+    bounded 600 "dpkg -i (outer container)" dpkg -i out/lm-labeling-tool_*.deb
     rm -f "$HOME/.local/share/lm-labeling-tool/selftest.log" "$HOME/.local/share/lm-labeling-tool/selftest-hang.txt"
     code=0
     timeout --kill-after=10 300 xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest=full || code=$?
@@ -403,20 +412,42 @@ step_smoke() {
         return 1
     fi
 
-    echo "-- 3/4 dependency guard: a mismatched app deb must be refused --"
-    bad_stage="$REPO_ROOT/out-bad"
-    rm -rf "$bad_stage"
-    bounded 300 "building a mismatched-runtime app deb" \
-        env LT_FAST=1 "$PY" packaging/deb.py build --app-only --runtime-id rdeadbeef \
-            "$DIST" "$bad_stage" "$version"
-    bad_deb=$(ls "$bad_stage"/lm-labeling-tool_*.deb)
-    if dpkg -i "$bad_deb"; then
-        echo "a mismatched-runtime app deb installed; it must be rejected" >&2
+    echo "-- 3/4 update round trip: the installed app applies its own zip --"
+    zip=$(ls out/update-v*-linux.zip)
+    sha=$(sha256sum "$zip" | cut -d' ' -f1)
+    # Damage one installed app-layer file, then let the zip repair it.
+    # (build-info.json must stay intact: apply_patch reads its runtime id.)
+    # -print -quit, not `| head -1`: under pipefail, find dies of SIGPIPE
+    # once head has exited and fails the step at random.
+    victim=$(cd /opt/lm-labeling-tool && find _internal/labeling_tool -name '*.pyc' -print -quit)
+    if [ -z "$victim" ]; then
+        echo "no installed app-layer .pyc to damage" >&2
         return 1
     fi
-    echo "mismatched-runtime app deb correctly rejected by dpkg"
-    dpkg --remove --force-remove-reinstreq lm-labeling-tool >/dev/null 2>&1 || true
-    rm -rf "$bad_stage"
+    rm "/opt/lm-labeling-tool/$victim"
+    bounded 300 "--apply-update on the installed app" \
+        /opt/lm-labeling-tool/LM_LabelingTool --apply-update "$zip" --sha256 "$sha"
+    if [ ! -f "/opt/lm-labeling-tool/$victim" ]; then
+        echo "the zip update did not restore $victim" >&2
+        return 1
+    fi
+    if [ -e /opt/lm-labeling-tool/.update-journal ]; then
+        echo "the zip update left its journal behind" >&2
+        return 1
+    fi
+    rm -f "$HOME/.local/share/lm-labeling-tool/selftest.log" "$HOME/.local/share/lm-labeling-tool/selftest-hang.txt"
+    code=0
+    timeout --kill-after=10 300 xvfb-run -a /opt/lm-labeling-tool/LM_LabelingTool --selftest=full || code=$?
+    if [ "$code" -ne 0 ]; then
+        for f in selftest.log selftest-hang.txt; do
+            if [ -s "$HOME/.local/share/lm-labeling-tool/$f" ]; then
+                echo "--- $f"; cat "$HOME/.local/share/lm-labeling-tool/$f"
+            fi
+        done
+        echo "selftest after the zip update failed with exit code $code" >&2
+        return 1
+    fi
+    echo "zip update applied and the app still passes its selftest"
 
     echo "-- 4/4 24.04 cross-validation: collecting --"
     wait "$noble_pid" || true
