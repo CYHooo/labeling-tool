@@ -86,6 +86,12 @@ def test_uninstall_removes_update_leftovers(iss):
         assert f'{{app}}\\{name}' in _section(iss, "[UninstallDelete]")
 
 
+def test_uninstall_removes_files_a_zip_update_added(iss):
+    """Inno only uninstalls the files it installed; a zip update adds new
+    modules under _internal\\, which holds no user data (see [InstallDelete])."""
+    assert 'Type: filesandordirs; Name: "{app}\\_internal"' in _section(iss, "[UninstallDelete]")
+
+
 # ------------------------------------------------------------- CI workflow
 # Every wait in the Windows build must be bounded. Two runs were lost to
 # unbounded waits: one hung 96 minutes on a modal dialog, one left a tag
@@ -320,6 +326,46 @@ def test_the_release_page_is_generated_and_korean(workflow):
     steps = yaml.safe_load(workflow)["jobs"]["build-linux"]["steps"]
     version = next(s for s in steps if s.get("name") == "Version")["run"]
     assert "release_notes.py check" in version
+
+
+def _release_steps(workflow):
+    yaml = pytest.importorskip("yaml")
+    return yaml.safe_load(workflow)["jobs"]["release"]["steps"]
+
+
+def test_only_the_tag_message_reaches_the_release_notes(workflow):
+    """%(contents) of a signed tag carries its PGP signature too."""
+    yaml = pytest.importorskip("yaml")
+    linux = yaml.safe_load(workflow)["jobs"]["build-linux"]["steps"]
+    runs = [next(s for s in linux if s.get("name") == "Version")["run"],
+            next(s for s in _release_steps(workflow) if s.get("name") == "Release page")["run"]]
+    for run in runs:
+        assert "%(contents)'" not in run
+        assert "git tag -l --format='%(contents:subject)%0a%0a%(contents:body)'" in run
+    assert "%(contents)'" not in workflow
+
+
+def test_the_merged_checksums_are_verified_before_publishing(workflow):
+    steps = _release_steps(workflow)
+    names = [s.get("name") for s in steps]
+    verify = next(i for i, s in enumerate(steps)
+                  if "(cd out && sha256sum -c SHA256SUMS.txt)" in s.get("run", ""))
+    assert names.index("Merge the two platforms' assets and checksums into one release") < verify
+    publish = next(i for i, s in enumerate(steps)
+                   if "softprops/action-gh-release" in s.get("uses", ""))
+    assert verify < publish
+
+
+def test_the_release_stays_a_draft_until_every_asset_is_uploaded(workflow):
+    """/releases/latest must never show a release with half its assets."""
+    steps = _release_steps(workflow)
+    publish = next(i for i, s in enumerate(steps)
+                   if "softprops/action-gh-release" in s.get("uses", ""))
+    assert steps[publish]["with"]["draft"] is True
+    final = steps[publish + 1]
+    assert 'gh release edit "$GITHUB_REF_NAME" --draft=false' in final["run"]
+    assert final["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert len(steps) == publish + 2
 
 
 def test_ci_proves_a_zip_update_on_the_installed_app(workflow):

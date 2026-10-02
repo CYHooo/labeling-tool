@@ -373,8 +373,11 @@ jobs:
             # builds, not by the release job after them. actions/checkout
             # leaves a lightweight copy of the tag behind; fetch the real
             # annotated one. A manual run has no tag message to check.
+            # Subject and body only: %(contents) of a signed tag also carries
+            # its PGP signature. A lightweight tag yields the commit's
+            # (English) subject, which the check still rejects.
             git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
-            git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.txt"
+            git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.txt"
             python packaging/release_notes.py check "$RUNNER_TEMP/notes.txt"
           else
             ver="0.0.0-dev-${GITHUB_SHA:0:7}"
@@ -771,6 +774,13 @@ jobs:
           sed -i '/^$/d' out/SHA256SUMS.txt
           ls -la out/
 
+      - name: Verify the merged checksums
+        run: |
+          set -euo pipefail
+          # The merged file is what every client verifies against: prove
+          # each line matches the file it names before anything is published.
+          (cd out && sha256sum -c SHA256SUMS.txt)
+
       - name: Assert all four release assets, and their checksums, are present
         run: |
           set -euo pipefail
@@ -833,12 +843,21 @@ jobs:
           # take. actions/checkout leaves a lightweight copy of the tag; the
           # annotation needs the real one.
           git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
-          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > notes.txt
+          git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$GITHUB_REF_NAME" > notes.txt
           python packaging/release_notes.py body "${GITHUB_REF_NAME#v}" notes.txt body.md
           cat body.md
 
-      - name: Publish release assets
+      # Uploaded as a draft, then published in one step once every asset
+      # is there: /releases/latest never shows a release with half its
+      # assets, which a client polling mid-upload would take as "no update".
+      - name: Upload release assets to a draft
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
           files: out/*
           body_path: body.md
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --repo "$GITHUB_REPOSITORY"

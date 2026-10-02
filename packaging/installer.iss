@@ -96,6 +96,10 @@ Type: filesandordirs; Name: "{app}\.update-staging"
 Type: files;          Name: "{app}\.update-journal"
 
 [UninstallDelete]
+; Inno removes only the files it installed; a zip update can add modules
+; under _internal\ that it never saw. _internal\ holds no user data (see
+; [InstallDelete]), so the whole directory goes.
+Type: filesandordirs; Name: "{app}\_internal"
 ; zip updates (labeling_tool/update/patch.py) leave these beside the install
 Type: filesandordirs; Name: "{app}\.update-backup"
 Type: filesandordirs; Name: "{app}\.update-staging"
