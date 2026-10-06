@@ -163,9 +163,11 @@ Step "smoke" {
                    "$target\_internal\PyQt5\QtWidgets.pyd") | Where-Object { Test-Path $_ }
     # Damage one installed app-layer file, then let the zip repair it.
     # (build-info.json must stay intact: the update reads its runtime id.)
-    $victim = Get-ChildItem "$target\_internal\labeling_tool" -Recurse -File -Filter *.pyc | Select-Object -First 1
-    if (-not $victim) { throw "no installed app-layer .pyc to damage" }
-    $victimPath = $victim.FullName
+    # A fixed file the --apply-update run never imports (the first .pyc in
+    # directory order may be one app.py imports at startup); the selftest
+    # below imports it, proving the zip restored it.
+    $victimPath = "$target\_internal\labeling_tool\selftest.pyc"
+    if (-not (Test-Path $victimPath)) { throw "no installed $victimPath to damage" }
     Remove-Item $victimPath
     $sha = (Get-FileHash $zip.FullName -Algorithm SHA256).Hash.ToLower()
     # Start-Process joins -ArgumentList with spaces and quotes nothing; a
