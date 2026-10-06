@@ -101,11 +101,11 @@ venv 里不能有多余的包：PyInstaller 会把它们一起打包进去，run
 页面正文由 `packaging/release_notes.py` 自动生成，全部为韩语：
 
 1. 顶部是下载表格（Windows 的 EXE、Ubuntu 的 deb 直链）；
-2. 中间是 tag 注释正文，位于 `<!-- notes:start -->` 与 `<!-- notes:end -->` 之间；
-3. 下面是“어떤 파일을 받아야 하나요?”文件指南；
-4. 最下面是 GitHub 自动列出的 Assets。
+2. 下面是 tag 注释正文，位于 `<!-- notes:start -->` 与 `<!-- notes:end -->` 之间
+   （标题由注释自己写，例如 `## 주요 변경 사항`；生成器不再另加标题，也不再附文件说明）；
+3. 最下面是 GitHub 自动列出的 Assets。
 
-应用内的更新弹窗只显示 `notes:start` 与 `notes:end` 之间的内容，所以表格和文件指南不会出现在弹窗里。
+应用内的更新弹窗只显示 `notes:start` 与 `notes:end` 之间的内容，所以表格不会出现在弹窗里。
 
 ## 更新是怎么到达用户手里的
 
