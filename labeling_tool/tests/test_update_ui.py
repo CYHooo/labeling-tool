@@ -910,3 +910,23 @@ def test_a_periodic_check_is_skipped_while_a_prompt_is_open(monkeypatch):
     monkeypatch.setattr(ui, "_PROMPTING", [])
     ui._periodic_check()
     assert checks == [None]
+
+
+def test_notes_shown_in_the_dialog_drop_markdown_markers():
+    """The dialog is plain text, so the release notes' Markdown would show
+    literally ("## 주요 변경 사항"); headings and bold lose their markers,
+    list dashes stay."""
+    notes = "## 주요 변경 사항\n\n- **설치** 파일 통합\n- 버전 0.x\n\n### 안내\n- 재설치"
+    assert ui.plain_notes(notes) == "주요 변경 사항\n\n- 설치 파일 통합\n- 버전 0.x\n\n안내\n- 재설치"
+
+
+def test_the_prompt_shows_the_notes_without_markdown(monkeypatch, tmp_path):
+    from dataclasses import replace
+    from labeling_tool.core import i18n
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path)
+    captured = {}
+    monkeypatch.setattr(ui.QMessageBox, "exec_", lambda self: captured.setdefault("info", self.informativeText()))
+    monkeypatch.setattr(ui.QMessageBox, "clickedButton", lambda self: None)
+    ui._ask(None, replace(INFO, notes="## 주요 변경 사항\n\n- 개선"))
+    assert "##" not in captured["info"]
+    assert "주요 변경 사항" in captured["info"]
