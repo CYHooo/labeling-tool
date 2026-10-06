@@ -20,6 +20,7 @@ labeling_tool/tests/test_deb.py asserts it.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import stat
@@ -131,6 +132,24 @@ def _control(fields: list[tuple[str, str]]) -> str:
     return "".join(f"{key}: {value}\n" for key, value in fields)
 
 
+# Files the deb installs outside /opt that the app-layer zip never updates
+# (packaging/reuse_deb.py may only re-ship a previous deb when these match).
+FINGERPRINT_FIELD = "X-LT-Extras-SHA256"
+_ICON_SOURCE_DIR = Path(__file__).resolve().parents[1] / "labeling_tool" / "resources"
+
+
+def extras_fingerprint() -> str:
+    """SHA-256 over what _stage_app_extras puts outside /opt: the .desktop
+    template and the icons. A previous deb whose fingerprint differs carries
+    stale extras, so it cannot be re-shipped under a new version."""
+    digest = hashlib.sha256()
+    for path in [_DESKTOP_TEMPLATE] + [_ICON_SOURCE_DIR / f"icon-{px}.png" for px in ICON_SIZES]:
+        digest.update(path.name.encode("utf-8") + b"\0")
+        digest.update(path.read_bytes() if path.is_file() else b"<missing>")
+    digest.update(f"{INSTALL_PREFIX}/{layers.app_entry_name(layers.LINUX)}".encode("utf-8"))
+    return digest.hexdigest()
+
+
 def control(version: str, installed_kb: int) -> str:
     """DEBIAN/control for the single package."""
     return _control([
@@ -142,6 +161,7 @@ def control(version: str, installed_kb: int) -> str:
         ("Depends", ", ".join(RUNTIME_DEPENDS)),
         ("Section", "graphics"),
         ("Priority", "optional"),
+        (FINGERPRINT_FIELD, extras_fingerprint()),
         ("Description", "LM Labeling Tool"),
     ])
 

@@ -31,9 +31,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from labeling_tool.update import checker  # noqa: E402
 
 
-def plan_reuse(release: dict, runtime: str) -> tuple[str, str] | None:
-    """(previous tag, its full installer's asset name) when that installer
+def plan_reuse(release: dict, runtime: str,
+               platform: str = checker.WINDOWS) -> tuple[str, str] | None:
+    """(previous tag, its full package's asset name) when that package
     carries our runtime layer; None when a fresh full build is needed.
+    The Windows installer and the Linux deb (packaging/reuse_deb.py) both
+    use it.
 
     `release` is `gh release view --json tagName,assets` for the latest
     published release."""
@@ -42,9 +45,9 @@ def plan_reuse(release: dict, runtime: str) -> tuple[str, str] | None:
     if not version or checker.parse_version(version) is None:
         return None
     names = {a.get("name") for a in release.get("assets") or []}
-    if checker.update_asset_name(version, runtime, checker.WINDOWS) not in names:
+    if checker.update_asset_name(version, runtime, platform) not in names:
         return None   # runtime changed, or that release predates update zips
-    full = checker.full_asset_name(version, checker.WINDOWS)
+    full = checker.full_asset_name(version, platform)
     if full not in names or checker.SUMS_ASSET not in names:
         return None
     return tag, full
@@ -67,9 +70,9 @@ def verify(sums_path: Path, file_path: Path) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
-    if len(args) == 3 and args[0] == "plan":
+    if len(args) in (3, 4) and args[0] == "plan":
         release = json.loads(Path(args[1]).read_text(encoding="utf-8-sig"))
-        found = plan_reuse(release, args[2])
+        found = plan_reuse(release, args[2], args[3] if len(args) == 4 else checker.WINDOWS)
         if found:
             print(f"{found[0]}\t{found[1]}")
         return 0
@@ -77,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
         ok = verify(Path(args[1]), Path(args[2]))
         print("checksum ok" if ok else "checksum MISMATCH", file=sys.stderr)
         return 0 if ok else 1
-    print("usage: reuse_full.py plan <release.json> <runtime-id>\n"
+    print("usage: reuse_full.py plan <release.json> <runtime-id> [win32|linux]\n"
           "       reuse_full.py verify <SHA256SUMS.txt> <file>", file=sys.stderr)
     return 2
 
