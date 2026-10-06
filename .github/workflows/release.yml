@@ -772,10 +772,12 @@ jobs:
           # via Add-Content, only incidentally does), force a newline after
           # each file and drop blank lines, so a future writer that omits
           # the trailing newline cannot silently merge two checksum lines
-          # into one and lose an entry.
+          # into one and lose an entry. Strip CR too: PowerShell's
+          # Add-Content ends the Windows lines in CRLF, and `sha256sum -c`
+          # then looks for "<name>\r" (failed the v0.2.0 run 37415959330).
           : > out/SHA256SUMS.txt
           for f in artifacts/*/SHA256SUMS.txt; do
-            { cat "$f"; echo; } >> out/SHA256SUMS.txt
+            { tr -d '\r' < "$f"; echo; } >> out/SHA256SUMS.txt
           done
           sed -i '/^$/d' out/SHA256SUMS.txt
           ls -la out/
