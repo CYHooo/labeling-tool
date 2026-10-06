@@ -105,7 +105,7 @@ def test_a_release_build_compresses_with_xz_level_9(tmp_path, monkeypatch):
 
 
 def test_desktop_entry_points_at_the_installed_executable():
-    entry = deb.desktop_entry("1.4.1")
+    entry = deb.desktop_entry()
     assert "Exec=/opt/lm-labeling-tool/LM_LabelingTool" in entry
     assert "Icon=lm-labeling-tool" in entry
     assert entry.startswith("[Desktop Entry]")
@@ -160,3 +160,11 @@ def test_cli_rejects_unknown_arguments():
     assert deb.main(["build", "--bogus-flag", "a", "b", "c"]) == 2
     assert deb.main(["build", "--app-only", "a", "b", "c"]) == 2
     assert deb.main(["nonsense"]) == 2
+
+
+def test_nothing_outside_opt_carries_the_version():
+    """A reused deb (reuse_deb.py) keeps the previous release's files, so a
+    version stamped into one outside /opt would go stale; the app's own
+    version lives in build-info.json, which the update zip replaces."""
+    assert "@VERSION@" not in deb._DESKTOP_TEMPLATE.read_text(encoding="utf-8")
+    assert "X-AppVersion" not in deb.desktop_entry()

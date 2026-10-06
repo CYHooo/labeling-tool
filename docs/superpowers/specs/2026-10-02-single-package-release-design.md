@@ -50,7 +50,8 @@ Linux 有 runtime 和 app 两个 deb。用户在 Release 页面上无法判断�
   只改写 control 成员里的 Version，约 1.7 GB 的数据成员原样复制，不再重做 16 分钟的 xz -9
   （`packaging/reuse_deb.py`）。前提是当前代码会写出的 control（Depends、维护脚本、
   `.desktop` 与图标的指纹 `X-LT-Extras-SHA256`）除 Version 外与旧包完全一致，否则完整构建。
-  新安装的用户先装上一版代码，首次启动由 zip 更新到最新版，与 Windows 相同。
+  新安装的用户先装上一版代码，首次启动由 zip 更新到最新版。与 Windows 不同的是，Linux 的 zip 以 root
+  应用，这第一次更新需要输入一次密码（pkexec）并重启。`.desktop` 不再写版本号，避免复用后过时。
 - 发布前门槛：上述 4 个文件与 `SHA256SUMS.txt` 齐全且校验码对应，否则不发布；
   资产大小上限检查保持不变（发布级压缩时才执行）。
 

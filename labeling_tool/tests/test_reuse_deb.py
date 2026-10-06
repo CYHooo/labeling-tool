@@ -93,7 +93,7 @@ def test_not_reusable_when_the_depends_changed(old_deb, monkeypatch):
 
 
 def test_not_reusable_when_a_maintainer_script_changed(old_deb, monkeypatch):
-    monkeypatch.setattr(deb, "POSTRM", deb.POSTRM + "# changed\n")
+    monkeypatch.setattr(deb, "MAINTAINER_SCRIPTS", {**deb.MAINTAINER_SCRIPTS, "postrm": deb.POSTRM + "# changed\n"})
     assert reuse_deb.reusable(old_deb, "0.2.2") is False
 
 
@@ -129,6 +129,57 @@ def test_cli_restamps_or_says_why_not(old_deb, tmp_path, monkeypatch):
     out = tmp_path / "cli.deb"
     assert reuse_deb.main(["restamp", str(old_deb), str(out), "0.2.2"]) == 0
     assert _field(out, "Version") == "0.2.2"
-    monkeypatch.setattr(deb, "POSTRM", deb.POSTRM + "# changed\n")
+    monkeypatch.setattr(deb, "MAINTAINER_SCRIPTS", {**deb.MAINTAINER_SCRIPTS, "postrm": deb.POSTRM + "# changed\n"})
     assert reuse_deb.main(["restamp", str(old_deb), str(tmp_path / "no.deb"), "0.2.2"]) == 3
     assert not (tmp_path / "no.deb").exists()
+
+
+def test_an_unreadable_previous_deb_falls_back_to_a_full_build(tmp_path):
+    """Anything reuse_deb cannot parse -- a non-deb, a truncated download, a
+    control member in a compression it does not know -- means "build in full"
+    (exit 3), never a failed release job."""
+    bad = tmp_path / "bad.deb"
+    bad.write_bytes(b"not an ar archive")
+    assert reuse_deb.main(["restamp", str(bad), str(tmp_path / "o.deb"), "0.2.2"]) == 3
+
+
+def test_a_truncated_previous_deb_falls_back_and_leaves_no_partial_file(old_deb, tmp_path):
+    cut = tmp_path / "cut.deb"
+    cut.write_bytes(old_deb.read_bytes()[:-200])
+    out = tmp_path / "o.deb"
+    assert reuse_deb.main(["restamp", str(cut), str(out), "0.2.2"]) == 3
+    assert not out.exists() and not list(tmp_path.glob("*.part"))
+
+
+def test_an_unknown_control_compression_falls_back(tmp_path):
+    blob = reuse_deb._AR_MAGIC
+    for name, body in ((b"debian-binary", b"2.0\n"), (b"control.tar.zst", b"\x28\xb5\x2f\xfd"), (b"data.tar.xz", b"x")):
+        header = name.ljust(16) + b"0".ljust(12) + b"0".ljust(6) + b"0".ljust(6) + b"100644".ljust(8) + str(len(body)).encode().ljust(10) + b"`\n"
+        blob += header + body + (b"\n" if len(body) % 2 else b"")
+    deb_path = tmp_path / "zst.deb"
+    deb_path.write_bytes(blob)
+    assert reuse_deb.main(["restamp", str(deb_path), str(tmp_path / "o.deb"), "0.2.2"]) == 3
+
+
+def test_not_reusable_when_deb_build_would_add_a_control_file(old_deb, monkeypatch):
+    monkeypatch.setattr(deb, "MAINTAINER_SCRIPTS", {**deb.MAINTAINER_SCRIPTS, "prerm": "#!/bin/sh\nexit 0\n"})
+    assert reuse_deb.reusable(old_deb, "0.2.2") is False
+
+
+def test_not_reusable_when_the_staging_layout_revision_changed(old_deb, monkeypatch):
+    monkeypatch.setattr(deb, "LAYOUT_REVISION", deb.LAYOUT_REVISION + 1)
+    assert reuse_deb.reusable(old_deb, "0.2.2") is False
+
+
+def test_the_rewritten_control_tar_stays_gnu_format(old_deb, tmp_path):
+    new = tmp_path / "new.deb"
+    reuse_deb.restamp(old_deb, new, "0.2.2")
+    import io, lzma
+    name, blob = next((n, b) for n, b in _members(new).items() if n.startswith("control.tar"))
+    raw = lzma.decompress(blob) if name.endswith(".xz") else blob
+    assert raw[257:265] == b"ustar  \0"   # GNU magic, as dpkg-deb writes it
+
+
+def test_the_version_is_written_literally_not_as_a_regex_template():
+    assert reuse_deb._restamped_control("Package: x\nVersion: 1\n", "0.2.2+g\\1") == \
+        "Package: x\nVersion: 0.2.2+g\\1\n"

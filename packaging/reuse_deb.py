@@ -88,14 +88,14 @@ def _control_member(deb_path: Path) -> tuple[str, bytes]:
     raise ValueError(f"{deb_path} has no control member")
 
 
-def _control_files(deb_path: Path) -> dict[str, str]:
-    """The control file and maintainer scripts, by base name."""
+def _control_files(deb_path: Path) -> dict[str, tuple[str, int]]:
+    """(text, mode) of every regular file in the control member, by base name."""
     name, blob = _control_member(deb_path)
     out = {}
     with tarfile.open(fileobj=io.BytesIO(_decompress(name, blob))) as tar:
         for info in tar.getmembers():
             if info.isfile():
-                out[Path(info.name).name] = tar.extractfile(info).read().decode("utf-8")
+                out[Path(info.name).name] = (tar.extractfile(info).read().decode("utf-8"), info.mode)
     return out
 
 
@@ -109,7 +109,7 @@ def _fields(control: str) -> dict[str, str]:
 
 
 def _restamped_control(control: str, version: str, drop_fields=()) -> str:
-    text = re.sub(r"(?m)^Version:.*$", f"Version: {version}", control, count=1)
+    text = re.sub(r"(?m)^Version:.*$", lambda _m: f"Version: {version}", control, count=1)
     for field in drop_fields:
         text = re.sub(rf"(?m)^{re.escape(field)}:.*\n", "", text)
     return text
@@ -119,21 +119,23 @@ def reusable(deb_path: Path, version: str) -> bool:
     """True when restamping deb_path to `version` gives exactly the control
     and maintainer scripts deb.build would write today."""
     files = _control_files(Path(deb_path))
-    control = files.get("control", "")
+    if set(files) != {"control"} | set(deb.MAINTAINER_SCRIPTS):
+        return False   # deb.build would now write a different set of files
+    control = files["control"][0]
     fields = _fields(control)
     if FINGERPRINT_FIELD not in fields or not fields.get("Installed-Size", "").isdigit():
         return False
-    expected = deb.control(version, int(fields["Installed-Size"]))
-    if _restamped_control(control, version) != expected:
+    if _restamped_control(control, version) != deb.control(version, int(fields["Installed-Size"])):
         return False
-    scripts = {"postinst": deb.POSTINST, "preinst": deb.PREINST, "postrm": deb.POSTRM}
-    return all(files.get(name) == body for name, body in scripts.items())
+    return all(files[name][0] == body and files[name][1] & 0o111
+               for name, body in deb.MAINTAINER_SCRIPTS.items())
 
 
 def _rewrite_control_tar(name: str, blob: bytes, version: str, drop_fields) -> bytes:
     src = tarfile.open(fileobj=io.BytesIO(_decompress(name, blob)))
     buf = io.BytesIO()
-    with src, tarfile.open(fileobj=buf, mode="w", format=src.format) as dst:
+    # GNU format, as dpkg-deb writes it (tarfile reports PAX for any input).
+    with src, tarfile.open(fileobj=buf, mode="w", format=tarfile.GNU_FORMAT) as dst:
         for info in src.getmembers():
             if info.isfile():
                 data = src.extractfile(info).read()
@@ -160,6 +162,16 @@ def restamp(src: Path, dst: Path, version: str, drop_fields=()) -> Path:
     src, dst = Path(src), Path(dst)
     dst.parent.mkdir(parents=True, exist_ok=True)
     tmp = dst.with_name(dst.name + ".part")
+    try:
+        _write_restamped(src, tmp, version, drop_fields)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    tmp.replace(dst)
+    return dst
+
+
+def _write_restamped(src: Path, tmp: Path, version: str, drop_fields) -> None:
     with open(src, "rb") as f, open(tmp, "wb") as out:
         out.write(_AR_MAGIC)
         for name, header, off, size in list(_iter_ar(f)):
@@ -180,19 +192,24 @@ def restamp(src: Path, dst: Path, version: str, drop_fields=()) -> Path:
                     remaining -= len(chunk)
             if size % 2:
                 out.write(b"\n")
-    tmp.replace(dst)
-    return dst
 
 
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     if len(args) == 4 and args[0] == "restamp":
         src, dst, version = Path(args[1]), Path(args[2]), args[3]
-        if not reusable(src, version):
-            print(f"{src.name}: control, maintainer scripts or desktop/icon extras "
-                  "differ from this build -- full build needed", file=sys.stderr)
+        # Anything unreadable means "build in full", never a failed release:
+        # every re-run would pick the same previous deb and fail again.
+        try:
+            if not reusable(src, version):
+                print(f"{src.name}: control, maintainer scripts or desktop/icon extras "
+                      "differ from this build -- full build needed", file=sys.stderr)
+                return 3
+            restamp(src, dst, version)
+        except (ValueError, OSError, EOFError, lzma.LZMAError, tarfile.TarError,
+                UnicodeDecodeError) as exc:
+            print(f"{src.name}: cannot re-ship it ({exc}) -- full build needed", file=sys.stderr)
             return 3
-        restamp(src, dst, version)
         print(dst)
         return 0
     print("usage: reuse_deb.py restamp <previous.deb> <out.deb> <version>", file=sys.stderr)
