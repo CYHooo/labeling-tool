@@ -1,8 +1,8 @@
-"""The Korean release page: download table, change notes, file guide.
+"""The Korean release page: the download table, then the change notes.
 
 Change notes come from the annotated tag's message, which must be Korean.
 The updater shows only the part between the notes markers
-(checker.extract_notes), so the table and guide never reach its dialog.
+(checker.extract_notes), so the table never reaches its dialog.
 """
 
 from __future__ import annotations
@@ -34,15 +34,9 @@ def build_body(version: str, notes: str, repo: str = checker.GITHUB_REPO) -> str
         "|---|---|---|",
         f"| x86-64 (64-bit) | [EXE]({base}{exe}) | [Download (.deb)]({base}{deb}) |",
         "",
-        "## 변경 사항",
         checker.NOTES_START,
         notes.strip(),
         checker.NOTES_END,
-        "",
-        "### 어떤 파일을 받아야 하나요?",
-        "- Windows: 위 표의 **EXE** 하나만 받으면 됩니다.",
-        "- Ubuntu 22.04 / 24.04: 위 표의 **Download (.deb)** 하나만 받으면 됩니다.",
-        "- 아래 Assets 의 update-*.zip, SHA256SUMS.txt, Source code 는 자동 업데이트용이므로 받지 않아도 됩니다.",
         "",
     ])
 
