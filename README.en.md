@@ -68,8 +68,8 @@ To continue a job you already have, pick it on the "Local jobs" tab and click "O
 |---|---|
 | **Brush** | Draw a crack roughly; when you release the mouse it becomes a 1 px centerline. Turn on "Fine annotation (keep width)" to keep the drawn width. |
 | **Repair area** | Mark repair regions with rotatable rectangles (OBB). Overlaps are counted once. |
-| **Scale (px/cm)** | Uses the value the server computed. To correct it, use "Manual Measure": click two points of a reference line and enter its real length. |
-| **SAM segment (spalling)** | Left-click to include and right-click to exclude; the spalling region is found automatically. "Confirm" records it, Esc undoes the last point. |
+| **Scale (px/cm)** | Uses the value the server computed. To correct it, use "Manual Measure (fallback)": click two points of a reference line and enter its real length. |
+| **SAM segment (spalling)** | Left-click to include and right-click to exclude; the spalling region is found automatically. "Confirm (write spalling)" records it, Esc undoes the last point. |
 | **Show Highlight / Show 15cm Boundary** | Preview the highlight around cracks and the 15 cm boundary around repair areas. |
 
 Your work is saved automatically when you move to another image; "Save Mask" saves it on demand.
