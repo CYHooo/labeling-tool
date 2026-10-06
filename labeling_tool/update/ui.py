@@ -12,6 +12,7 @@ Two kinds of update (checker.UpdateInfo.kind):
 from __future__ import annotations
 
 import hashlib
+import re
 import subprocess
 import tempfile
 import threading
@@ -166,6 +167,17 @@ def prompt_text(info) -> str:
     return text
 
 
+_MD_HEADING = re.compile(r"(?m)^#{1,6}[ \t]+")
+_MD_BOLD = re.compile(r"\*\*(.+?)\*\*")
+
+
+def plain_notes(notes: str) -> str:
+    """Release notes as the dialog's plain text shows them: Markdown heading
+    and bold markers dropped (the tag message is written for the GitHub
+    page), list dashes kept."""
+    return _MD_BOLD.sub(r"\1", _MD_HEADING.sub("", str(notes or "")))
+
+
 def _ask(parent, info) -> str:
     """The three-button prompt; returns UPDATE / LATER / SKIP.
 
@@ -173,10 +185,10 @@ def _ask(parent, info) -> str:
     release body down to its change-notes section."""
     if info.kind == "app":
         # Already downloaded and verified: accepting just restarts.
-        informative = tr("update_ready_informative", notes=info.notes)
+        informative = tr("update_ready_informative", notes=plain_notes(info.notes))
         update_label = tr("update_btn_restart")
     else:
-        informative = tr("update_informative", notes=info.notes)
+        informative = tr("update_informative", notes=plain_notes(info.notes))
         update_label = tr("update_btn_update")
     box = QMessageBox(parent)
     box.setWindowTitle(tr("update_title"))

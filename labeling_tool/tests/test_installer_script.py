@@ -164,6 +164,38 @@ def test_a_reused_full_installer_is_verified_before_it_is_republished(workflow):
     assert 'Copy-Item $env:LT_REUSE_FULL "out\\LM_LabelingTool-Setup-v$ver.exe"' in build
 
 
+def _linux_step(workflow: str, name: str) -> str:
+    start = workflow.index(f"- name: {name}")
+    nxt = workflow.find("- name: ", start + 1)
+    return workflow[start:nxt if nxt != -1 else len(workflow)]
+
+
+def test_a_reused_deb_is_verified_and_restamped_before_the_build_is_skipped(workflow):
+    """The Linux twin of the reused installer: the previous deb must match
+    its published checksum and pass reuse_deb's control check, and only then
+    may the 16-minute deb build be skipped."""
+    step = _linux_step(workflow, "Reuse the previous deb if the runtime is unchanged")
+    assert "GH_TOKEN" in step
+    assert 'reuse_full.py plan diag/prev-release.json "$LT_RUNTIME" linux' in step
+    assert step.index("reuse_full.py verify") < step.index("reuse_deb.py restamp") < step.index("LT_REUSE_DEB=1")
+    build = _linux_step(workflow, "Build the deb and the update zip")
+    assert 'if [ "${LT_REUSE_DEB:-}" = "1" ]' in build
+    assert build.index("LT_REUSE_DEB") < build.index("packaging/deb.py build")
+    assert workflow.index("Reuse the previous deb if the runtime is unchanged") < workflow.index("- name: Build the deb and the update zip")
+
+
+def test_a_reused_deb_skips_only_the_checks_its_previous_release_already_passed(workflow):
+    """Same payload and same Depends as a deb that already passed the desktop
+    dependency checks: those are skipped. Installing it and applying this
+    release's zip still run -- they prove the rewritten control and the
+    old-app-to-new-version upgrade."""
+    for name in ("Install smoke test 1/2", "Start the Ubuntu 24.04 cross-validation in the background",
+                 "Cross-validate the install on Ubuntu 24.04"):
+        assert "if: env.LT_REUSE_DEB != '1'" in _linux_step(workflow, name), name
+    for name in ("Install smoke test 2/2", "Update round trip"):
+        assert "LT_REUSE_DEB" not in _linux_step(workflow, name), name
+
+
 def test_no_string_interpolation_runs_into_a_colon(powershell_source):
     """"$prevTag: x" parses as a scope-qualified variable, like $env:X, and
     fails. Use ${name}: instead. Only $env: is a real scope here."""

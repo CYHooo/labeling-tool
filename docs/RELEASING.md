@@ -93,9 +93,15 @@ venv 里不能有多余的包：PyInstaller 会把它们一起打包进去，run
    - **Windows**：上一个 Release 的 `update-...-windows.zip` 带有相同的 runtime id 时，直接复用上一版的
      Setup（`packaging/reuse_full.py`，先按它原来的校验和验证，再以本版本的文件名重新发布），省去重新压缩。
      新用户装上的是上一版的代码，第一次启动时会自动收到约 1–2 MB 的 zip 更新。运行时变了则重新构建完整包。
-   - **Linux**：**每次都重新构建**唯一的 deb。它同时包含运行时和代码，没有可复用的部分。
-     在 4 vCPU 的 runner 上 `xz -9` 约需 16 分钟（`dpkg-deb` 本身已用满所有核心，不读取 `XZ_OPT`），
-     整个 Linux job 约 30 分钟。这是“只有一个 deb”的直接代价，只影响 CI 时长。
+   - **Linux**：runtime id 相同时同样复用上一版的 deb（`packaging/reuse_deb.py`）：按原校验和验证后，
+     只改写 control 里的 Version，约 1.7 GB 的数据成员原样复制（不到 1 秒），省去 `xz -9` 的约 16 分钟。
+     当前代码写出的 control（Depends、维护脚本、`.desktop`/图标指纹 `X-LT-Extras-SHA256`）与旧包除
+     Version 外不完全一致时（例如改了依赖或图标），自动改为完整构建。复用时跳过桌面容器依赖检查和
+     24.04 交叉验证（旧包已通过），保留 runner 上的安装 + selftest 与 zip 往返（验证旧程序升级到新版本）。
+     完整构建时 Linux job 约 28 分钟，复用时约 10–12 分钟。v0.2.1 及以前的 deb 没有指纹字段，
+     所以引入复用后的第一个版本仍会完整构建一次。新安装的用户先装上一版代码，首次启动时的 zip 更新
+     需要输入一次密码（pkexec，zip 以 root 应用），这一点与 Windows 不同。改变 deb 在 `/opt` 之外安装
+     哪些文件时（新文件、新路径），要把 `deb.py` 的 `LAYOUT_REVISION` 加 1，否则旧包会被错误地复用。
 
 6. **核对 CI 日志中的 `runtime id` 与第 2 步是否一致。** 本地与 CI 使用同一份锁文件和同一个 Python，
    结果应当完全相同。

@@ -483,6 +483,43 @@ jobs:
             exit 1
           fi
 
+      - name: Reuse the previous deb if the runtime is unchanged
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The Linux twin of the Windows job's reused installer: xz -9 over
+          # the ~1.7 GB torch + CUDA payload is ~16 of ~28 minutes, and on a
+          # code-only release that payload is the previous release's byte for
+          # byte. reuse_deb.py rewrites only the control member's Version and
+          # refuses (exit 3) when Depends, the maintainer scripts or the
+          # desktop/icon extras changed -- then the deb is built in full.
+          mkdir -p diag prev out
+          if ! gh release view --repo "$GITHUB_REPOSITORY" --json tagName,assets > diag/prev-release.json; then
+            echo "no previous release: full build"
+            exit 0
+          fi
+          plan=$(python packaging/reuse_full.py plan diag/prev-release.json "$LT_RUNTIME" linux)
+          if [ -z "$plan" ]; then
+            echo "runtime $LT_RUNTIME is new: full build"
+            exit 0
+          fi
+          prev_tag=$(printf '%s' "$plan" | cut -f1)
+          prev_name=$(printf '%s' "$plan" | cut -f2)
+          gh release download "$prev_tag" --repo "$GITHUB_REPOSITORY" --dir prev --pattern "$prev_name" --pattern SHA256SUMS.txt
+          python packaging/reuse_full.py verify prev/SHA256SUMS.txt "prev/$prev_name"
+          ver="${LT_VERSION#v}"
+          new_name=$(python -c "import sys; from labeling_tool.update import checker; print(checker.full_asset_name(sys.argv[1], checker.LINUX))" "$ver")
+          if python packaging/reuse_deb.py restamp "prev/$prev_name" "out/$new_name" "$ver"; then
+            echo "LT_REUSE_DEB=1" >> "$GITHUB_ENV"
+            echo "runtime $LT_RUNTIME unchanged since ${prev_tag}, $prev_name re-shipped as $new_name"
+          else
+            code=$?
+            [ "$code" -eq 3 ] || exit "$code"
+            echo "full build"
+          fi
+          rm -rf prev
+
       - name: Build the deb and the update zip
         run: |
           set -euo pipefail
@@ -492,10 +529,14 @@ jobs:
             export LT_FAST=1
             echo "dry run: fast compression"
           fi
-          # No XZ_OPT: dpkg-deb ignores it and already compresses on every
-          # core (see deb.py's _dpkg_deb_build) -- on a 4-vCPU runner the
-          # xz -9 pass is CPU-bound at ~16 minutes, not under-threaded.
-          python packaging/deb.py build dist/LM_LabelingTool out "$ver"
+          if [ "${LT_REUSE_DEB:-}" = "1" ]; then
+            echo "deb re-shipped from the previous release, not rebuilt"
+          else
+            # No XZ_OPT: dpkg-deb ignores it and already compresses on every
+            # core (see deb.py's _dpkg_deb_build) -- on a 4-vCPU runner the
+            # xz -9 pass is CPU-bound at ~16 minutes, not under-threaded.
+            python packaging/deb.py build dist/LM_LabelingTool out "$ver"
+          fi
           # The app layer plus a manifest of every file's SHA-256, named for
           # the runtime id it was built against (checker.update_asset_name).
           python packaging/update_zip.py dist/app-layer out "$ver" "$LT_RUNTIME" linux
@@ -533,6 +574,9 @@ jobs:
           python -c "import sys; from labeling_tool.update import checker; ver, rt, names = sys.argv[1], sys.argv[2], set(sys.argv[3].split(',')); wanted = [checker.full_asset_name(ver, checker.LINUX), checker.update_asset_name(ver, rt, checker.LINUX)]; missing = [w for w in wanted if w not in names]; sys.exit(f'{missing!r} not in {sorted(names)}') if missing else print('asset names agree with checker.py')" "$ver" "$LT_RUNTIME" "$names"
 
       - name: Start the Ubuntu 24.04 cross-validation in the background
+        # A reused deb is the previous release's payload and Depends, which
+        # already passed this check there.
+        if: env.LT_REUSE_DEB != '1'
         run: |
           set -euo pipefail
           # "built on 22.04, runs on both" is otherwise only an assumption.
@@ -589,6 +633,9 @@ jobs:
           ' "$noble" > "$noble/log" 2>&1 < /dev/null &
 
       - name: Install smoke test 1/2 -- are the declared dependencies already on this machine?
+        # A reused deb is the previous release's payload and Depends, which
+        # already passed this check there.
+        if: env.LT_REUSE_DEB != '1'
         run: |
           set -euo pipefail
           # Runs in a clean 22.04 container, NOT on the runner. The runner
@@ -686,6 +733,9 @@ jobs:
           echo "zip update applied and the app still passes its selftest"
 
       - name: Cross-validate the install on Ubuntu 24.04
+        # A reused deb is the previous release's payload and Depends, which
+        # already passed this check there.
+        if: env.LT_REUSE_DEB != '1'
         run: |
           set -euo pipefail
           # Collects the container started in the background before smoke

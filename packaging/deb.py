@@ -20,6 +20,7 @@ labeling_tool/tests/test_deb.py asserts it.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import stat
@@ -123,12 +124,40 @@ esac
 """
 
 
+# Every file besides "control" in DEBIAN/: build() writes exactly these, and
+# reuse_deb.reusable() demands a previous deb carries exactly these.
+MAINTAINER_SCRIPTS = {"postinst": POSTINST, "preinst": PREINST, "postrm": POSTRM}
+
+
 def _control(fields: list[tuple[str, str]]) -> str:
     """Render a Debian control stanza in a fixed field order, LF-terminated.
 
     dpkg-deb rejects a control file whose last field has no trailing
     newline, so every field (including the last) ends with "\\n"."""
     return "".join(f"{key}: {value}\n" for key, value in fields)
+
+
+# Files the deb installs outside /opt that the app-layer zip never updates
+# (packaging/reuse_deb.py may only re-ship a previous deb when these match).
+FINGERPRINT_FIELD = "X-LT-Extras-SHA256"
+# Bump whenever build() / _stage_app_extras change WHAT they put outside
+# /opt (a new file, a new path, a renamed entry): the fingerprint hashes the
+# inputs it knows about, not this code, so this is how a change in the code
+# itself stops a previous deb from being re-shipped.
+LAYOUT_REVISION = 1
+_ICON_SOURCE_DIR = Path(__file__).resolve().parents[1] / "labeling_tool" / "resources"
+
+
+def extras_fingerprint() -> str:
+    """SHA-256 over what _stage_app_extras puts outside /opt: the .desktop
+    template and the icons. A previous deb whose fingerprint differs carries
+    stale extras, so it cannot be re-shipped under a new version."""
+    digest = hashlib.sha256(f"layout {LAYOUT_REVISION}\n".encode("utf-8"))
+    for path in [_DESKTOP_TEMPLATE] + [_ICON_SOURCE_DIR / f"icon-{px}.png" for px in ICON_SIZES]:
+        digest.update(path.name.encode("utf-8") + b"\0")
+        digest.update(path.read_bytes() if path.is_file() else b"<missing>")
+    digest.update(f"{INSTALL_PREFIX}/{layers.app_entry_name(layers.LINUX)}".encode("utf-8"))
+    return digest.hexdigest()
 
 
 def control(version: str, installed_kb: int) -> str:
@@ -142,6 +171,7 @@ def control(version: str, installed_kb: int) -> str:
         ("Depends", ", ".join(RUNTIME_DEPENDS)),
         ("Section", "graphics"),
         ("Priority", "optional"),
+        (FINGERPRINT_FIELD, extras_fingerprint()),
         ("Description", "LM Labeling Tool"),
     ])
 
@@ -151,10 +181,11 @@ def deb_filename(version: str) -> str:
     return f"{PACKAGE}_{version}_{ARCH}.deb"
 
 
-def desktop_entry(version: str) -> str:
-    """The .desktop file content, version placeholder resolved."""
-    text = _DESKTOP_TEMPLATE.read_text(encoding="utf-8")
-    return text.replace("@VERSION@", version)
+def desktop_entry() -> str:
+    """The .desktop file content. It carries no version: a reused deb
+    (reuse_deb.py) keeps the previous release's copy, and the app's own
+    version lives in build-info.json, which the update zip replaces."""
+    return _DESKTOP_TEMPLATE.read_text(encoding="utf-8")
 
 
 def _write_control_dir(root: Path, control: str, scripts: dict[str, str]) -> None:
@@ -168,13 +199,13 @@ def _write_control_dir(root: Path, control: str, scripts: dict[str, str]) -> Non
         path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
-def _stage_app_extras(dist_dir: Path, root: Path, version: str) -> None:
+def _stage_app_extras(dist_dir: Path, root: Path) -> None:
     """.desktop entry, icons and the /usr/bin symlink -- everything that
     references the installed executable."""
     applications = root / "usr" / "share" / "applications"
     applications.mkdir(parents=True, exist_ok=True)
     (applications / f"{PACKAGE}.desktop").write_text(
-        desktop_entry(version), encoding="utf-8")
+        desktop_entry(), encoding="utf-8")
 
     icon_src_dir = dist_dir / "_internal" / "labeling_tool" / "resources"
     for px in ICON_SIZES:
@@ -221,11 +252,10 @@ def build(dist_dir: Path, out_dir: Path, version: str) -> Path:
         root = Path(tmp) / "pkg"
         target = root / INSTALL_PREFIX.lstrip("/")
         shutil.copytree(dist_dir, target, symlinks=True)
-        _stage_app_extras(dist_dir, root, version)
+        _stage_app_extras(dist_dir, root)
         size_kb = max(1, sum(p.stat().st_size for p in target.rglob("*")
                              if p.is_file() and not p.is_symlink()) // 1024)
-        _write_control_dir(root, control(version, size_kb),
-                           {"postinst": POSTINST, "preinst": PREINST, "postrm": POSTRM})
+        _write_control_dir(root, control(version, size_kb), MAINTAINER_SCRIPTS)
         out = out_dir / deb_filename(version)
         _dpkg_deb_build(root, out, fast)
     return out

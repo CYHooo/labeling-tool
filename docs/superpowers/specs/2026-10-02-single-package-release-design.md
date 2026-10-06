@@ -46,8 +46,12 @@ Linux 有 runtime 和 app 两个 deb。用户在 Release 页面上无法判断�
   已安装的程序只采用 runtime id 与自己相同的 zip，否则改走完整更新。
 - **Windows Setup 复用**：运行时未变时沿用上一版的 Setup（`reuse_full.py` 现有逻辑）。
   已安装用户走 zip 更新；新用户安装后若代码较旧，首次启动会收到 zip 更新。
-- **Linux 单 deb 不再复用**：完整 deb 同时包含运行时与代码，每次发布都要重新做 xz -9 压缩
-  （CI 约 16 分钟，Linux job 约 30 分钟）。这是“只有一个 deb”的直接代价，只影响 CI 时长。
+- **Linux deb 复用**（2026-10-06 修订，原为“不再复用”）：运行时未变时，取上一版的 deb，
+  只改写 control 成员里的 Version，约 1.7 GB 的数据成员原样复制，不再重做 16 分钟的 xz -9
+  （`packaging/reuse_deb.py`）。前提是当前代码会写出的 control（Depends、维护脚本、
+  `.desktop` 与图标的指纹 `X-LT-Extras-SHA256`）除 Version 外与旧包完全一致，否则完整构建。
+  新安装的用户先装上一版代码，首次启动由 zip 更新到最新版。与 Windows 不同的是，Linux 的 zip 以 root
+  应用，这第一次更新需要输入一次密码（pkexec）并重启。`.desktop` 不再写版本号，避免复用后过时。
 - 发布前门槛：上述 4 个文件与 `SHA256SUMS.txt` 齐全且校验码对应，否则不发布；
   资产大小上限检查保持不变（发布级压缩时才执行）。
 

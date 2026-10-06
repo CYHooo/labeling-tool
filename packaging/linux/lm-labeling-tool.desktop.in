@@ -7,4 +7,3 @@ Icon=lm-labeling-tool
 Terminal=false
 Categories=Graphics;Science;
 Version=1.0
-X-AppVersion=@VERSION@
