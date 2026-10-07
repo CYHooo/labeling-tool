@@ -193,6 +193,7 @@ STRINGS = {
     "update_ready_status":             "새 버전 v{version} 준비됨 — 작업 창을 닫으면 업데이트합니다",
     "update_btn_restart":              "지금 재시작하여 업데이트",
     "update_ready_informative":        "업데이트가 준비되었습니다. 재시작하면 바로 적용됩니다.\n\n{notes}",
+    "update_applying":                 "업데이트를 적용하는 중입니다…",
     "update_apply_failed_msg":         "업데이트를 적용하지 못했습니다. 프로그램을 모두 닫고 다시 시도하세요.\n\n{exc}",
     "update_progress_label":           "업데이트 다운로드 중…",
     "update_progress_template":        "업데이트 다운로드 중… {done} / {total} MB",

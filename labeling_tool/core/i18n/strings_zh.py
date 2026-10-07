@@ -188,6 +188,7 @@ STRINGS = {
     "update_ready_status":             "新版本 v{version} 已就绪 — 关闭任务窗口后更新",
     "update_btn_restart":              "立即重启并更新",
     "update_ready_informative":        "更新已就绪，重启后立即生效。\n\n{notes}",
+    "update_applying":                 "正在应用更新…",
     "update_apply_failed_msg":         "未能应用更新。请关闭所有程序窗口后重试。\n\n{exc}",
     "update_progress_label":           "正在下载更新…",
     "update_progress_template":        "正在下载更新… {done} / {total} MB",

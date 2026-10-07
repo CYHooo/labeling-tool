@@ -4,7 +4,7 @@ import threading
 import pytest
 from PyQt5 import sip
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox, QWidget
+from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox, QPushButton, QWidget
 
 from labeling_tool.core import app_paths
 from labeling_tool.update import checker, state, ui
@@ -750,6 +750,71 @@ def test_linux_failed_apply_is_reported(monkeypatch, tmp_path, no_restart):
     monkeypatch.setattr(ui.QMessageBox, "warning", staticmethod(lambda *a, **k: shown.append(a)))
     assert ui.apply_and_restart(None, _zip_info(), tmp_path / "u.zip") is False
     assert "runtime mismatch" in shown[0][2]
+    assert no_restart["popen"] == []
+
+
+def test_linux_apply_waits_off_the_ui_thread_so_the_window_stays_responsive(
+        monkeypatch, tmp_path, no_restart):
+    # pkexec (password prompt + the root-run swap) takes several seconds; run
+    # on the UI thread it froze the window long enough for GNOME's 5 s
+    # check-alive to offer "Force Quit".
+    import time
+    from PyQt5.QtCore import QTimer
+    monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.LINUX)
+    monkeypatch.setattr(ui.app_paths, "app_home", lambda: tmp_path)
+    seen = {}
+    ticks = []
+    timer = QTimer()
+    timer.timeout.connect(lambda: ticks.append(1))
+    timer.start(10)
+
+    def slow_apply(exe, z, sha):
+        seen["thread"] = threading.current_thread()
+        time.sleep(0.3)
+        return ui.installer.InstallOutcome.OK, ""
+
+    monkeypatch.setattr(ui.installer, "apply_zip_linux", slow_apply)
+    try:
+        assert ui.apply_and_restart(None, _zip_info(), tmp_path / "u.zip") is True
+    finally:
+        timer.stop()
+    assert seen["thread"] is not threading.main_thread()
+    assert len(ticks) >= 5                 # the event loop ran while waiting
+    assert no_restart["popen"] == [[str(tmp_path / "LM_LabelingTool")]]
+
+
+def test_linux_apply_shows_a_busy_notice_while_waiting(monkeypatch, tmp_path, no_restart):
+    from labeling_tool.core import i18n
+    monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.LINUX)
+    monkeypatch.setattr(ui.app_paths, "app_home", lambda: tmp_path)
+    seen = {}
+
+    def apply(exe, z, sha):
+        bars = [w for w in QApplication.topLevelWidgets()
+                if isinstance(w, ui.QProgressDialog) and w.isVisible()]
+        seen["labels"] = [b.labelText() for b in bars]
+        seen["cancel"] = [b.findChildren(QPushButton) for b in bars]
+        return ui.installer.InstallOutcome.OK, ""
+
+    monkeypatch.setattr(ui.installer, "apply_zip_linux", apply)
+    ui.apply_and_restart(None, _zip_info(), tmp_path / "u.zip")
+    assert seen["labels"] == [i18n.tr("update_applying")]
+    assert seen["cancel"] == [[]]          # nothing to cancel: pkexec owns it now
+    assert not any(isinstance(w, ui.QProgressDialog) and w.isVisible()
+                   for w in QApplication.topLevelWidgets())
+
+
+def test_linux_apply_os_error_in_the_worker_is_reported(monkeypatch, tmp_path, no_restart):
+    monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.LINUX)
+
+    def broken(*a):
+        raise FileNotFoundError("u.zip")
+
+    monkeypatch.setattr(ui.installer, "apply_zip_linux", broken)
+    shown = []
+    monkeypatch.setattr(ui.QMessageBox, "warning", staticmethod(lambda *a, **k: shown.append(a)))
+    assert ui.apply_and_restart(None, _zip_info(), tmp_path / "u.zip") is False
+    assert shown and "u.zip" in shown[0][2]
     assert no_restart["popen"] == []
 
 

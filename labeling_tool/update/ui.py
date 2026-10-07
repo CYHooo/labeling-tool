@@ -19,7 +19,7 @@ import threading
 from pathlib import Path
 
 from PyQt5 import sip
-from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
+from PyQt5.QtCore import QEventLoop, Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QMessageBox, QProgressDialog,
 )
@@ -360,6 +360,45 @@ def _installed_exe() -> Path:
     return app_paths.app_home() / name
 
 
+def _wait_off_ui_thread(parent, label: str, work):
+    """Run work() on a worker thread and return its result (or re-raise its
+    exception) while the Qt event loop keeps running, behind a modal notice
+    with no cancel button.
+
+    Linux's apply blocks for seconds (polkit password prompt, then the root
+    swap with an fsync per file). Waited for on the UI thread, the window
+    stopped answering the window manager's pings and GNOME offered to force
+    quit it after its 5 s check-alive timeout."""
+    outcome: dict = {}
+
+    def run():
+        try:
+            outcome["result"] = work()
+        except BaseException as exc:  # noqa: BLE001 - handed back to the caller
+            outcome["error"] = exc
+
+    notice = QProgressDialog(label, "", 0, 0, parent)
+    notice.setCancelButton(None)
+    notice.setWindowTitle(tr("update_title"))
+    notice.setWindowModality(Qt.ApplicationModal)
+    notice.setMinimumDuration(0)
+    notice.show()
+    worker = threading.Thread(target=run, name="update-apply", daemon=True)
+    loop = QEventLoop()
+    poll = QTimer()
+    poll.timeout.connect(lambda: worker.is_alive() or loop.quit())
+    worker.start()
+    poll.start(50)
+    loop.exec_()
+    poll.stop()
+    worker.join()
+    notice.close()
+    notice.deleteLater()
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome["result"]
+
+
 def apply_and_restart(parent, info, zip_path: Path) -> bool:
     """Apply a downloaded zip and relaunch. False = still on the old version.
 
@@ -379,7 +418,9 @@ def apply_and_restart(parent, info, zip_path: Path) -> bool:
             return False
     else:
         try:
-            outcome, detail = installer.apply_zip_linux(exe, zip_path, sha)
+            outcome, detail = _wait_off_ui_thread(
+                parent, tr("update_applying"),
+                lambda: installer.apply_zip_linux(exe, zip_path, sha))
         except OSError as exc:
             outcome, detail = installer.InstallOutcome.FAILED, str(exc)
         if outcome is installer.InstallOutcome.CANCELLED:
