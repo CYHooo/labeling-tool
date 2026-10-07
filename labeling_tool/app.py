@@ -3,7 +3,7 @@
 The login screen's tabs pick the tool:
   * online:  login + data-fetch dialogs (fetch + download) -> main labeling
              window wired to the per-session workspace -> manual batch upload
-  * session: an already-downloaded job picked on the Local jobs tab -> main
+  * session: an already-fetched job opened from the Labeling tab -> main
              window (uploads when URL + key were given)
   * fewshot: annotation_tool (SAM3/SAM2, needs torch; imported only on demand)
 Run on a LOCAL PC (not the AI server).

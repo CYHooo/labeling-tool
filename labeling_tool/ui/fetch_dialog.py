@@ -141,6 +141,41 @@ class FetchDialog(QDialog):
         to_num = self.sp_to.value()
 
         ws = Workspace.default(session_id=sid)
+        previous = None
+        if ws.manifest_path.exists():
+            # Already on this PC. The folder is named by job number only, and
+            # numbers are per server: a job fetched from another server is a
+            # different job in the same folder -- opening or refetching it
+            # here would send its labels to this server's job. Refuse.
+            load_error = None
+            try:
+                previous = Manifest.load(ws.manifest_path)
+            except (ValueError, KeyError, TypeError, OSError) as exc:
+                load_error = exc
+                vlog().warning("session %s: unreadable manifest (%s)", sid, exc)
+            if previous is not None and previous.base and \
+                    previous.base.rstrip("/") != self.base.rstrip("/"):
+                vlog().warning("session %s on this PC is from %s, not %s: refused",
+                               sid, previous.base, self.base)
+                QMessageBox.warning(self, tr("fetch_other_server_title"),
+                                    tr("fetch_other_server_msg", sid=sid, base=previous.base))
+                return
+            # Fetching would replace its manifest, so ask.
+            choice = self._ask_existing(sid)
+            if choice is None:
+                return
+            if choice == "open" and previous is None:
+                QMessageBox.warning(self, tr("login_warn_manifest_error_title"),
+                                    tr("login_warn_manifest_error_msg",
+                                       path=ws.manifest_path, exc=load_error))
+                return
+            if choice == "open":
+                attach_session_log(ws.session_dir)
+                vlog().info("=== session %s opened from fetch (already on this PC) ===", sid)
+                save_config(self.base, self.key)
+                self.workspace, self.manifest = ws, previous
+                self.accept()
+                return
         ws.ensure()
         attach_session_log(ws.session_dir)
         vlog().info("=== session %s fetch start (base=%s fromNum=%s toNum=%s) ===",
@@ -182,6 +217,8 @@ class FetchDialog(QDialog):
         failures = download_photos(
             photos, ws.origin_dir, ws.detected_dir, progress=_prog)
 
+        if previous is not None:
+            manifest.keep_from(previous)
         manifest.save(ws.manifest_path)
         save_config(self.base, self.key)
 
@@ -192,6 +229,24 @@ class FetchDialog(QDialog):
         self.workspace = ws
         self.manifest = manifest
         self.accept()
+
+    def _ask_existing(self, sid: int) -> str | None:
+        """"open", "refetch", or None (cancel) for a job already on this PC."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle(tr("fetch_existing_title"))
+        box.setText(tr("fetch_existing_msg", sid=sid))
+        btn_open = box.addButton(tr("login_open"), QMessageBox.AcceptRole)
+        btn_refetch = box.addButton(tr("fetch_existing_refetch"), QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Cancel)
+        box.setDefaultButton(btn_open)
+        box.exec_()
+        clicked = box.clickedButton()
+        if clicked is btn_open:
+            return "open"
+        if clicked is btn_refetch:
+            return "refetch"
+        return None
 
     @staticmethod
     def _fetch_all_photos(client: ViewerApiClient, session_id: int) -> list[dict]:

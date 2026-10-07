@@ -98,18 +98,23 @@ STRINGS = {
 
     # --- login ---
     "login_title":                    "로그인",
-    "login_tab_online":               "온라인 라벨링",
-    "login_tab_local":                "로컬 작업",
     "login_tab_fewshot":              "Few-shot 라벨링",
     "login_field_base":               "BASE URL",
     "login_field_key":                "X-Viewer-Api-Key",
-    "login_next":                     "다음",
     "login_col_job":                  "작업",
     "login_col_inspection":           "점검명",
     "login_col_photos":               "사진 / 업로드",
     "login_col_server":               "서버",
     "login_col_modified":             "최근 수정",
-    "login_jobs_empty":               "받은 작업이 없습니다. 「{tab}」에서 먼저 데이터를 가져오세요.",
+    "login_jobs_empty": "받은 작업이 없습니다. 「{button}」를 눌러 데이터를 가져오세요.",
+    "login_tab_labeling": "라벨링",
+    "login_new_job": "새 작업 가져오기",
+    "login_jobs_title": "로컬 작업 (이 PC 에 받은 작업)",
+    "fetch_existing_title": "이미 받은 작업",
+    "fetch_existing_msg": "작업 {sid} 은(는) 이 PC 에 이미 있습니다.\n이어서 열까요, 서버에서 다시 가져올까요?\n(다시 가져와도 라벨링 결과와 업로드 기록은 유지됩니다.)",
+    "fetch_existing_refetch": "다시 가져오기",
+    "fetch_other_server_title": "다른 서버의 작업",
+    "fetch_other_server_msg": "이 PC 의 작업 {sid} 은(는) {base} 에서 받은 다른 작업입니다.\n번호만 같을 뿐 지금 서버의 작업과 다르므로 여기서 열거나 다시 가져올 수 없습니다.\n그 작업은 로그인 화면의 로컬 작업 목록에서 여세요.",
     "login_open":                     "열기",
     "login_fewshot_hint_lite":
         "⚠ 이 빌드는 lite 버전이라 few-shot 도구를 사용할 수 없습니다.\n"
@@ -125,16 +130,10 @@ STRINGS = {
         "GPU(torch)와 SAM 가중치가 필요하며, 처음 열 때 모델 로딩에 시간이 걸립니다.",
     "login_warn_input_required_title": "입력 필요",
     "login_warn_input_required_msg":   "BASE/Key를 입력하세요.",
-    "login_upload_possible":           "업로드: 가능 (URL/Key 입력됨)",
-    "login_upload_impossible":
-        "업로드: 불가 — 로컬 저장만 (URL/Key 를 입력하면 업로드 가능)",
+    "login_upload_possible": "업로드: 가능 → {host}",
+    "login_upload_impossible": "업로드: 불가 — 로컬 저장만 (BASE URL 과 Key 를 입력하면 업로드 가능)",
     "login_warn_no_manifest_title":    "없음",
     "login_warn_no_manifest_msg":      "로컬 매니페스트 없음: {path}",
-    "login_warn_server_mismatch_title": "서버 불일치",
-    "login_warn_server_mismatch_msg":
-        "이 작업은 {base} 에서 받아왔습니다.\n"
-        "다른 서버로 업로드할 수 없습니다.\n"
-        "URL을 원래 서버로 되돌리거나, URL/Key를 비우고 오프라인으로 여세요.",
     "login_warn_manifest_error_title": "매니페스트 오류",
     "login_warn_manifest_error_msg":
         "로컬 매니페스트를 읽을 수 없습니다: {path}\n{exc}",

@@ -10,6 +10,7 @@ from its full-size mask.
 
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 from typing import Callable
@@ -62,16 +63,22 @@ def download_photos(photos: list[dict], origin_dir: Path, detected_dir: Path,
         ts = int(p["timestamp"])
         stitched_dest = origin_dir / naming.stitched_filename(ts)
         mask_dest = detected_dir / naming.detected_mask_filename(ts)
+        # Each pair lands in .part files and replaces the real ones only when
+        # both arrived: a failed refetch keeps the pair already on disk, and a
+        # new photo never shows up with half its pair.
+        stitched_part = stitched_dest.with_name(stitched_dest.name + ".part")
+        mask_part = mask_dest.with_name(mask_dest.name + ".part")
         t = time.perf_counter()
         try:
-            sb = _download_to(p["stitchedUrl"], stitched_dest, timeout)
-            mb = _download_to(p["maskUrl"], mask_dest, timeout)
+            sb = _download_to(p["stitchedUrl"], stitched_part, timeout)
+            mb = _download_to(p["maskUrl"], mask_part, timeout)
+            os.replace(stitched_part, stitched_dest)
+            os.replace(mask_part, mask_dest)
             vlog().info("download ts=%s stitched=%dB mask=%dB (%.0f ms) [%d/%d]",
                         ts, sb, mb, (time.perf_counter() - t) * 1000, i, total)
         except Exception as e:  # noqa: BLE001 - capture & continue by design
-            # Remove any partial pair so the GUI never sees an orphan.
-            stitched_dest.unlink(missing_ok=True)
-            mask_dest.unlink(missing_ok=True)
+            stitched_part.unlink(missing_ok=True)
+            mask_part.unlink(missing_ok=True)
             vlog().error("download FAILED ts=%s: %s", ts, e)
             failures.append({"timestamp": ts, "error": str(e)})
         if progress is not None:
