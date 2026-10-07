@@ -61,12 +61,28 @@ def test_the_build_script_keeps_the_pins_that_hold_the_runtime_id():
         assert pin in text, pin
 
 
-def test_local_build_installs_exactly_what_the_build_script_installs():
-    """local-build.sh keeps its own steps; its dependency pins must be the
-    build script's, or a local runtime id stops predicting CI's."""
-    pins = re.compile(r"(?:pyinstaller(?:-hooks-contrib)?|torch|torchvision)==[\w.]+|sam2\.git@[0-9a-f]{40}|cu\d{3}")
-    assert set(pins.findall(BUILD_SH.read_text(encoding="utf-8"))) == \
-        set(pins.findall(LOCAL_SH.read_text(encoding="utf-8")))
+def test_local_build_delegates_to_the_build_script():
+    """One copy of the install/build steps: local-build.sh calls the script
+    CI runs instead of keeping its own, so its runtime id predicts CI's."""
+    text = LOCAL_SH.read_text(encoding="utf-8")
+    assert "bash packaging/ci/linux-build.sh" in text
+    assert "LT_INSTALL_ONLY=1" in text
+    assert "pip install" not in text and "-m PyInstaller" not in text and "pyinstaller --" not in text
+
+
+def test_every_pip_install_uses_the_lock():
+    lines = [l for l in BUILD_SH.read_text(encoding="utf-8").splitlines() if "pip install" in l]
+    assert len(lines) == 3
+    assert all('"${lock[@]}"' in l for l in lines)
+
+
+def test_apt_never_touches_the_live_archive():
+    """A live-archive install before the sources switch could pull a newer
+    libssl3 than the snapshot's and move the runtime id on an image rebuild."""
+    text = DOCKERFILE.read_text(encoding="utf-8")
+    switch = text.index("> /etc/apt/sources.list")
+    assert text.find("apt-get") > switch, "apt-get runs before the snapshot sources are in place"
+    assert "archive.ubuntu.com" not in text
 
 
 def test_local_build_runs_only_in_the_pinned_image():

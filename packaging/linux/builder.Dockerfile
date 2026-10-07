@@ -16,16 +16,21 @@ ARG PYTHON_URL=https://github.com/actions/python-versions/releases/download/3.12
 ARG PYTHON_SHA256=f8e0109b3eeb6cb0a246725d16595793f5f3c882df77bd4acf195fbab64819ac
 ENV DEBIAN_FRONTEND=noninteractive
 
-# The snapshot service is https-only; the base image has no CA bundle yet.
-# ca-certificates is only used to reach it -- nothing of it is bundled.
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
+# Every package comes from the snapshot -- the live archive is never
+# touched, or a live openssl update could drag in a newer libssl3 than the
+# snapshot's and move the runtime id. The snapshot service is https-only and
+# the base image has no CA bundle yet, so the very first update skips TLS
+# peer checks: apt still verifies every index against the archive's signing
+# keys (Release.gpg / InRelease), which is what guards integrity.
 RUN printf '%s\n' \
       "deb https://snapshot.ubuntu.com/ubuntu/${SNAPSHOT} jammy main universe" \
       "deb https://snapshot.ubuntu.com/ubuntu/${SNAPSHOT} jammy-updates main universe" \
       "deb https://snapshot.ubuntu.com/ubuntu/${SNAPSHOT} jammy-security main universe" \
       > /etc/apt/sources.list \
+    && apt-get -o Acquire::Check-Valid-Until=false \
+         -o Acquire::https::Verify-Peer=false -o Acquire::https::Verify-Host=false update \
+    && apt-get -o Acquire::https::Verify-Peer=false -o Acquire::https::Verify-Host=false \
+         install -y --no-install-recommends ca-certificates \
     && apt-get -o Acquire::Check-Valid-Until=false update \
     && apt-get install -y --no-install-recommends \
          build-essential git curl xvfb xauth dpkg-dev \

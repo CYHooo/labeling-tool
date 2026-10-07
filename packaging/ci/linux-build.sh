@@ -2,17 +2,20 @@
 # Build the Linux app inside the pinned builder image
 # (packaging/linux/builder.Dockerfile): install the locked dependencies,
 # PyInstaller, selftest, runtime id + build info, and stage the app layer.
-# Everything that lands in dist/ comes from this script, so a release build
-# and a local build of the same commit bundle the same files.
+# Everything that lands in dist/ comes from this script -- CI runs it, and so
+# does local-build.sh's build step -- so a release build and a local build of
+# the same commit bundle the same files.
 #
 # Run from the repository root, mounted at the working directory:
-#   docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp/home \
+#   docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp/home -e USER=builder \
 #     -e LT_VERSION=v0.2.4 -e LT_COMMIT=abc1234 -e PIP_CACHE_DIR=/pipcache \
 #     -v "$PWD:/w" -v "$HOME/.cache/pip:/pipcache" -w /w \
 #     lt-linux-builder bash packaging/ci/linux-build.sh
 #
 # Writes dist/LM_LabelingTool, dist/app-layer, diag/runtime-id.txt and
-# diag/runtime-manifest-linux.txt.
+# diag/runtime-manifest-linux.txt. With LT_INSTALL_ONLY=1 it stops after the
+# dependency install (local-build.sh's tests step needs only the venv).
+# The venv is /tmp/buildenv; an existing one is reused.
 set -euo pipefail
 
 : "${LT_VERSION:?set LT_VERSION (a tag like v0.2.4, or 0.0.0-dev-<sha>)}"
@@ -21,7 +24,7 @@ mkdir -p "$HOME"
 
 # A fresh venv, never the image's own site-packages: anything extra there
 # would be bundled by PyInstaller and move the runtime id.
-python3.12 -m venv /tmp/buildenv
+[ -x /tmp/buildenv/bin/python ] || python3.12 -m venv /tmp/buildenv
 export PATH="/tmp/buildenv/bin:$PATH"
 
 # sam2's repo has symlinks (sam2/sam2_hiera_*.yaml); without core.symlinks
@@ -33,6 +36,9 @@ python -m pip install "${lock[@]}" -r requirements-dev.txt pyinstaller==6.22.3 p
 python -m pip install "${lock[@]}" torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu124
 # sam2's build needs the torch installed above (no CUDA extension: SAM2_BUILD_CUDA=0)
 python -m pip install "${lock[@]}" --no-build-isolation "git+https://github.com/facebookresearch/sam2.git@2b90b9f5ceec907a1c18123530e92e794ad901a4"
+if [ "${LT_INSTALL_ONLY:-}" = "1" ]; then
+    exit 0
+fi
 
 rm -rf build dist/LM_LabelingTool dist/app-layer
 pyinstaller --noconfirm --log-level WARN packaging/labeling_tool.spec

@@ -68,7 +68,6 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 DIST="dist/LM_LabelingTool"
-VENV=""
 RUNTIME_ID=""
 
 steps=("${known_steps[@]}")
@@ -190,29 +189,18 @@ if [ ! -x /opt/hostedtoolcache/Python/3.12.10/x64/bin/python3.12 ]; then
     exit 1
 fi
 
-VENV="$(mktemp -d /tmp/lt-venv.XXXXXX)"
-python3.12 -m venv "$VENV"
-PY="$VENV/bin/python"
-export PATH="$VENV/bin:$PATH"
-export PIP_DISABLE_PIP_VERSION_CHECK=1
+# The dependency install, PyInstaller build, selftest and layers all run
+# through packaging/ci/linux-build.sh -- the very script CI runs in this
+# image -- so this build bundles exactly what a release does.
+PY=/tmp/buildenv/bin/python
+export LT_VERSION="$version" LT_COMMIT=local
 
-echo "==> install dependencies (mirrors release.yml's build-linux job)"
-# A fresh venv, never any preinstalled interpreter packages: PyInstaller
-# bundles whatever is importable, and a stray package would move the
-# runtime id between two builds of the same commit.
-lock=(-c packaging/build-constraints.txt -c packaging/build-lock-linux.txt)
-bounded 900 "pip install dev dependencies + pyinstaller" \
-    "$PY" -m pip install "${lock[@]}" -r requirements-dev.txt pyinstaller==6.22.3 pyinstaller-hooks-contrib==2026.7
-bounded 1800 "pip install torch/torchvision" \
-    "$PY" -m pip install "${lock[@]}" torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu124
-# sam2's repo has symlinks (sam2/sam2_hiera_*.yaml). Without these three
-# variables, git on a checkout that defaults core.symlinks=false writes
-# 30-byte placeholder files instead, and the runtime id would differ from a
-# real build. Set explicitly, exactly as release.yml does.
-bounded 900 "pip install sam2 (no-build-isolation)" \
-    env SAM2_BUILD_CUDA=0 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.symlinks GIT_CONFIG_VALUE_0=true \
-    "$PY" -m pip install "${lock[@]}" --no-build-isolation \
-        "git+https://github.com/facebookresearch/sam2.git@2b90b9f5ceec907a1c18123530e92e794ad901a4"
+ensure_venv() {
+    if [ ! -x "$PY" ]; then
+        bounded 3600 "install the locked dependencies (linux-build.sh)" \
+            env LT_INSTALL_ONLY=1 bash packaging/ci/linux-build.sh
+    fi
+}
 
 declare -A timings
 
@@ -228,90 +216,48 @@ run_step() {
 }
 
 step_tests() {
+    ensure_venv
     bounded 1800 "pytest (tests labeling_tool/tests annotation_tool/tests)" \
         env QT_QPA_PLATFORM=offscreen "$PY" -m pytest tests labeling_tool/tests annotation_tool/tests -q -p no:cacheprovider
 }
 
 step_build() {
-    rm -rf build "$DIST"
-    bounded 1200 "pyinstaller build" "$PY" -m PyInstaller --noconfirm --log-level WARN packaging/labeling_tool.spec
+    # Install (reused venv), PyInstaller, selftest, runtime id + build info,
+    # app layer: one script, the one CI runs.
+    bounded 3600 "linux-build.sh (build, selftest, layers)" bash packaging/ci/linux-build.sh
+    RUNTIME_ID=$(cat diag/runtime-id.txt)
+    echo "runtime id: $RUNTIME_ID"
 }
 
 step_selftest() {
-    # `code=$?` must be set via `||`, not inside `if ! cmd; then` -- see
-    # bounded()'s own comment above for exactly this bug (and this was a
-    # second, independent occurrence of it: fixed inside bounded(), then
-    # reproduced right outside it at this call site). Inside the
-    # then-branch of `if ! cmd; then`, `$?` reflects the NEGATED pipeline's
-    # own status (always 0), not the wrapped command's real exit code --
-    # that silently turned a failed or hung selftest into a reported
-    # success, printed the log, and still `exit 0`'d the whole script,
-    # silently skipping `deb` and `smoke`.
-    # selftest.py logs via user_data_home(), which for a frozen Linux build
-    # is the XDG data dir ($HOME/.local/share/lm-labeling-tool), NOT the
-    # build output directory -- that is Windows-only. Reading
-    # "$DIST/selftest.log" here always misses: on success it silently prints
-    # a misleading "not found (early crash?)", and on FAILURE -- the one time
-    # a debugger actually needs this output -- there is nothing to cat.
-    local log="$HOME/.local/share/lm-labeling-tool/selftest.log"
-    local code=0
-    bounded 300 "selftest on the build output" xvfb-run -a "$DIST/LM_LabelingTool" --selftest=full || code=$?
-    if [ "$code" -ne 0 ]; then
-        if [ -f "$log" ]; then
-            cat "$log"
-        else
-            echo "selftest.log not found (early crash?)"
-        fi
-        exit "$code"
-    fi
-    if [ -f "$log" ]; then
-        cat "$log"
-        rm -f "$log"
-    fi
-    rm -rf "$DIST/data" "$DIST/config.json"
+    echo "(the selftest runs inside the build step's linux-build.sh)"
 }
 
 step_layers() {
-    RUNTIME_ID=$("$PY" packaging/layers.py runtime-id "$DIST")
-    if ! [[ "$RUNTIME_ID" =~ ^r[0-9a-f]{8}$ ]]; then
-        echo "bad runtime id: $RUNTIME_ID" >&2
-        exit 1
-    fi
-    echo "runtime id: $RUNTIME_ID"
-    mkdir -p diag
-    "$PY" packaging/layers.py manifest "$DIST" > diag/runtime-manifest-local.txt
-    printf '{"version": "%s", "variant": "full", "runtime": "%s", "commit": "local"}' \
-        "$version" "$RUNTIME_ID" > "$DIST/build-info.json"
-    rm -rf dist/app-layer
-    "$PY" packaging/layers.py stage "$DIST" dist/app-layer
-    local app_bytes
-    app_bytes=$(find dist/app-layer -type f -printf '%s\n' | awk '{sum += $1} END {print sum + 0}')
-    printf 'app layer: %.1f MB\n' "$(awk -v b="$app_bytes" 'BEGIN{print b/1024/1024}')"
-    if [ "$app_bytes" -gt $((20 * 1024 * 1024)) ]; then
-        echo "app layer unexpectedly large: $app_bytes bytes" >&2
-        exit 1
-    fi
+    echo "(the runtime id and app layer come from the build step's linux-build.sh)"
 }
 
 step_deb() {
+    # The packaging helpers are stdlib-only: the image's Python will do, so
+    # `--steps deb` needs no dependency install.
     if [ -z "$RUNTIME_ID" ] && [ -f "$DIST/build-info.json" ]; then
-        RUNTIME_ID=$("$PY" -c "import json,sys; print(json.load(open(sys.argv[1]))['runtime'])" "$DIST/build-info.json")
+        RUNTIME_ID=$(python3.12 -c "import json,sys; print(json.load(open(sys.argv[1]))['runtime'])" "$DIST/build-info.json")
     fi
     if [ -z "$RUNTIME_ID" ]; then
         echo "no runtime id: run the layers step first" >&2
         exit 1
     fi
     if [ ! -d dist/app-layer ]; then
-        "$PY" packaging/layers.py stage "$DIST" dist/app-layer
+        python3.12 packaging/layers.py stage "$DIST" dist/app-layer
     fi
     mkdir -p out
     rm -f out/*.deb out/*.zip
     # Fast gzip compression for local iteration (LT_FAST=1); a release build
     # uses xz via CI's own invocation of this same function.
-    bounded 300 "deb.py build" env LT_FAST=1 "$PY" packaging/deb.py build "$DIST" out "$version"
+    bounded 300 "deb.py build" env LT_FAST=1 python3.12 packaging/deb.py build "$DIST" out "$version"
     # The app-layer update zip, named for the runtime id it was built
     # against -- what the smoke step's update round trip applies.
-    bounded 300 "update_zip.py" "$PY" packaging/update_zip.py dist/app-layer out "$version" "$RUNTIME_ID" linux
+    bounded 300 "update_zip.py" python3.12 packaging/update_zip.py dist/app-layer out "$version" "$RUNTIME_ID" linux
     ls -la out/
 }
 

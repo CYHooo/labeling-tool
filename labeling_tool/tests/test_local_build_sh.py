@@ -133,21 +133,13 @@ drive
     )
 
 
-def test_matches_release_yml_dependency_install_order():
+def test_builds_through_the_script_ci_runs():
     # Verifying against a different environment than CI's is not a
-    # verification at all. The three CI-specific environment variables below
-    # exist because sam2's repo has symlinks; without them git on a
-    # non-symlink-aware checkout writes 30-byte placeholders and the
-    # resulting runtime id would never match a real build.
+    # verification at all: the install, build, selftest and layers come from
+    # packaging/ci/linux-build.sh, the script release.yml runs in the same
+    # pinned image (pins checked in test_linux_builder.py).
     text = SH.read_text(encoding="utf-8")
-    assert "SAM2_BUILD_CUDA" in text
-    assert "GIT_CONFIG_COUNT" in text
-    assert "GIT_CONFIG_KEY_0" in text
-    assert "GIT_CONFIG_VALUE_0" in text
-    assert "build-lock-linux.txt" in text
-    assert "pyinstaller-hooks-contrib" in text
-    assert "torch==2.5.1" in text
-    assert "2b90b9f5ceec907a1c18123530e92e794ad901a4" in text
+    assert "bash packaging/ci/linux-build.sh" in text
 
 
 def test_smoke_proves_a_zip_update():

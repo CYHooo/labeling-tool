@@ -154,6 +154,10 @@ runtime id 是对运行时层每个文件的「路径 + 大小」做哈希。以
 `SNAPSHOT` 日期（必要时连同基础镜像 digest），这一版的 Linux runtime id 会变，已安装用户收到一次
 完整更新。建议每季度一次，或在 OpenSSL 等出现重要安全问题时。改完先跑一遍本地完整验证（Linux）。
 
+同样会改变 Linux runtime id 的还有：`PYTHON_URL` / `PYTHON_SHA256`、镜像里的 apt 包列表，以及经
+`COPY` 进镜像的 `deb.py` 里的 `RUNTIME_DEPENDS` / `BUNDLED_LIBS`。改这些时也按“计划内的运行时变更”对待。
+镜像里所有 apt 包都只从快照安装，从不访问实时仓库（证书也从快照装），所以镜像缓存失效后重建，结果仍然相同。
+
 ## 升级依赖
 
 修改 `build-lock.txt` 就是修改运行时层，下一个版本一定是完整安装。按以下步骤重新生成：

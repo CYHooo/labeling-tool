@@ -332,13 +332,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends dpkg-dev xvfb
 
-          # RUNTIME_DEPENDS must be present AT BUILD TIME, even though the
-          # deb only declares it for install time. PyInstaller resolves the
-          # Qt plugins' shared-library chain by reading the real .so files:
-          # without them it logs "Library not found: could not resolve
-          # 'libxcb-xinerama.so.0', dependency of libqxcb.so" and ships a
-          # bundle whose xcb platform plugin cannot start (CI run
-          # 36841286350). The hosted runner image does not carry them.
+          # RUNTIME_DEPENDS on THIS runner are for "Install smoke test 2/2"
+          # and the update round trip, which run the installed app here. The
+          # build itself no longer happens on the runner -- the pinned image
+          # (packaging/linux/builder.Dockerfile) installs the same list for
+          # PyInstaller from its apt snapshot.
           #
           # This does NOT make the availability check a tautology: that
           # check moved into a clean container below, because the question
@@ -350,9 +348,8 @@ jobs:
           # `apt-get satisfy` takes Depends syntax verbatim, so the list is
           # derived from deb.py rather than hardcoded a fourth time -- it
           # handles both the version constraint and the jammy/noble glib
-          # alternation on its own. BUNDLED_LIBS ride along: they are not
-          # declared Depends (a stock desktop lacks them), so the runtime
-          # layer only carries them if PyInstaller finds them here.
+          # alternation on its own. BUNDLED_LIBS ride along so the installed
+          # app finds them even if the bundle someday stopped carrying them.
           depends=$(python -c "import sys; sys.path.insert(0, 'packaging'); import deb; print(', '.join(deb.RUNTIME_DEPENDS + deb.BUNDLED_LIBS))")
           echo "build-time Qt/X11 libraries: $depends"
           sudo apt-get satisfy -y --no-install-recommends "$depends"
@@ -405,15 +402,19 @@ jobs:
         with:
           path: ~/.cache/lt-builder-pip
           key: builder-pip-${{ hashFiles('packaging/build-lock-linux.txt', 'packaging/build-constraints.txt', 'requirements.txt', 'requirements-dev.txt', 'packaging/linux/builder.Dockerfile') }}
+          # A lock change still reuses the ~3 GB of torch/CUDA wheels it did not touch.
+          restore-keys: builder-pip-
 
       - name: Build, selftest and stage the app in the pinned image
         run: |
           set -euo pipefail
-          # Same script local-build.sh's image runs: install the locked
-          # dependencies, PyInstaller, selftest, runtime id + build info,
-          # stage the app layer. As the runner's user, so later steps own dist/.
+          # The script local-build.sh's build step runs too: install the
+          # locked dependencies, PyInstaller, selftest, runtime id + build
+          # info, stage the app layer. As the runner's uid so later steps own
+          # dist/; that uid has no passwd entry in the image, so USER/LOGNAME
+          # stand in for anything that asks getpass.getuser().
           mkdir -p ~/.cache/lt-builder-pip
-          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp/home \
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp/home -e USER=builder -e LOGNAME=builder \
             -e LT_VERSION -e LT_COMMIT="${GITHUB_SHA:0:7}" -e PIP_CACHE_DIR=/pipcache \
             -v "${PWD}:/w" -v "${HOME}/.cache/lt-builder-pip:/pipcache" -w /w \
             lt-linux-builder bash packaging/ci/linux-build.sh
@@ -613,15 +614,14 @@ jobs:
           # It says nothing about whether that list is actually SUFFICIENT
           # for Qt to start -- a missing-but-undeclared library would still
           # let dpkg -i succeed and only crash here.
-          # Remove any stale log first: this is the same XDG path the build
-          # step's own "Selftest packaged exe" step just wrote to, and if the
-          # installed app crashes before logging, cat'ing a leftover old log
-          # here would look like fresh output from the installed app.
+          # Remove any stale log first: if the installed app crashes before
+          # logging, cat'ing a leftover old log here would look like fresh
+          # output from the installed app.
           #
           # Install on the runner first: 1/2 installed inside a throwaway
           # container, so nothing it did survives here (CI run 36853951013:
           # "LM_LabelingTool: not found"). The runner already carries
-          # RUNTIME_DEPENDS from the build step, so this install is NOT the
+          # RUNTIME_DEPENDS from "Install system dependencies", so this install is NOT the
           # availability check -- that stays in 1/2's desktop container.
           # The update round trip below also runs against this install.
           sudo dpkg -i out/lm-labeling-tool_*.deb
