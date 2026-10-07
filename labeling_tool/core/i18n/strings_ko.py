@@ -40,8 +40,8 @@ STRINGS = {
     "group_list":         "이미지 목록",
     "group_nav":          "탐색",
     "group_hint":         "도움말 / 사용법",
-    "btn_prev":           "← 이전  [A]",
-    "btn_next":           "다음  [D] →",
+    "btn_prev":           "이전  [A]",
+    "btn_next":           "다음  [D]",
     "btn_save":           "현재 저장  [S]",
     "hint_text":
         "브러시  왼쪽=그리기 · 오른쪽=지우기 · 1/2=균열/박리\n"
@@ -154,7 +154,7 @@ STRINGS = {
     "fetch_title":                     "데이터 가져오기",
     "fetch_from_label":                "fromNum (0=처음부터)",
     "fetch_to_label":                  "toNum (0=끝까지)",
-    "fetch_back":                      "← 로그인",
+    "fetch_back":                      "로그인",
     "fetch_btn":                       "가져오기 (다운로드)",
     "fetch_session_item":              "작업 {sid}",
     "fetch_session_item_named":        "작업 {sid} · {name}",

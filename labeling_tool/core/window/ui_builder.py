@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
     QCheckBox,
 )
 
+from labeling_tool.ui import icons
 from labeling_tool.core.constants import BRUSH_DEFAULT_SIZE, BRUSH_MAX_SIZE
 from labeling_tool.core.i18n import LANGUAGES, LANG_DISPLAY_NAMES, current_language
 
@@ -100,6 +101,7 @@ def build_brush_group(window: "MainWindow") -> QGroupBox:
     _tidy_group_layout(gbr)
 
     window._btn_brush_toggle = QPushButton(window.tr_("btn_brush_on"))
+    window._btn_brush_toggle.setIcon(icons.icon("brush"))
     window._btn_brush_toggle.setObjectName("brushToggle")
     window._btn_brush_toggle.setCheckable(True)
     window._btn_brush_toggle.setMinimumHeight(36)
@@ -130,7 +132,9 @@ def build_brush_group(window: "MainWindow") -> QGroupBox:
 
     action_row = QHBoxLayout()
     window._btn_brush_reset = QPushButton(window.tr_("btn_brush_reset"))
+    window._btn_brush_reset.setIcon(icons.icon("rotate-ccw"))
     window._btn_brush_save = QPushButton(window.tr_("btn_brush_save"))
+    window._btn_brush_save.setIcon(icons.icon("save", primary=True))
     window._btn_brush_save.setObjectName("primaryAction")
     window._btn_brush_reset.clicked.connect(window._on_brush_reset)
     window._btn_brush_save.clicked.connect(window._on_brush_save)
@@ -139,14 +143,18 @@ def build_brush_group(window: "MainWindow") -> QGroupBox:
     gbr.addLayout(action_row)
 
     window._btn_sam_toggle = QPushButton(window.tr_("btn_sam"))
+    window._btn_sam_toggle.setIcon(icons.icon("wand-sparkles"))
     window._btn_sam_toggle.setObjectName("samToggle")
     window._btn_sam_toggle.setCheckable(True)
     window._btn_sam_toggle.toggled.connect(window._on_sam_toggle)
     window._btn_sam_commit = QPushButton(window.tr_("btn_sam_commit"))
+    window._btn_sam_commit.setIcon(icons.icon("check"))
     window._btn_sam_commit.clicked.connect(window._on_sam_commit)
     window._btn_sam_cancel = QPushButton(window.tr_("btn_sam_cancel"))
+    window._btn_sam_cancel.setIcon(icons.icon("x"))
     window._btn_sam_cancel.clicked.connect(window._on_sam_cancel)
     window._btn_sam_undo = QPushButton(window.tr_("btn_sam_undo"))
+    window._btn_sam_undo.setIcon(icons.icon("undo-2"))
     window._btn_sam_undo.clicked.connect(window._on_sam_undo)
     window._btn_sam_commit.setEnabled(False)
     window._btn_sam_cancel.setEnabled(False)
@@ -175,6 +183,7 @@ def build_scale_group(window: "MainWindow") -> QGroupBox:
     gscale.addWidget(window._lbl_scale)
 
     window._btn_measure = QPushButton(window.tr_("btn_measure"))
+    window._btn_measure.setIcon(icons.icon("ruler"))
     window._btn_measure.setObjectName("measureToggle")
     window._btn_measure.setCheckable(True)
     window._btn_measure.toggled.connect(window._on_measure_toggle)
@@ -188,6 +197,7 @@ def build_bbox_group(window: "MainWindow") -> QGroupBox:
     _tidy_group_layout(gb)
 
     window._btn_bbox_toggle = QPushButton(window.tr_("btn_bbox_on"))
+    window._btn_bbox_toggle.setIcon(icons.icon("scan"))
     window._btn_bbox_toggle.setObjectName("bboxToggle")
     window._btn_bbox_toggle.setCheckable(True)
     window._btn_bbox_toggle.setMinimumHeight(36)
@@ -195,6 +205,7 @@ def build_bbox_group(window: "MainWindow") -> QGroupBox:
     gb.addWidget(window._btn_bbox_toggle)
 
     window._btn_show_highlight = QPushButton(window.tr_("btn_show_highlight"))
+    window._btn_show_highlight.setIcon(icons.icon("highlighter"))
     window._btn_show_highlight.setObjectName("showHighlightToggle")
     window._btn_show_highlight.setCheckable(True)
     window._btn_show_highlight.setMinimumHeight(32)
@@ -202,6 +213,7 @@ def build_bbox_group(window: "MainWindow") -> QGroupBox:
     gb.addWidget(window._btn_show_highlight)
 
     window._btn_show_repair15 = QPushButton(window.tr_("btn_show_repair15"))
+    window._btn_show_repair15.setIcon(icons.icon("square-dashed"))
     window._btn_show_repair15.setObjectName("showRepair15Toggle")
     window._btn_show_repair15.setCheckable(True)
     window._btn_show_repair15.setMinimumHeight(32)
@@ -227,13 +239,17 @@ def build_nav_group(window: "MainWindow") -> QGroupBox:
     _tidy_group_layout(gn)
     nav_row = QHBoxLayout()
     window.btn_prev = QPushButton(window.tr_("btn_prev"))
+    window.btn_prev.setIcon(icons.icon("chevron-left"))
     window.btn_next = QPushButton(window.tr_("btn_next"))
+    window.btn_next.setIcon(icons.icon("chevron-right"))
+    window.btn_next.setLayoutDirection(Qt.RightToLeft)   # chevron after the text
     window.btn_prev.clicked.connect(window.go_prev)
     window.btn_next.clicked.connect(window.go_next)
     nav_row.addWidget(window.btn_prev)
     nav_row.addWidget(window.btn_next)
     gn.addLayout(nav_row)
     window.btn_save = QPushButton(window.tr_("btn_save"))
+    window.btn_save.setIcon(icons.icon("save", primary=True))
     window.btn_save.setObjectName("primaryAction")
     window.btn_save.clicked.connect(window._on_brush_save)
     gn.addWidget(window.btn_save)

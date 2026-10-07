@@ -220,3 +220,46 @@ def test_a_failed_server_save_never_blocks_opening_or_fetching(monkeypatch, tmp_
     assert dlg.pages.currentIndex() == ld.PAGE_WORK
     dlg.btn_new_job.click()
     assert dlg.mode == ld.MODE_ONLINE
+
+
+def test_the_version_has_no_variant_suffix(monkeypatch):
+    """There is only one package now; '(full)' told the user nothing."""
+    from labeling_tool.update.version import BuildInfo
+    monkeypatch.setattr(ld, "read_build_info", lambda: BuildInfo(version="0.2.4", variant="full", commit="abc1234", runtime="r1"))
+    dlg = ld.LoginDialog()
+    assert "0.2.4" in dlg.lbl_version.text() and "full" not in dlg.lbl_version.text()
+
+
+def _signed_in(qtbot_show=True):
+    dlg = ld.LoginDialog(user=auth.User("admin"))
+    dlg.resize(760, 480)
+    dlg.show()
+    QApplication.processEvents()
+    return dlg
+
+
+def test_new_job_is_the_primary_button_at_the_top_right_of_the_jobs_list():
+    dlg = _signed_in()
+    btn, table = dlg.btn_new_job, dlg.tbl_jobs
+    assert btn.objectName() == "primaryAction"
+    top_right = btn.mapTo(dlg, btn.rect().topRight())
+    table_top = table.mapTo(dlg, table.rect().topLeft())
+    assert top_right.y() < table_top.y()                       # above the list
+    assert top_right.x() > table.mapTo(dlg, table.rect().topRight()).x() - 20   # flush right
+
+
+def test_the_user_and_log_out_sit_in_the_bottom_row_only_when_signed_in():
+    dlg = _signed_in()
+    assert dlg.lbl_user.isVisible() and dlg.btn_log_out.isVisible()
+    row_y = lambda w: w.mapTo(dlg, w.rect().center()).y()
+    assert abs(row_y(dlg.btn_log_out) - row_y(dlg.btn_check_update)) <= 4   # the bottom row
+    dlg.btn_log_out.click()
+    QApplication.processEvents()
+    assert not dlg.lbl_user.isVisible() and not dlg.btn_log_out.isVisible()
+
+
+def test_the_dialog_buttons_carry_icons():
+    dlg = _signed_in()
+    for btn in (dlg.btn_new_job, dlg.btn_open_job, dlg.btn_log_out, dlg.btn_check_update,
+                dlg.btn_sign_in, dlg.btn_fewshot):
+        assert not btn.icon().isNull(), btn.text()

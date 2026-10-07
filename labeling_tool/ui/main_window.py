@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QMessageBox, QProgressBar,
 )
 
+from labeling_tool.ui import icons
 from labeling_tool.core.window.main_window import MainWindow as CoreMainWindow
 from labeling_tool.core.bbox import load_scale_info
 from labeling_tool.annotation_payload import upload_scale_source
@@ -83,6 +84,7 @@ class ViewerMainWindow(CoreMainWindow):
     def _add_upload_button(self):
         self.btn_upload = QPushButton(self.tr_("vmw_btn_upload"))
         self.btn_upload.setObjectName("primaryAction")
+        self.btn_upload.setIcon(icons.icon("cloud-upload", primary=True))
         self.btn_upload.clicked.connect(self._on_upload)
         # Inline progress bar, shown right under the button during upload so the
         # progress is always visible in a fixed place (no easy-to-miss popup).

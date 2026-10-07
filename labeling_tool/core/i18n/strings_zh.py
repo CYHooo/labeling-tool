@@ -35,8 +35,8 @@ STRINGS = {
     "group_list":         "图片列表",
     "group_nav":          "导航",
     "group_hint":         "帮助 / 用法",
-    "btn_prev":           "← 上一张  [A]",
-    "btn_next":           "下一张  [D] →",
+    "btn_prev":           "上一张  [A]",
+    "btn_next":           "下一张  [D]",
     "btn_save":           "保存当前  [S]",
     "hint_text":
         "画笔   左键拖拽=绘制 · 右键拖拽=擦除 · 1/2=裂缝/剥落\n"
@@ -149,7 +149,7 @@ STRINGS = {
     "fetch_title":                     "获取数据",
     "fetch_from_label":                "fromNum (0=从头开始)",
     "fetch_to_label":                  "toNum (0=到末尾)",
-    "fetch_back":                      "← 登录",
+    "fetch_back":                      "登录",
     "fetch_btn":                       "获取（下载）",
     "fetch_session_item":              "任务 {sid}",
     "fetch_session_item_named":        "任务 {sid} · {name}",
