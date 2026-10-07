@@ -22,7 +22,8 @@ import importlib.util
 from datetime import datetime
 from urllib.parse import urlparse
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5 import sip
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QFormLayout, QLineEdit, QPushButton, QHBoxLayout, QVBoxLayout, QStackedWidget,
     QLabel, QMessageBox, QTabWidget, QWidget, QTableWidget,
@@ -52,8 +53,30 @@ PAGE_SIGN_IN, PAGE_WORK = 0, 1
 # Translation keys for the job table's column headers, in display order.
 JOB_COLUMN_KEYS = (
     "login_col_job", "login_col_inspection", "login_col_photos",
-    "login_col_server", "login_col_modified",
+    "login_col_modified",
 )
+# The list opens newest first; a header click re-sorts it for this session
+# only (the order is not saved).
+JOB_DEFAULT_SORT = (3, Qt.DescendingOrder)
+# Item data roles: the value a column sorts by, and (column 0) the job id.
+SORT_KEY_ROLE = Qt.UserRole
+JOB_ID_ROLE = Qt.UserRole + 1
+
+
+class _SortableItem(QTableWidgetItem):
+    """Table cell that sorts by its SORT_KEY_ROLE value (a number or a
+    string) instead of its display text, so job 10 sorts after job 9."""
+
+    def __init__(self, text: str, sort_key):
+        super().__init__(text)
+        self.setData(SORT_KEY_ROLE, sort_key)
+
+    def __lt__(self, other):
+        mine, theirs = self.data(SORT_KEY_ROLE), other.data(SORT_KEY_ROLE)
+        try:
+            return mine < theirs
+        except TypeError:
+            return super().__lt__(other)
 
 
 def fewshot_available() -> bool:
@@ -250,8 +273,7 @@ class LoginDialog(QDialog):
 
         self.lbl_field_base.setText(i18n.tr("login_field_base"))
         self.lbl_field_key.setText(i18n.tr("login_field_key"))
-        self.tbl_jobs.setHorizontalHeaderLabels(
-            [i18n.tr(k) for k in JOB_COLUMN_KEYS])
+        self._refresh_job_headers()
         self.btn_new_job.setText(i18n.tr("login_new_job"))
         if not self._jobs:
             self.lbl_jobs_empty.setText(
@@ -414,8 +436,6 @@ class LoginDialog(QDialog):
         self.lbl_jobs_title.setStyleSheet("font-weight: bold;")
         self._jobs: list[LocalJob] = list_local_jobs(DEFAULT_DATA_ROOT)
         self.tbl_jobs = QTableWidget(len(self._jobs), len(JOB_COLUMN_KEYS))
-        self.tbl_jobs.setHorizontalHeaderLabels(
-            [i18n.tr(k) for k in JOB_COLUMN_KEYS])
         self.tbl_jobs.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tbl_jobs.setSelectionMode(QAbstractItemView.SingleSelection)
         self.tbl_jobs.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -426,14 +446,26 @@ class LoginDialog(QDialog):
         header.setSectionResizeMode(1, QHeaderView.Stretch)
         for row, job in enumerate(self._jobs):
             cells = (
-                str(job.session_id),
-                job.inspection_name or "—",
-                f"{job.photo_count} / {job.synced_count}",
-                job.host or "—",
-                datetime.fromtimestamp(job.modified).strftime("%Y-%m-%d %H:%M"),
+                (str(job.session_id), job.session_id),
+                # unnamed jobs ("—") sort after every named one
+                (job.inspection_name or "—", (not job.inspection_name,
+                                              job.inspection_name or "")),
+                (f"{job.photo_count} / {job.synced_count}", job.photo_count),
+                (datetime.fromtimestamp(job.modified).strftime("%Y-%m-%d %H:%M"),
+                 job.modified),
             )
-            for col, text in enumerate(cells):
-                self.tbl_jobs.setItem(row, col, QTableWidgetItem(text))
+            for col, (text, key) in enumerate(cells):
+                self.tbl_jobs.setItem(row, col, _SortableItem(text, key))
+            self.tbl_jobs.item(row, 0).setData(JOB_ID_ROLE, job.session_id)
+        # Enabled only after filling: with sorting on, rows move while
+        # setItem() runs and later cells land in the wrong row.
+        self.tbl_jobs.setSortingEnabled(True)
+        # Qt's own indicator is a faint triangle that this style draws
+        # upside down; the header text carries a ▲/▼ instead.
+        header.setSortIndicatorShown(False)
+        header.sortIndicatorChanged.connect(self._on_job_sort_changed)
+        self.tbl_jobs.sortByColumn(*JOB_DEFAULT_SORT)
+        self._refresh_job_headers()
         self.tbl_jobs.itemSelectionChanged.connect(self._on_job_selected)
         self.tbl_jobs.cellDoubleClicked.connect(lambda *_: self._on_open_job())
 
@@ -568,9 +600,39 @@ class LoginDialog(QDialog):
         self.mode = MODE_ONLINE
         self.accept()
 
-    def _selected_job(self) -> LocalJob | None:
+    def _refresh_job_headers(self) -> None:
+        """Column titles, the sorted one followed by ▲ (ascending) / ▼."""
+        header = self.tbl_jobs.horizontalHeader()
+        sorted_col = header.sortIndicatorSection()
+        arrow = " ▲" if header.sortIndicatorOrder() == Qt.AscendingOrder else " ▼"
+        self.tbl_jobs.setHorizontalHeaderLabels(
+            [i18n.tr(k) + (arrow if col == sorted_col else "")
+             for col, k in enumerate(JOB_COLUMN_KEYS)])
+        # Like a file manager: a first click on the date shows newest first.
+        date_col, _ = JOB_DEFAULT_SORT
+        self.tbl_jobs.horizontalHeaderItem(date_col).setData(
+            Qt.InitialSortOrderRole, Qt.DescendingOrder)
+
+    def _on_job_sort_changed(self, *_):
+        self._refresh_job_headers()
+        # The selected job moved; keep it on screen. Deferred: this signal
+        # fires before the view has re-laid out the sorted rows.
+        QTimer.singleShot(0, self._scroll_to_selected_job)
+
+    def _scroll_to_selected_job(self) -> None:
+        if sip.isdeleted(self.tbl_jobs):
+            return
         rows = self.tbl_jobs.selectionModel().selectedRows()
-        return self._jobs[rows[0].row()] if rows else None
+        if rows:
+            self.tbl_jobs.scrollTo(rows[0])
+
+    def _selected_job(self) -> LocalJob | None:
+        # By id, not row: the rows are in whatever order the user sorted.
+        rows = self.tbl_jobs.selectionModel().selectedRows()
+        if not rows:
+            return None
+        job_id = self.tbl_jobs.item(rows[0].row(), 0).data(JOB_ID_ROLE)
+        return next((j for j in self._jobs if j.session_id == job_id), None)
 
     def _upload_target(self, job: LocalJob | None) -> str:
         """Where a job's edits go: the server it was fetched from, so it can

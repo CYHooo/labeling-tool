@@ -34,7 +34,6 @@ def test_lists_jobs_with_counts_server_and_name(tmp_path):
     assert job.inspection_name == "B1 주차장"
     assert (job.photo_count, job.synced_count) == (16, 3)
     assert job.base == "https://srv.example.com"
-    assert job.host == "srv.example.com"
 
 
 def test_sorted_by_last_modified_including_labeling_edits(tmp_path):

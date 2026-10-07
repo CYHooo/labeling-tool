@@ -95,7 +95,6 @@ STRINGS = {
     "login_col_job":                  "Job",
     "login_col_inspection":           "Inspection name",
     "login_col_photos":               "Photos / uploaded",
-    "login_col_server":               "Server",
     "login_col_modified":             "Last modified",
     "login_jobs_empty": "No jobs yet. Click “{button}” to fetch one.",
     "login_tab_labeling": "Labeling",
