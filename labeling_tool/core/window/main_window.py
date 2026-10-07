@@ -7,7 +7,7 @@ import numpy as np
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QSplitter,
-    QStatusBar, QMessageBox, QFileDialog, QApplication, QInputDialog,
+    QStatusBar, QMessageBox, QApplication, QInputDialog, QListWidgetItem,
 )
 from PyQt5.QtGui import QColor
 
@@ -15,7 +15,7 @@ from labeling_tool.core.constants import (
     CATEGORIES, DEFAULT_CATEGORY, OUTPUT_DIR_NAME,
     IMAGE_EXTENSIONS, MASK_NAME_SUFFIXES,
 )
-from labeling_tool.core.i18n import LANGUAGES, tr, language_manager, set_language
+from labeling_tool.core.i18n import tr, language_manager
 from labeling_tool.core.mask_io import load_origin_and_masks
 from labeling_tool.core.mask_codec import encode_label_mask
 from labeling_tool.core.canvas import ImageCanvas
@@ -26,7 +26,9 @@ from labeling_tool.core.bbox import (
 from labeling_tool.session import mask_store
 from labeling_tool.core.result import export_result
 from labeling_tool.core.window.styles import STYLESHEET
-from labeling_tool.core.window.ui_builder import build_side_panel
+from labeling_tool.core.window.ui_builder import (
+    SECONDARY_TEXT_ROLE, TwoPartItemDelegate, build_side_panel,
+)
 from labeling_tool.core.window.shortcuts import register_shortcuts
 
 
@@ -108,10 +110,6 @@ class MainWindow(QMainWindow):
     def tr_(self, key: str, **kwargs) -> str:
         return tr(key, **kwargs)
 
-    def _change_language(self, idx: int):
-        if 0 <= idx < len(LANGUAGES):
-            set_language(LANGUAGES[idx])
-
     def _on_language_changed_elsewhere(self, _code: str) -> None:
         self._retranslate_ui()
 
@@ -127,10 +125,11 @@ class MainWindow(QMainWindow):
     def _retranslate_ui(self):
         self.setWindowTitle(self.tr_("window_title"))
         self._lbl_app_title.setText(self.tr_("window_title"))
-        self._grp_settings.setTitle(self.tr_("settings"))
-        self._lbl_lang.setText(self.tr_("language"))
-        self._btn_select_origin.setText(self.tr_("btn_select_origin"))
-        self._btn_select_detected.setText(self.tr_("btn_select_detected"))
+        self._grp_job_info.setTitle(self.tr_("group_job_info"))
+        self._lbl_job_id_key.setText(self.tr_("lbl_job_id"))
+        self._lbl_inspection_key.setText(self.tr_("lbl_inspection_name"))
+        self._lbl_photo_count_key.setText(self.tr_("lbl_photo_count"))
+        self._refresh_job_info()
         self._grp_category.setTitle(self.tr_("lbl_category"))
         self._btn_cat_crack.setText(self.tr_("cat_crack"))
         self._btn_cat_spalling.setText(self.tr_("cat_spalling"))
@@ -138,7 +137,6 @@ class MainWindow(QMainWindow):
         self._btn_sam_commit.setText(self.tr_("btn_sam_commit"))
         self._btn_sam_cancel.setText(self.tr_("btn_sam_cancel"))
         self._btn_sam_undo.setText(self.tr_("btn_sam_undo"))
-        self._refresh_path_labels()
 
         self._grp_brush.setTitle(self.tr_("group_brush"))
         self._btn_brush_toggle.setText(
@@ -190,41 +188,23 @@ class MainWindow(QMainWindow):
             self.output_dir = self.result_dir = None
             self.highlight_dir = self.repair15_dir = None
 
-    def _select_origin_folder(self):
-        start = str(self.origin_dir) if self.origin_dir else str(Path.cwd())
-        d = QFileDialog.getExistingDirectory(self, self.tr_("dlg_origin"), start)
-        if d:
-            self.origin_dir = Path(d).resolve()
-            self._sync_output_dir()
-            self._refresh_path_labels()
-            self._reload_data()
+    # ------------------------------------------------------------------
+    # Job info + list rows (overridden by the Viewer window, which knows the job)
+    # ------------------------------------------------------------------
+    def _job_info(self) -> tuple[str, str]:
+        """(job id, inspection name) shown above the image list."""
+        return "—", "—"
 
-    def _select_detected_folder(self):
-        start = str(self.detected_dir) if self.detected_dir else str(Path.cwd())
-        d = QFileDialog.getExistingDirectory(self, self.tr_("dlg_detected"), start)
-        if d:
-            self.detected_dir = Path(d).resolve()
-            self._refresh_path_labels()
-            self._reload_data()
+    def _refresh_job_info(self):
+        job_id, inspection = self._job_info()
+        self._lbl_job_id_value.setText(job_id)
+        self._lbl_inspection_value.setText(inspection)
+        self._lbl_photo_count_value.setText(
+            self.tr_("photo_count", n=len(self.image_files)))
 
-    def _refresh_path_labels(self):
-        no_p = self.tr_("no_path")
-
-        def short(p: Path | None) -> str:
-            if p is None:
-                return no_p
-            # Show only the last two path segments to keep the label tidy;
-            # the full path lands in the tooltip for users who need it.
-            parts = p.parts
-            return str(Path(*parts[-2:])) if len(parts) >= 2 else str(p)
-
-        for lbl, key, p in (
-            (self._lbl_origin_path,   "lbl_origin",   self.origin_dir),
-            (self._lbl_detected_path, "lbl_detected", self.detected_dir),
-            (self._lbl_output_path,   "lbl_output",   self.output_dir),
-        ):
-            lbl.setText(self.tr_(key, p=short(p)))
-            lbl.setToolTip(str(p) if p else "")
+    def _list_item_parts(self, filename: str) -> tuple[str, str]:
+        """(main text, dim second part) of the image-list row for filename."""
+        return filename, ""
 
     # ------------------------------------------------------------------
     # Brush callbacks
@@ -632,6 +612,7 @@ class MainWindow(QMainWindow):
         self._edited.clear()
         self.file_list.clear()
         self.canvas.clear()
+        self._refresh_job_info()
         if self.origin_dir is not None:
             self._load_data()
 
@@ -653,8 +634,18 @@ class MainWindow(QMainWindow):
 
         self.image_files = files
         self.file_list.clear()
-        for name in files:
-            self.file_list.addItem(name)
+        parts = [self._list_item_parts(name) for name in files]
+        delegate = self.file_list.itemDelegate()
+        if isinstance(delegate, TwoPartItemDelegate):
+            delegate.fit_primary_column([t for t, sec in parts if sec],
+                                        self.file_list.font())
+        for name, (text, secondary) in zip(files, parts):
+            item = QListWidgetItem(text)
+            if secondary:
+                item.setData(SECONDARY_TEXT_ROLE, secondary)
+            item.setToolTip(name)
+            self.file_list.addItem(item)
+        self._refresh_job_info()
 
         if self.output_dir is not None:
             self.output_dir.mkdir(parents=True, exist_ok=True)

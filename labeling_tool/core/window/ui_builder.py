@@ -10,15 +10,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QColor, QFont, QFontMetrics
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGroupBox,
-    QComboBox, QButtonGroup, QListWidget, QSpinBox, QSlider, QScrollArea,
-    QCheckBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
+    QGroupBox, QButtonGroup, QListWidget, QSpinBox, QSlider,
+    QScrollArea, QCheckBox, QStyle, QStyledItemDelegate,
 )
 
 from labeling_tool.ui import icons
 from labeling_tool.core.constants import BRUSH_DEFAULT_SIZE, BRUSH_MAX_SIZE
-from labeling_tool.core.i18n import LANGUAGES, LANG_DISPLAY_NAMES, current_language
 
 if TYPE_CHECKING:
     from labeling_tool.core.window.main_window import MainWindow
@@ -29,48 +29,98 @@ if TYPE_CHECKING:
 _GROUP_MARGINS = (10, 14, 10, 10)
 _GROUP_SPACING = 6
 
+# Item data role holding the dim second part of an image-list row (the file
+# name behind the "<job>-<photo>" id). Empty/None -> the row is one part only.
+SECONDARY_TEXT_ROLE = Qt.UserRole + 1
+_SECONDARY_COLOR = QColor(140, 140, 140)
+_SECONDARY_SELECTED_COLOR = QColor(215, 225, 245)   # readable on the blue highlight
+_PART_GAP = 10
+
+
+class TwoPartItemDelegate(QStyledItemDelegate):
+    """Paints a list row as its text (in the item's own foreground, so the
+    edited/labeled status colours still apply) followed by a smaller, grey
+    SECONDARY_TEXT_ROLE part elided to the remaining width. The second parts
+    start in one column: fit_primary_column() sizes it to the widest id."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._primary_width = 0
+
+    def fit_primary_column(self, texts, font) -> None:
+        metrics = QFontMetrics(font)
+        self._primary_width = max(
+            (metrics.horizontalAdvance(t) for t in texts), default=0)
+
+    def paint(self, painter, option, index):
+        secondary = index.data(SECONDARY_TEXT_ROLE)
+        if not secondary:
+            super().paint(painter, option, index)
+            return
+        self.initStyleOption(option, index)
+        primary = option.text
+        option.text = ""
+        widget = option.widget
+        style = widget.style() if widget is not None else None
+        if style is None:
+            super().paint(painter, option, index)
+            return
+        style.drawControl(QStyle.CE_ItemViewItem, option, painter, widget)
+
+        rect = style.subElementRect(QStyle.SE_ItemViewItemText, option, widget)
+        painter.save()
+        painter.setFont(option.font)
+        painter.setPen(option.palette.color(option.palette.Text)
+                       if index.data(Qt.ForegroundRole) is None
+                       else index.data(Qt.ForegroundRole).color())
+        primary_width = max(option.fontMetrics.horizontalAdvance(primary),
+                            self._primary_width)
+        painter.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter, primary)
+
+        # Copy: option.font is shared with the view's other rows, so shrinking
+        # it in place made every later row smaller still.
+        small = QFont(option.font)
+        small.setPointSizeF(max(option.font.pointSizeF() - 1.5, 6.0))
+        painter.setFont(small)
+        painter.setPen(_SECONDARY_SELECTED_COLOR
+                       if option.state & QStyle.State_Selected
+                       else _SECONDARY_COLOR)
+        rest = rect.adjusted(primary_width + _PART_GAP, 0, 0, 0)
+        elided = painter.fontMetrics().elidedText(
+            secondary, Qt.ElideMiddle, max(rest.width(), 0))
+        painter.drawText(rest, Qt.AlignLeft | Qt.AlignVCenter, elided)
+        painter.restore()
+
 
 def _tidy_group_layout(layout) -> None:
     layout.setContentsMargins(*_GROUP_MARGINS)
     layout.setSpacing(_GROUP_SPACING)
 
 
-def build_settings_group(window: "MainWindow") -> QGroupBox:
-    window._grp_settings = QGroupBox(window.tr_("settings"))
-    gs = QVBoxLayout(window._grp_settings)
-    _tidy_group_layout(gs)
-
-    lang_row = QHBoxLayout()
-    window._lbl_lang = QLabel(window.tr_("language"))
-    window._cmb_lang = QComboBox()
-    for code in LANGUAGES:
-        window._cmb_lang.addItem(LANG_DISPLAY_NAMES[code], code)
-    window._cmb_lang.setCurrentIndex(LANGUAGES.index(current_language()))
-    window._cmb_lang.currentIndexChanged.connect(window._change_language)
-    lang_row.addWidget(window._lbl_lang)
-    lang_row.addWidget(window._cmb_lang, stretch=1)
-    gs.addLayout(lang_row)
-
-    folder_row = QHBoxLayout()
-    window._btn_select_origin = QPushButton(window.tr_("btn_select_origin"))
-    window._btn_select_detected = QPushButton(window.tr_("btn_select_detected"))
-    window._btn_select_origin.clicked.connect(window._select_origin_folder)
-    window._btn_select_detected.clicked.connect(window._select_detected_folder)
-    folder_row.addWidget(window._btn_select_origin)
-    folder_row.addWidget(window._btn_select_detected)
-    gs.addLayout(folder_row)
-
-    window._lbl_origin_path = QLabel()
-    window._lbl_detected_path = QLabel()
-    window._lbl_output_path = QLabel()
-    for lbl in (window._lbl_origin_path,
-                window._lbl_detected_path,
-                window._lbl_output_path):
-        lbl.setObjectName("pathLabel")
-        lbl.setWordWrap(True)
-        gs.addWidget(lbl)
-    window._refresh_path_labels()
-    return window._grp_settings
+def build_job_info_group(window: "MainWindow") -> QGroupBox:
+    """Which job is open: its server id, inspection name and photo count.
+    Values come from window._job_info(); _refresh_job_info() fills them."""
+    window._grp_job_info = QGroupBox(window.tr_("group_job_info"))
+    grid = QGridLayout(window._grp_job_info)
+    _tidy_group_layout(grid)
+    grid.setHorizontalSpacing(12)
+    rows = (("_lbl_job_id_key", "_lbl_job_id_value", "lbl_job_id"),
+            ("_lbl_inspection_key", "_lbl_inspection_value", "lbl_inspection_name"),
+            ("_lbl_photo_count_key", "_lbl_photo_count_value", "lbl_photo_count"))
+    for row, (key_attr, value_attr, text_key) in enumerate(rows):
+        key = QLabel(window.tr_(text_key))
+        key.setObjectName("jobInfoKey")
+        value = QLabel()
+        value.setObjectName("jobInfoValue")
+        value.setWordWrap(True)
+        value.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        setattr(window, key_attr, key)
+        setattr(window, value_attr, value)
+        grid.addWidget(key, row, 0, Qt.AlignLeft | Qt.AlignTop)
+        grid.addWidget(value, row, 1)
+    grid.setColumnStretch(1, 1)
+    window._refresh_job_info()
+    return window._grp_job_info
 
 
 def build_category_group(window: "MainWindow") -> QGroupBox:
@@ -228,6 +278,7 @@ def build_list_group(window: "MainWindow") -> QGroupBox:
     gl = QVBoxLayout(window._grp_list)
     _tidy_group_layout(gl)
     window.file_list = QListWidget()
+    window.file_list.setItemDelegate(TwoPartItemDelegate(window.file_list))
     window.file_list.currentRowChanged.connect(window._on_list_row_changed)
     gl.addWidget(window.file_list)
     return window._grp_list
@@ -281,10 +332,10 @@ def build_side_panel(window: "MainWindow") -> QScrollArea:
     panel_layout.addWidget(title)
     window._lbl_app_title = title
 
-    # Rationalized order: connection/folders, then the image list + navigation
+    # Rationalized order: the open job, then the image list + navigation
     # (the things used most), then scale (incl. manual-measure fallback), then
     # the editing tools, and finally one consolidated help block at the bottom.
-    panel_layout.addWidget(build_settings_group(window))
+    panel_layout.addWidget(build_job_info_group(window))
     panel_layout.addWidget(build_list_group(window), stretch=3)
     panel_layout.addWidget(build_nav_group(window))
     panel_layout.addWidget(build_scale_group(window))
