@@ -91,6 +91,21 @@ def open_fewshot_from_login(dlg):
     return win
 
 
+# The deb's .desktop file name (packaging/deb.py PACKAGE). Linux docks map a
+# window to its .desktop entry -- and so to its icon -- by WM_CLASS (X11) or
+# app_id (Wayland); Qt's default, the executable name "LM_LabelingTool",
+# matched no entry and the dock showed a blank generic icon.
+DESKTOP_ID = "lm-labeling-tool"
+
+
+def apply_desktop_identity(app, platform: str = sys.platform) -> None:
+    """Give Linux windows the .desktop entry's id: the application name is
+    WM_CLASS's class part on X11, the desktop file name is the Wayland app_id."""
+    if platform.startswith("linux"):
+        app.setApplicationName(DESKTOP_ID)
+        app.setDesktopFileName(DESKTOP_ID)
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     from labeling_tool.core import app_paths
@@ -124,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
             return selftest.run_selftest(arg.partition("=")[2] or "full")
 
     app = QApplication([sys.argv[0], *argv])
+    apply_desktop_identity(app)
     # The exe's own icon is a PE resource written by PyInstaller; Windows
     # uses it for the file. The title bar and the taskbar button come from
     # Qt, so without this the running app shows Qt's default icon. Set on

@@ -4,6 +4,7 @@ Name=LM Labeling Tool
 Comment=Image and video labeling tool
 Exec=/opt/lm-labeling-tool/LM_LabelingTool
 Icon=lm-labeling-tool
+StartupWMClass=lm-labeling-tool
 Terminal=false
 Categories=Graphics;Science;
 Version=1.0

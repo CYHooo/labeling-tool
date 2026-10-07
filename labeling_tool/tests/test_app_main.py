@@ -23,6 +23,12 @@ class _FakeApp:
     def __init__(self, argv):
         _FakeApp.captured_argv = argv
 
+    def setApplicationName(self, *_a):
+        pass
+
+    def setDesktopFileName(self, *_a):
+        pass
+
     def setStyleSheet(self, *_a, **_k):
         pass
 
