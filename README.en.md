@@ -46,7 +46,7 @@ The app checks for a new version **at startup and every 4 hours while running**.
 
 ## How to use
 
-The login screen has two tabs.
+After logging in, the jobs screen has two tabs.
 
 | Tab | Purpose |
 |---|---|

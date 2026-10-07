@@ -114,7 +114,7 @@ STRINGS = {
     "fetch_existing_msg": "작업 {sid} 은(는) 이 PC 에 이미 있습니다.\n이어서 열까요, 서버에서 다시 가져올까요?\n(다시 가져와도 라벨링 결과와 업로드 기록은 유지됩니다.)",
     "fetch_existing_refetch": "다시 가져오기",
     "fetch_other_server_title": "다른 서버의 작업",
-    "fetch_other_server_msg": "이 PC 의 작업 {sid} 은(는) {base} 에서 받은 다른 작업입니다.\n번호만 같을 뿐 지금 서버의 작업과 다르므로 여기서 열거나 다시 가져올 수 없습니다.\n그 작업은 로그인 화면의 로컬 작업 목록에서 여세요.",
+    "fetch_other_server_msg": "이 PC 의 작업 {sid} 은(는) {base} 에서 받은 다른 작업입니다.\n번호만 같을 뿐 지금 서버의 작업과 다르므로 여기서 열거나 다시 가져올 수 없습니다.\n그 작업은 작업 화면의 로컬 작업 목록에서 여세요.",
     "work_title": "작업",
     "signin_field_id": "ID",
     "signin_field_password": "비밀번호",
@@ -123,6 +123,7 @@ STRINGS = {
     "signin_error": "ID 또는 비밀번호가 올바르지 않습니다.",
     "login_logout": "로그아웃",
     "login_signed_in_as": "로그인: {user}",
+    "signin_server_required": "새 작업을 가져오려면 서버(BASE URL / Key)를 입력한 뒤 다시 로그인하세요.",
     "login_open":                     "열기",
     "login_fewshot_hint_lite":
         "⚠ 이 빌드는 lite 버전이라 few-shot 도구를 사용할 수 없습니다.\n"
@@ -136,10 +137,8 @@ STRINGS = {
     "login_fewshot_desc_full":
         "SAM3 / SAM2.1 기반 다중 클래스 반자동 라벨링 도구 (few-shot 학습 데이터용).\n"
         "GPU(torch)와 SAM 가중치가 필요하며, 처음 열 때 모델 로딩에 시간이 걸립니다.",
-    "login_warn_input_required_title": "입력 필요",
-    "login_warn_input_required_msg":   "BASE/Key를 입력하세요.",
     "login_upload_possible": "업로드: 가능 → {host}",
-    "login_upload_impossible": "업로드: 불가 — 로컬 저장만 (BASE URL 과 Key 를 입력하면 업로드 가능)",
+    "login_upload_impossible": "업로드: 불가 — 로컬 저장만 (로그아웃 후 서버를 입력하면 업로드 가능)",
     "login_warn_no_manifest_title":    "없음",
     "login_warn_no_manifest_msg":      "로컬 매니페스트 없음: {path}",
     "login_warn_manifest_error_title": "매니페스트 오류",

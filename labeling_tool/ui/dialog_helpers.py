@@ -15,9 +15,10 @@ CONFIG_PATH = writable_path(
 def load_config() -> dict:
     if CONFIG_PATH.exists():
         try:
-            return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+            data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
         except Exception:
             return {}
+        return data if isinstance(data, dict) else {}
     return {}
 
 

@@ -127,3 +127,70 @@ def test_the_password_has_focus_when_the_id_is_remembered():
     dlg.show()
     QApplication.processEvents()
     assert dlg.focusWidget() is dlg.ed_password
+
+
+def test_a_failed_id_save_never_blocks_sign_in(monkeypatch):
+    """The remembered ID is a convenience: a read-only or full disk must not
+    turn the first screen into a crash (an uncaught slot error aborts PyQt5)."""
+    def boom(_uid):
+        raise OSError("read-only")
+    monkeypatch.setattr(ld, "save_user_id", boom)
+    dlg = ld.LoginDialog()
+    dlg.ed_password.setText("admin")
+    dlg.btn_sign_in.click()
+    assert dlg.pages.currentIndex() == ld.PAGE_WORK
+
+
+def test_signing_in_saves_a_complete_server(monkeypatch):
+    saved = []
+    monkeypatch.setattr(ld, "save_config", lambda b, k: saved.append((b, k)))
+    dlg = ld.LoginDialog()
+    dlg.ed_base.setText("https://new")
+    dlg.ed_key.setText("k2")
+    dlg.ed_password.setText("admin")
+    dlg.btn_sign_in.click()
+    assert saved == [("https://new", "k2")]
+
+
+def test_a_new_job_without_a_server_goes_back_to_sign_in_keeping_the_password():
+    dlg = ld.LoginDialog()
+    dlg.ed_base.setText("")
+    dlg.ed_password.setText("admin")
+    dlg.btn_sign_in.click()
+    dlg.btn_new_job.click()
+    assert dlg.mode is None
+    assert dlg.pages.currentIndex() == ld.PAGE_SIGN_IN
+    assert dlg.ed_password.text() == "admin"
+    assert dlg.lbl_sign_in_error.text()
+    assert dlg.ed_base.hasFocus() or dlg.focusWidget() in (dlg.ed_base, None)
+
+
+def test_enter_in_the_id_with_no_password_moves_to_the_password():
+    dlg = ld.LoginDialog()
+    dlg.show()
+    dlg.ed_user.returnPressed.emit()
+    QApplication.processEvents()
+    assert dlg.pages.currentIndex() == ld.PAGE_SIGN_IN
+    assert dlg.lbl_sign_in_error.text() == ""
+    assert dlg.focusWidget() is dlg.ed_password
+
+
+def test_typing_clears_the_error():
+    dlg = ld.LoginDialog()
+    dlg.ed_password.setText("nope")
+    dlg.btn_sign_in.click()
+    assert dlg.lbl_sign_in_error.text()
+    dlg.ed_password.setText("admi")
+    assert dlg.lbl_sign_in_error.text() == ""
+
+
+def test_a_refused_id_is_not_logged(monkeypatch):
+    lines = []
+    import logging
+    monkeypatch.setattr(ld, "vlog", lambda: type("L", (), {"info": lambda s, *a: lines.append(a),
+                                                          "warning": lambda s, *a: lines.append(a)})())
+    dlg = ld.LoginDialog()
+    dlg.ed_user.setText("secret-typed-here")
+    dlg.ed_password.setText("x")
+    dlg.btn_sign_in.click()
+    assert lines and not any("secret-typed-here" in str(a) for a in lines)

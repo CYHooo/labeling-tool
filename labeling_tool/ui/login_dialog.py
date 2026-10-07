@@ -307,8 +307,11 @@ class LoginDialog(QDialog):
         # default button, which would also fire from the jobs page.
         self.btn_sign_in.setAutoDefault(False)
         self.btn_sign_in.clicked.connect(self._on_sign_in)
-        for ed in (self.ed_user, self.ed_password, self.ed_base, self.ed_key):
+        self.ed_user.returnPressed.connect(self._on_user_return)
+        for ed in (self.ed_password, self.ed_base, self.ed_key):
             ed.returnPressed.connect(self._on_sign_in)
+        for ed in (self.ed_user, self.ed_password, self.ed_base, self.ed_key):
+            ed.textChanged.connect(lambda _t: self.lbl_sign_in_error.setText(""))
         row = QHBoxLayout()
         row.addWidget(self.lbl_sign_in_error, 1)
         row.addWidget(self.btn_sign_in)
@@ -321,26 +324,45 @@ class LoginDialog(QDialog):
         lay.addLayout(row)
         return page
 
+    def _on_user_return(self):
+        """Enter in the ID with no password yet: go on to the password."""
+        if self.ed_password.text():
+            self._on_sign_in()
+        else:
+            self.ed_password.setFocus()
+
     def _on_sign_in(self):
         try:
             user = self._auth.login(self.ed_user.text(), self.ed_password.text())
         except auth.AuthError:
-            vlog().info("sign-in refused for %r", self.ed_user.text().strip())
+            # Not the typed ID: a password pasted into the wrong field would
+            # otherwise land in the log.
+            vlog().info("sign-in refused")
             self.lbl_sign_in_error.setText(i18n.tr("signin_error"))
             self.ed_password.selectAll()
             self.ed_password.setFocus()
             return
         self.user = user
-        save_user_id(user.user_id)
+        # Remembering the ID and server is a convenience: a read-only or full
+        # disk must not crash the first screen (an exception escaping a Qt
+        # slot aborts PyQt5).
+        base, key = self.ed_base.text().strip(), self.ed_key.text().strip()
+        try:
+            save_user_id(user.user_id)
+            if base and key:
+                save_config(base, key)
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            vlog().warning("could not save the sign-in settings: %s", exc)
         vlog().info("signed in as %s", user.user_id)
         self.lbl_sign_in_error.setText("")
         self.pages.setCurrentIndex(PAGE_WORK)
         self.retranslate()
 
-    def _on_log_out(self):
+    def _on_log_out(self, keep_password: bool = False):
         vlog().info("signed out (%s)", self.user.user_id if self.user else "-")
         self.user = None
-        self.ed_password.clear()
+        if not keep_password:
+            self.ed_password.clear()
         self.pages.setCurrentIndex(PAGE_SIGN_IN)
         self.retranslate()
         self.ed_password.setFocus()
@@ -393,7 +415,7 @@ class LoginDialog(QDialog):
             btn.setDefault(False)
         self.btn_log_out = QPushButton("")
         self.btn_log_out.setAutoDefault(False)
-        self.btn_log_out.clicked.connect(self._on_log_out)
+        self.btn_log_out.clicked.connect(lambda: self._on_log_out())
         nav = QHBoxLayout()
         nav.addWidget(self.btn_log_out)
         nav.addWidget(self.lbl_upload, 1)
@@ -487,8 +509,11 @@ class LoginDialog(QDialog):
         base = self.ed_base.text().strip()
         key = self.ed_key.text().strip()
         if not base or not key:
-            QMessageBox.warning(self, i18n.tr("login_warn_input_required_title"),
-                                 i18n.tr("login_warn_input_required_msg"))
+            # The server is entered on the sign-in page: take the user there,
+            # password kept, rather than ask for fields this page lacks.
+            self._on_log_out(keep_password=True)
+            self.lbl_sign_in_error.setText(i18n.tr("signin_server_required"))
+            (self.ed_key if base else self.ed_base).setFocus()
             return
         save_config(base, key)
         self.base, self.key = base, key
