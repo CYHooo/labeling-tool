@@ -8,6 +8,12 @@ import pytest
 from labeling_tool import app as app_module
 from labeling_tool.update import ui as update_ui
 
+# main() builds a QIcon before any dialog; QIcon needs a real QApplication
+# even though main()'s own QApplication is faked below. Without this the file
+# only passed when an earlier test file had created one.
+from PyQt5.QtWidgets import QApplication  # noqa: E402
+_real_app = QApplication.instance() or QApplication([])
+
 
 @pytest.fixture(autouse=True)
 def _no_periodic_timer(monkeypatch):
@@ -22,6 +28,12 @@ class _FakeApp:
 
     def __init__(self, argv):
         _FakeApp.captured_argv = argv
+
+    def setApplicationName(self, *_a):
+        pass
+
+    def setDesktopFileName(self, *_a):
+        pass
 
     def setStyleSheet(self, *_a, **_k):
         pass
@@ -41,6 +53,7 @@ class _RejectingLoginDialog:
     right after building QApplication, without opening any real window."""
     def __init__(self, *a, **k):
         self.fewshotRequested = _FakeSignal()
+        self.user = None
 
     def exec_(self):
         return 0
@@ -110,3 +123,35 @@ def test_main_starts_the_periodic_check(monkeypatch):
     monkeypatch.setattr(update_ui, "start_periodic_checks", lambda *a, **k: started.append(a))
     app_module.main([])
     assert started == [()]
+
+
+def test_a_reopened_login_keeps_the_signed_in_user(monkeypatch):
+    """Back from the fetch screen, app.py builds a new login dialog; it must
+    get the user in, or the user would type the password again."""
+    from labeling_tool import auth
+    from labeling_tool.ui import login_dialog as ld
+    seen = []
+
+    class _Login:
+        def __init__(self, *a, user=None, **k):
+            self.fewshotRequested = _FakeSignal()
+            seen.append(user)
+            self.user = user or auth.User("admin")
+            self.mode, self.base, self.key = ld.MODE_ONLINE, "https://a", "k"
+            self.workspace = self.manifest = None
+
+        def exec_(self):
+            return 1 if len(seen) == 1 else 0     # second time: cancel
+
+    class _Fetch:
+        def __init__(self, **k):
+            self.go_back = True
+
+        def exec_(self):
+            return 0
+
+    monkeypatch.setattr(app_module, "QApplication", _FakeApp)
+    monkeypatch.setattr(app_module, "LoginDialog", _Login)
+    monkeypatch.setattr(app_module, "FetchDialog", _Fetch)
+    assert app_module.main([]) == 0
+    assert seen == [None, auth.User("admin")]

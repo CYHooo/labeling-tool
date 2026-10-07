@@ -109,7 +109,16 @@ STRINGS = {
     "fetch_existing_msg": "Job {sid} is already on this PC.\nOpen it, or fetch it again from the server?\n(Fetching again keeps your labeling and upload records.)",
     "fetch_existing_refetch": "Fetch again",
     "fetch_other_server_title": "Job from another server",
-    "fetch_other_server_msg": "Job {sid} on this PC is a different job, fetched from {base}.\nOnly the number matches the current server's job, so it can't be opened or fetched again here.\nOpen it from the Local jobs list on the login screen.",
+    "fetch_other_server_msg": "Job {sid} on this PC is a different job, fetched from {base}.\nOnly the number matches the current server's job, so it can't be opened or fetched again here.\nOpen it from the Local jobs list on the jobs screen.",
+    "work_title": "Jobs",
+    "signin_field_id": "ID",
+    "signin_field_password": "Password",
+    "signin_server_section": "Server",
+    "signin_button": "Log in",
+    "signin_error": "Incorrect ID or password.",
+    "login_logout": "Log out",
+    "login_signed_in_as": "Signed in: {user}",
+    "signin_server_required": "To fetch a new job, enter the server (BASE URL / Key) and log in again.",
     "login_open":                     "Open",
     "login_fewshot_hint_lite":
         "⚠ This build is the lite variant, so the few-shot tool is unavailable.\n"
@@ -123,10 +132,8 @@ STRINGS = {
     "login_fewshot_desc_full":
         "SAM3 / SAM2.1-based multi-class semi-automatic labeling tool (for few-shot training data).\n"
         "Needs a GPU (torch) and SAM weights; the first launch takes time to load the model.",
-    "login_warn_input_required_title": "Input required",
-    "login_warn_input_required_msg":   "Enter BASE/Key.",
     "login_upload_possible": "Upload: possible → {host}",
-    "login_upload_impossible": "Upload: not possible — local save only (enter the BASE URL and Key to enable upload)",
+    "login_upload_impossible": "Upload: not possible — local save only (log out and enter the server to enable upload)",
     "login_warn_no_manifest_title":    "Not found",
     "login_warn_no_manifest_msg":      "Local manifest not found: {path}",
     "login_warn_manifest_error_title": "Manifest error",

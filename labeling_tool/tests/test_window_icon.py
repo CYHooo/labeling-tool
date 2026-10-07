@@ -50,6 +50,12 @@ def test_main_sets_the_application_window_icon(monkeypatch):
         def __init__(self, argv):
             captured["argv"] = argv
 
+        def setApplicationName(self, *_a):
+            pass
+
+        def setDesktopFileName(self, *_a):
+            pass
+
         def setStyleSheet(self, *_a, **_k):
             pass
 
@@ -66,6 +72,7 @@ def test_main_sets_the_application_window_icon(monkeypatch):
     class _RejectingLogin:
         def __init__(self, *a, **k):
             self.fewshotRequested = _FakeSignal()
+            self.user = None
 
         def exec_(self):
             return 0
@@ -156,3 +163,43 @@ def test_small_png_keeps_the_small_branch_tuning_not_a_256px_downscale():
         "shipped icon-16.png matches a plain downscale of the 256px render "
         "-- the SMALL-branch tuning was not applied"
     )
+
+
+def test_linux_windows_carry_the_desktop_entrys_id():
+    """GNOME/KDE docks find the .desktop entry -- and so its icon -- by the
+    window's WM_CLASS (X11) or app_id (Wayland). Left at Qt's default they
+    were "LM_LabelingTool", which matches no entry: the dock showed a blank
+    generic icon. The id must be the deb's desktop file name."""
+    import sys
+    from pathlib import Path
+    from labeling_tool import app as app_mod
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "packaging"))
+    import deb
+
+    assert app_mod.DESKTOP_ID == deb.PACKAGE
+
+    class FakeApp:
+        def __init__(self):
+            self.calls = {}
+
+        def setApplicationName(self, name):
+            self.calls["name"] = name
+
+        def setDesktopFileName(self, name):
+            self.calls["desktop"] = name
+
+    linux, windows = FakeApp(), FakeApp()
+    app_mod.apply_desktop_identity(linux, platform="linux")
+    app_mod.apply_desktop_identity(windows, platform="win32")
+    assert linux.calls == {"name": deb.PACKAGE, "desktop": deb.PACKAGE}
+    assert windows.calls == {}
+
+
+def test_the_desktop_entry_names_the_window_class():
+    """StartupWMClass ties the entry to the window even where a desktop
+    ignores app_id; it must equal the class the app sets."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "packaging"))
+    import deb
+    assert f"StartupWMClass={deb.PACKAGE}" in deb.desktop_entry().splitlines()
