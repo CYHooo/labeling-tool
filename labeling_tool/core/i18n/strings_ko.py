@@ -100,7 +100,6 @@ STRINGS = {
     "login_col_job":                  "작업",
     "login_col_inspection":           "점검명",
     "login_col_photos":               "사진 / 업로드",
-    "login_col_server":               "서버",
     "login_col_modified":             "최근 수정",
     "login_jobs_empty": "받은 작업이 없습니다. 「{button}」를 눌러 데이터를 가져오세요.",
     "login_tab_labeling": "라벨링",

@@ -95,7 +95,6 @@ STRINGS = {
     "login_col_job":                  "任务",
     "login_col_inspection":           "检测名称",
     "login_col_photos":               "照片 / 已上传",
-    "login_col_server":               "服务器",
     "login_col_modified":             "最近修改",
     "login_jobs_empty": "还没有本地任务。请点击「{button}」获取数据。",
     "login_tab_labeling": "标注",

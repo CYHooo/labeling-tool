@@ -61,6 +61,7 @@ After logging in, the jobs screen opens: **Local jobs** lists the jobs already o
 
 - **A new job**: "Fetch a new job" → pick the job and, if needed, the photo range with `fromNum` / `toNum` (0 = from the start / to the end) → "Fetch (download)". The labeling window opens once the photos are in.
 - **A job you already have**: pick it in the list and click "Open" (or double-click). Uploads go to the server the job came from; with the Key empty, work is saved on this PC only.
+- The list opens most recently modified first. Click a column header (job, inspection name, photos, last modified) to sort by it; click again to reverse.
 - Fetching a job that is already on this PC asks "Open" or "Fetch again". Fetching again keeps your labeling and upload records. A same-numbered job fetched from another server can't be opened here.
 
 ### 2. Label

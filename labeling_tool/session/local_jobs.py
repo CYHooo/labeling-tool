@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlparse
 
 from labeling_tool.session.workspace import DEFAULT_DATA_ROOT
 
@@ -22,10 +21,6 @@ class LocalJob:
     photo_count: int
     synced_count: int              # photos already uploaded
     modified: float                # latest mtime of manifest / Labeling edits
-
-    @property
-    def host(self) -> str:
-        return urlparse(self.base).netloc or self.base
 
 
 def _last_modified(session_dir: Path) -> float:

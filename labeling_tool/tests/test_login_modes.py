@@ -104,7 +104,169 @@ def test_jobs_listed_newest_first(tmp_path):
     assert t.item(0, 0).text() == "18" and t.item(0, 1).text() == "—"
     assert t.item(1, 1).text() == "B1 주차장"
     assert t.item(1, 2).text() == "1 / 1"
-    assert t.item(1, 3).text() == "srv.example.com"
+
+
+def _column_texts(table, col):
+    return [table.item(r, col).text() for r in range(table.rowCount())]
+
+
+def _photos_job(root, sid, n, mtime):
+    """A job with n photos (the plain _job helper always has one)."""
+    import os
+    d = root / f"session_{sid}"
+    d.mkdir()
+    photos = {f"{i}.jpg": {"filename": f"{i}.jpg", "timestamp": i, "photo_id": i,
+                           "report_photo_num": i, "px_per_cm": 1.0}
+              for i in range(1, n + 1)}
+    mf = d / "manifest.json"
+    mf.write_text(json.dumps({"sessionId": sid, "base": "https://s", "fetchedAt": None,
+                              "inspectionName": None, "photos": photos}))
+    os.utime(mf, (mtime, mtime))
+
+
+def test_the_job_table_has_no_server_column(tmp_path):
+    _job(tmp_path, 16)
+    dlg = ld.LoginDialog()
+    headers = [dlg.tbl_jobs.horizontalHeaderItem(c).text().rstrip(" ▲▼")
+               for c in range(dlg.tbl_jobs.columnCount())]
+    assert headers == [ld.i18n.tr(k) for k in (
+        "login_col_job", "login_col_inspection", "login_col_photos", "login_col_modified")]
+    assert "srv.example.com" not in [dlg.tbl_jobs.item(0, c).text()
+                                     for c in range(dlg.tbl_jobs.columnCount())]
+
+
+def test_jobs_start_sorted_newest_first(tmp_path):
+    from PyQt5.QtCore import Qt
+    _job(tmp_path, 9, mtime=3000)
+    _job(tmp_path, 100, mtime=1000)
+    _job(tmp_path, 10, mtime=2000)
+    dlg = ld.LoginDialog()
+    header = dlg.tbl_jobs.horizontalHeader()
+    assert dlg.tbl_jobs.isSortingEnabled()
+    assert (header.sortIndicatorSection(), header.sortIndicatorOrder()) == (3, Qt.DescendingOrder)
+    assert _column_texts(dlg.tbl_jobs, 0) == ["9", "10", "100"]
+
+
+def test_clicking_a_header_sorts_by_it_and_again_reverses(tmp_path):
+    _job(tmp_path, 9, mtime=3000)
+    _job(tmp_path, 100, mtime=1000)
+    _job(tmp_path, 10, mtime=2000)
+    dlg = ld.LoginDialog()
+    dlg.tbl_jobs.sortByColumn(0, ld.Qt.AscendingOrder)               # header click
+    assert _column_texts(dlg.tbl_jobs, 0) == ["9", "10", "100"]      # numeric, not "10" < "9"
+    dlg.tbl_jobs.sortByColumn(0, ld.Qt.DescendingOrder)
+    assert _column_texts(dlg.tbl_jobs, 0) == ["100", "10", "9"]
+    dlg.tbl_jobs.sortByColumn(3, ld.Qt.AscendingOrder)               # oldest first
+    assert _column_texts(dlg.tbl_jobs, 0) == ["100", "10", "9"]
+
+
+def test_photo_column_sorts_by_photo_count(tmp_path):
+    _photos_job(tmp_path, 1, n=12, mtime=1000)
+    _photos_job(tmp_path, 2, n=3, mtime=2000)
+    _photos_job(tmp_path, 3, n=100, mtime=3000)
+    dlg = ld.LoginDialog()
+    dlg.tbl_jobs.sortByColumn(2, ld.Qt.AscendingOrder)
+    assert _column_texts(dlg.tbl_jobs, 0) == ["2", "1", "3"]
+
+
+def test_inspection_column_sorts_by_name(tmp_path):
+    _job(tmp_path, 1, name="다리", mtime=1000)
+    _job(tmp_path, 2, name="가교", mtime=2000)
+    _job(tmp_path, 3, name="나루", mtime=3000)
+    dlg = ld.LoginDialog()
+    dlg.tbl_jobs.sortByColumn(1, ld.Qt.AscendingOrder)
+    assert _column_texts(dlg.tbl_jobs, 1) == ["가교", "나루", "다리"]
+
+
+def test_open_after_sorting_opens_the_selected_row(tmp_path):
+    _job(tmp_path, 9, mtime=3000)
+    _job(tmp_path, 100, mtime=1000)
+    _job(tmp_path, 10, mtime=2000)
+    dlg = ld.LoginDialog()
+    dlg.tbl_jobs.sortByColumn(0, ld.Qt.DescendingOrder)               # 100, 10, 9
+    dlg.tbl_jobs.selectRow(0)
+    dlg.btn_open_job.click()
+    assert dlg.manifest.session_id == 100
+    assert dlg.workspace.session_dir == tmp_path / "session_100"
+
+
+def test_sorting_keeps_the_selected_job_selected(tmp_path):
+    _job(tmp_path, 9, mtime=3000)
+    _job(tmp_path, 100, mtime=1000)
+    dlg = ld.LoginDialog()
+    dlg.tbl_jobs.selectRow(1)                                         # job 100
+    dlg.tbl_jobs.sortByColumn(0, ld.Qt.DescendingOrder)
+    assert dlg._selected_job().session_id == 100
+
+
+def test_the_sort_order_is_not_remembered(tmp_path):
+    from PyQt5.QtCore import Qt
+    _job(tmp_path, 9, mtime=3000)
+    _job(tmp_path, 100, mtime=1000)
+    first = ld.LoginDialog()
+    first.tbl_jobs.sortByColumn(0, Qt.DescendingOrder)
+    first.close()
+    second = ld.LoginDialog()
+    header = second.tbl_jobs.horizontalHeader()
+    assert (header.sortIndicatorSection(), header.sortIndicatorOrder()) == (3, Qt.DescendingOrder)
+    assert _column_texts(second.tbl_jobs, 0) == ["9", "100"]
+
+
+def test_a_language_change_keeps_the_sort(monkeypatch, tmp_path):
+    from labeling_tool.core import i18n
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path / "settings")
+    _job(tmp_path, 9, mtime=3000)
+    _job(tmp_path, 100, mtime=1000)
+    dlg = ld.LoginDialog()
+    dlg.tbl_jobs.sortByColumn(0, ld.Qt.DescendingOrder)
+    i18n.set_language("en")
+    i18n.set_language("ko")
+    assert _column_texts(dlg.tbl_jobs, 0) == ["100", "9"]
+    assert dlg.tbl_jobs.horizontalHeaderItem(0).text() == i18n.tr("login_col_job") + " ▼"
+
+
+def _headers(table):
+    return [table.horizontalHeaderItem(c).text() for c in range(table.columnCount())]
+
+
+def test_the_sorted_column_header_carries_a_direction_arrow(tmp_path):
+    _job(tmp_path, 9, mtime=3000)
+    dlg = ld.LoginDialog()
+    tr = ld.i18n.tr
+    assert not dlg.tbl_jobs.horizontalHeader().isSortIndicatorShown()   # replaced by the arrow
+    assert _headers(dlg.tbl_jobs) == [tr("login_col_job"), tr("login_col_inspection"),
+                                      tr("login_col_photos"), tr("login_col_modified") + " ▼"]
+    dlg.tbl_jobs.sortByColumn(0, ld.Qt.AscendingOrder)
+    assert _headers(dlg.tbl_jobs)[0] == tr("login_col_job") + " ▲"
+    assert _headers(dlg.tbl_jobs)[3] == tr("login_col_modified")
+
+
+def test_the_arrow_survives_a_language_change(monkeypatch, tmp_path):
+    from labeling_tool.core import i18n
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path / "settings")
+    _job(tmp_path, 9, mtime=3000)
+    dlg = ld.LoginDialog()
+    dlg.tbl_jobs.sortByColumn(2, ld.Qt.DescendingOrder)
+    i18n.set_language("en")
+    try:
+        assert _headers(dlg.tbl_jobs)[2] == i18n.tr("login_col_photos") + " ▼"
+    finally:
+        i18n.set_language("ko")
+
+
+def test_sorting_scrolls_the_selected_job_into_view(tmp_path):
+    for sid in range(1, 41):
+        _job(tmp_path, sid, mtime=1000 + sid)
+    dlg = ld.LoginDialog()
+    dlg.resize(700, 400)
+    dlg.show()
+    dlg.tbl_jobs.selectRow(0)                                  # job 40, newest
+    dlg.tbl_jobs.sortByColumn(0, ld.Qt.AscendingOrder)         # job 40 is now last
+    ld.QApplication.processEvents()
+    row = dlg.tbl_jobs.selectionModel().selectedRows()[0].row()
+    assert row == 39
+    rect = dlg.tbl_jobs.visualRect(dlg.tbl_jobs.model().index(row, 0))
+    assert dlg.tbl_jobs.viewport().rect().intersects(rect)
 
 
 def test_no_jobs_points_at_the_new_job_button(tmp_path):
