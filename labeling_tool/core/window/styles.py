@@ -13,10 +13,8 @@ STYLESHEET = """
             padding: 4px 0 8px 0;
             border-bottom: 1px solid #3a4048;
         }
-        QLabel#pathLabel {
+        QLabel#jobInfoKey {
             color: #888c93;
-            font-size: 10px;
-            padding: 1px 0;
         }
         QFrame#loadingBox {
             background-color: #181b20;

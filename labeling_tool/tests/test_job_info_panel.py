@@ -113,13 +113,52 @@ def test_selecting_a_row_still_opens_that_file(tmp_path, monkeypatch):
         win.close()
 
 
-def test_the_list_uses_the_two_part_delegate(tmp_path, monkeypatch):
+def _paint_row(view, row, selected):
+    """Paint one row through the list's delegate and return the image."""
+    from PyQt5.QtGui import QImage, QPainter
+    from PyQt5.QtWidgets import QStyle
+    index = view.model().index(row, 0)
+    option = view.viewOptions()
+    option.rect = view.visualRect(index).translated(0, -view.visualRect(index).top())
+    if selected:
+        option.state |= QStyle.State_Selected
+    image = QImage(option.rect.width(), option.rect.height(), QImage.Format_RGB32)
+    image.fill(0)
+    painter = QPainter(image)
+    try:
+        view.itemDelegate().paint(painter, option, index)
+    finally:
+        painter.end()
+    return image
+
+
+def _has_pixel(image, predicate, width):
+    from PyQt5.QtGui import QColor
+    return any(predicate(QColor(image.pixel(x, y)))
+               for x in range(min(width, image.width()))
+               for y in range(image.height()))
+
+
+def test_the_id_is_painted_in_its_status_colour_and_white_when_selected(tmp_path, monkeypatch):
+    from PyQt5.QtGui import QBrush, QColor
     win = _make_window(tmp_path, monkeypatch)
     try:
-        assert isinstance(win.file_list.itemDelegate(), ui_builder.TwoPartItemDelegate)
-        # status colours still land on the item, the delegate paints with them
-        assert win.file_list.item(0).foreground().color().isValid()
-        assert win.file_list.item(0).data(Qt.DisplayRole) == "45-1"
+        view = win.file_list
+        assert isinstance(view.itemDelegate(), ui_builder.TwoPartItemDelegate)
+        view.item(1).setForeground(QBrush(QColor(120, 220, 120)))     # "labeled"
+        id_width = 60                                                  # "45-2" + margin
+
+        def green(c):
+            return c.green() > 180 and c.red() < 160 and c.blue() < 160
+
+        def white(c):
+            return min(c.red(), c.green(), c.blue()) > 235
+
+        plain = _paint_row(view, 1, selected=False)
+        assert _has_pixel(plain, green, id_width)
+        selected = _paint_row(view, 1, selected=True)
+        assert _has_pixel(selected, white, id_width)
+        assert not _has_pixel(selected, green, id_width)
     finally:
         win.close()
 

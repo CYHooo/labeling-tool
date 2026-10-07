@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor, QFont, QFontMetrics
+from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPalette
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
     QGroupBox, QButtonGroup, QListWidget, QSpinBox, QSlider,
@@ -34,6 +34,7 @@ _GROUP_SPACING = 6
 SECONDARY_TEXT_ROLE = Qt.UserRole + 1
 _SECONDARY_COLOR = QColor(140, 140, 140)
 _SECONDARY_SELECTED_COLOR = QColor(215, 225, 245)   # readable on the blue highlight
+_SELECTED_TEXT_COLOR = QColor(255, 255, 255)        # QListWidget::item:selected
 _PART_GAP = 10
 
 
@@ -70,9 +71,11 @@ class TwoPartItemDelegate(QStyledItemDelegate):
         rect = style.subElementRect(QStyle.SE_ItemViewItemText, option, widget)
         painter.save()
         painter.setFont(option.font)
-        painter.setPen(option.palette.color(option.palette.Text)
-                       if index.data(Qt.ForegroundRole) is None
-                       else index.data(Qt.ForegroundRole).color())
+        selected = bool(option.state & QStyle.State_Selected)
+        # initStyleOption copied the item's status colour into palette Text;
+        # a selected row is white on the highlight, as the stylesheet had it.
+        painter.setPen(_SELECTED_TEXT_COLOR if selected
+                       else option.palette.color(QPalette.Text))
         primary_width = max(option.fontMetrics.horizontalAdvance(primary),
                             self._primary_width)
         painter.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter, primary)
@@ -80,10 +83,12 @@ class TwoPartItemDelegate(QStyledItemDelegate):
         # Copy: option.font is shared with the view's other rows, so shrinking
         # it in place made every later row smaller still.
         small = QFont(option.font)
-        small.setPointSizeF(max(option.font.pointSizeF() - 1.5, 6.0))
+        if option.font.pointSizeF() > 0:
+            small.setPointSizeF(max(option.font.pointSizeF() - 1.5, 6.0))
+        else:                                   # pixel-sized font
+            small.setPixelSize(max(option.font.pixelSize() - 2, 8))
         painter.setFont(small)
-        painter.setPen(_SECONDARY_SELECTED_COLOR
-                       if option.state & QStyle.State_Selected
+        painter.setPen(_SECONDARY_SELECTED_COLOR if selected
                        else _SECONDARY_COLOR)
         rest = rect.adjusted(primary_width + _PART_GAP, 0, 0, 0)
         elided = painter.fontMetrics().elidedText(
