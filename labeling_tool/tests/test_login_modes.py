@@ -62,8 +62,9 @@ def test_labeling_and_fewshot_are_the_only_tabs():
     assert dlg.tabs.count() == 2
     assert dlg.tabs.currentIndex() == ld.TAB_LABELING
     page = dlg.tabs.widget(ld.TAB_LABELING)
-    for w in (dlg.tbl_jobs, dlg.btn_new_job, dlg.btn_open_job, dlg.btn_log_out):
+    for w in (dlg.tbl_jobs, dlg.btn_new_job, dlg.btn_open_job):
         assert page.isAncestorOf(w)
+    assert not page.isAncestorOf(dlg.btn_log_out)   # bottom row (test_sign_in.py)
     # the server is entered once, on the sign-in page (test_sign_in.py)
     for w in (dlg.ed_base, dlg.ed_key):
         assert not page.isAncestorOf(w)

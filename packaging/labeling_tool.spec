@@ -32,6 +32,12 @@ datas = [(os.path.join(ROOT, "labeling_tool", "models", "sam", "*.onnx"),
 # the PE resource below. PNGs are used on both platforms; the .ico
 # remains only for the Windows executable's own resource.
 datas += [(png, os.path.join("labeling_tool", "resources")) for png in ICON_PNGS]
+# Button/label icons (labeling_tool/ui/icons.py) and their license. App layer:
+# _internal/labeling_tool/ ships in the update zip.
+datas += [(os.path.join(ROOT, "labeling_tool", "resources", "icons", "*.svg"),
+           os.path.join("labeling_tool", "resources", "icons")),
+          (os.path.join(ROOT, "labeling_tool", "resources", "icons", "LICENSE-lucide.txt"),
+           os.path.join("labeling_tool", "resources", "icons"))]
 binaries = []
 # labeling_tool imports several modules lazily inside functions
 hiddenimports = collect_submodules("labeling_tool", filter=_not_tests_or_scripts)

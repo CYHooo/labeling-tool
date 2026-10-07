@@ -35,8 +35,8 @@ STRINGS = {
     "group_list":         "Image List",
     "group_nav":          "Navigation",
     "group_hint":         "Help / Usage",
-    "btn_prev":           "<- Previous  [A]",
-    "btn_next":           "Next  [D] ->",
+    "btn_prev":           "Previous  [A]",
+    "btn_next":           "Next  [D]",
     "btn_save":           "Save Current  [S]",
     "hint_text":
         "Brush   L-drag paint · R-drag erase · 1/2 crack/spalling\n"
@@ -149,7 +149,7 @@ STRINGS = {
     "fetch_title":                     "Fetch data",
     "fetch_from_label":                "fromNum (0 = from the start)",
     "fetch_to_label":                  "toNum (0 = to the end)",
-    "fetch_back":                      "← Log in",
+    "fetch_back":                      "Log in",
     "fetch_btn":                       "Fetch (download)",
     "fetch_session_item":              "Job {sid}",
     "fetch_session_item_named":        "Job {sid} · {name}",

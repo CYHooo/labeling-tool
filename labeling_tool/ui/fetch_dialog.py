@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
 )
 
 from labeling_tool.core.i18n import tr
+from labeling_tool.ui import icons
 from labeling_tool.api.client import ViewerApiClient
 from labeling_tool.api.errors import ViewerApiError
 from labeling_tool.api.downloader import download_photos
@@ -73,8 +74,11 @@ class FetchDialog(QDialog):
         # app.py orchestration loop reopens LoginDialog instead of exiting.
         self.go_back = False
         self.btn_back = QPushButton(tr("fetch_back"))
+        self.btn_back.setIcon(icons.icon("arrow-left"))
         self.btn_back.clicked.connect(self._on_back)
         self.btn_fetch = QPushButton(tr("fetch_btn"))
+        self.btn_fetch.setObjectName("primaryAction")
+        self.btn_fetch.setIcon(icons.icon("download", primary=True))
         self.btn_fetch.setDefault(True)
         self.btn_fetch.clicked.connect(self._on_fetch)
         btns = QHBoxLayout()

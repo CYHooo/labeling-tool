@@ -33,6 +33,7 @@ from PyQt5.QtWidgets import (
 from labeling_tool import auth
 from labeling_tool.core import i18n
 from labeling_tool.core.i18n import LANGUAGES, LANG_DISPLAY_NAMES
+from labeling_tool.ui import icons
 from labeling_tool.ui.dialog_helpers import load_config, save_config, save_user_id
 from labeling_tool.session.workspace import Workspace, DEFAULT_DATA_ROOT
 from labeling_tool.session.local_jobs import LocalJob, list_local_jobs
@@ -168,7 +169,16 @@ class LoginDialog(QDialog):
         self.lbl_version.setStyleSheet("color: #9ea3aa;")
         self.btn_check_update = QPushButton("")
         self.btn_check_update.clicked.connect(self._on_check_update_clicked)
+        self.lbl_language_icon = QLabel()
+        self.lbl_language_icon.setPixmap(icons.pixmap("globe"))
+        self.btn_check_update.setIcon(icons.icon("refresh-cw"))
         bottom = QHBoxLayout()
+        # who is signed in, and the way out -- shown on the jobs page only
+        bottom.addWidget(self.lbl_user_icon)
+        bottom.addWidget(self.lbl_user)
+        bottom.addWidget(self.btn_log_out)
+        bottom.addSpacing(12)
+        bottom.addWidget(self.lbl_language_icon)
         bottom.addWidget(self.lbl_language)
         bottom.addWidget(self.cmb_language)
         bottom.addWidget(self.lbl_version, 1)
@@ -230,13 +240,16 @@ class LoginDialog(QDialog):
         self._show_sign_in_message(self._sign_in_msg_key)
         self.btn_log_out.setText(i18n.tr("login_logout"))
         self.lbl_user.setText(i18n.tr("login_signed_in_as", user=self.user.user_id) if self.user else "")
+        on_work_page = self.pages.currentIndex() == PAGE_WORK
+        for w in (self.lbl_user_icon, self.lbl_user, self.btn_log_out):
+            w.setVisible(on_work_page)
+        self.lbl_jobs_title.setText(f"{i18n.tr('login_jobs_title')}  ({len(self._jobs)})")
         self.lbl_language.setText(i18n.tr("language"))
         self.tabs.setTabText(TAB_LABELING, i18n.tr("login_tab_labeling"))
         self.tabs.setTabText(TAB_FEWSHOT, i18n.tr("login_tab_fewshot"))
 
         self.lbl_field_base.setText(i18n.tr("login_field_base"))
         self.lbl_field_key.setText(i18n.tr("login_field_key"))
-        self.lbl_jobs_title.setText(i18n.tr("login_jobs_title"))
         self.tbl_jobs.setHorizontalHeaderLabels(
             [i18n.tr(k) for k in JOB_COLUMN_KEYS])
         self.btn_new_job.setText(i18n.tr("login_new_job"))
@@ -250,9 +263,8 @@ class LoginDialog(QDialog):
         self.btn_fewshot.setText(i18n.tr("login_open"))
 
         info = self._build_info
-        self.lbl_version.setText(
-            i18n.tr("login_version", version=info.version)
-            + (f" ({info.variant})" if info.variant else ""))
+        # One package per platform now: no "(full)" suffix.
+        self.lbl_version.setText(i18n.tr("login_version", version=info.version))
         self.btn_check_update.setText(i18n.tr("login_check_update"))
 
     def _on_check_update_clicked(self):
@@ -305,6 +317,8 @@ class LoginDialog(QDialog):
         self._sign_in_msg_key: str | None = None
         self.lbl_sign_in_error.setStyleSheet("color: #e06c6c;")
         self.btn_sign_in = QPushButton("")
+        self.btn_sign_in.setObjectName("primaryAction")
+        self.btn_sign_in.setIcon(icons.icon("log-in", primary=True))
         # Enter in any field signs in -- wired per field, not as the dialog's
         # default button, which would also fire from the jobs page.
         self.btn_sign_in.setAutoDefault(False)
@@ -320,6 +334,12 @@ class LoginDialog(QDialog):
 
         page = QWidget()
         lay = QVBoxLayout(page)
+        logo = QLabel()
+        logo.setAlignment(Qt.AlignCenter)
+        from labeling_tool.core.app_paths import resource_path
+        from PyQt5.QtGui import QPixmap
+        logo.setPixmap(QPixmap(str(resource_path("icon-48.png"))))
+        lay.addWidget(logo)
         lay.addWidget(self.lbl_app_name)
         lay.addLayout(form)
         lay.addStretch(1)
@@ -383,8 +403,13 @@ class LoginDialog(QDialog):
     def _build_labeling_page(self, cfg: dict) -> QWidget:
         """The jobs already on this PC and two ways on: fetch a new job with
         the sign-in page's server, or open a fetched one."""
+        # the signed-in user and log-out live in the dialog's bottom row
+        self.lbl_user_icon = QLabel()
+        self.lbl_user_icon.setPixmap(icons.pixmap("circle-user"))
         self.lbl_user = QLabel("")
         self.lbl_user.setStyleSheet("color: #9ea3aa;")
+        self.lbl_jobs_icon = QLabel()
+        self.lbl_jobs_icon.setPixmap(icons.pixmap("folder", 18))
         self.lbl_jobs_title = QLabel("")
         self.lbl_jobs_title.setStyleSheet("font-weight: bold;")
         self._jobs: list[LocalJob] = list_local_jobs(DEFAULT_DATA_ROOT)
@@ -416,9 +441,13 @@ class LoginDialog(QDialog):
         self.lbl_jobs_empty.setWordWrap(True)
 
         self.lbl_upload = QLabel("")
+        self.lbl_upload_icon = QLabel()
         self.btn_new_job = QPushButton("")
+        self.btn_new_job.setObjectName("primaryAction")
+        self.btn_new_job.setIcon(icons.icon("download", primary=True))
         self.btn_new_job.clicked.connect(self._on_new_job)
         self.btn_open_job = QPushButton("")
+        self.btn_open_job.setIcon(icons.icon("folder-open"))
         self.btn_open_job.clicked.connect(self._on_open_job)
         self.btn_open_job.setEnabled(False)
         # No default button: Enter after typing a new server must not open the
@@ -427,17 +456,19 @@ class LoginDialog(QDialog):
             btn.setAutoDefault(False)
             btn.setDefault(False)
         self.btn_log_out = QPushButton("")
+        self.btn_log_out.setIcon(icons.icon("log-out"))
         self.btn_log_out.setAutoDefault(False)
         self.btn_log_out.clicked.connect(lambda: self._on_log_out())
         nav = QHBoxLayout()
-        nav.addWidget(self.btn_log_out)
+        nav.addWidget(self.lbl_upload_icon)
         nav.addWidget(self.lbl_upload, 1)
-        nav.addWidget(self.btn_new_job)
         nav.addWidget(self.btn_open_job)
 
+        # title row: what the list is, and the primary way to add to it
         title = QHBoxLayout()
+        title.addWidget(self.lbl_jobs_icon)
         title.addWidget(self.lbl_jobs_title, 1)
-        title.addWidget(self.lbl_user)
+        title.addWidget(self.btn_new_job)
         page = QWidget()
         lay = QVBoxLayout(page)
         lay.addLayout(title)
@@ -452,6 +483,7 @@ class LoginDialog(QDialog):
     def _build_fewshot_page(self) -> QWidget:
         """Tab 2: few-shot annotation tool (annotation_tool, needs torch)."""
         self.btn_fewshot = QPushButton("")
+        self.btn_fewshot.setIcon(icons.icon("wand-sparkles"))
         self.btn_fewshot.clicked.connect(self.fewshotRequested.emit)
         self.lbl_fewshot_hint = QLabel("")
         self.lbl_fewshot_desc = QLabel("")
@@ -493,6 +525,8 @@ class LoginDialog(QDialog):
         self.tabs.setEnabled(False)
         self.cmb_language.setEnabled(False)
         self.btn_check_update.setEnabled(False)
+        # outside the disabled tabs since it moved to the bottom row
+        self.btn_log_out.setEnabled(False)
         self._loading = True
         QApplication.processEvents()
 
@@ -503,6 +537,7 @@ class LoginDialog(QDialog):
         pick another tab without restarting."""
         self.tabs.setEnabled(True)
         self.cmb_language.setEnabled(True)
+        self.btn_log_out.setEnabled(True)
         self.btn_check_update.setEnabled(True)
         self._loading = False
         if error:
@@ -556,9 +591,11 @@ class LoginDialog(QDialog):
         if target and self.ed_key.text().strip():
             host = urlparse(target).netloc or target
             self.lbl_upload.setText(i18n.tr("login_upload_possible", host=host))
+            self.lbl_upload_icon.setPixmap(icons.pixmap("cloud-upload"))
             self.lbl_upload.setStyleSheet("color: #3aa55a;")
         else:
             self.lbl_upload.setText(i18n.tr("login_upload_impossible"))
+            self.lbl_upload_icon.setPixmap(icons.pixmap("cloud-off"))
             self.lbl_upload.setStyleSheet("color: #e0a040;")
 
     def _on_open_job(self):
