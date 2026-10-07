@@ -608,6 +608,10 @@ class LoginDialog(QDialog):
         self.tbl_jobs.setHorizontalHeaderLabels(
             [i18n.tr(k) + (arrow if col == sorted_col else "")
              for col, k in enumerate(JOB_COLUMN_KEYS)])
+        # Like a file manager: a first click on the date shows newest first.
+        date_col, _ = JOB_DEFAULT_SORT
+        self.tbl_jobs.horizontalHeaderItem(date_col).setData(
+            Qt.InitialSortOrderRole, Qt.DescendingOrder)
 
     def _on_job_sort_changed(self, *_):
         self._refresh_job_headers()

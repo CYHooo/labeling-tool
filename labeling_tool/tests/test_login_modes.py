@@ -147,16 +147,38 @@ def test_jobs_start_sorted_newest_first(tmp_path):
     assert _column_texts(dlg.tbl_jobs, 0) == ["9", "10", "100"]
 
 
+def _click_header(table, col):
+    from PyQt5.QtCore import QPoint, Qt
+    from PyQt5.QtTest import QTest
+    h = table.horizontalHeader()
+    pos = QPoint(h.sectionViewportPosition(col) + h.sectionSize(col) // 2, h.height() // 2)
+    QTest.mouseClick(h.viewport(), Qt.LeftButton, pos=pos)
+
+
 def test_clicking_a_header_sorts_by_it_and_again_reverses(tmp_path):
     _job(tmp_path, 9, mtime=3000)
     _job(tmp_path, 100, mtime=1000)
     _job(tmp_path, 10, mtime=2000)
     dlg = ld.LoginDialog()
-    dlg.tbl_jobs.sortByColumn(0, ld.Qt.AscendingOrder)               # header click
+    dlg.resize(800, 500)
+    dlg.show()
+    _click_header(dlg.tbl_jobs, 0)
     assert _column_texts(dlg.tbl_jobs, 0) == ["9", "10", "100"]      # numeric, not "10" < "9"
-    dlg.tbl_jobs.sortByColumn(0, ld.Qt.DescendingOrder)
+    _click_header(dlg.tbl_jobs, 0)
     assert _column_texts(dlg.tbl_jobs, 0) == ["100", "10", "9"]
-    dlg.tbl_jobs.sortByColumn(3, ld.Qt.AscendingOrder)               # oldest first
+
+
+def test_first_click_on_last_modified_shows_newest_first(tmp_path):
+    _job(tmp_path, 9, mtime=3000)
+    _job(tmp_path, 100, mtime=1000)
+    _job(tmp_path, 10, mtime=2000)
+    dlg = ld.LoginDialog()
+    dlg.resize(800, 500)
+    dlg.show()
+    _click_header(dlg.tbl_jobs, 0)                                    # away from the date
+    _click_header(dlg.tbl_jobs, 3)                                    # back to it
+    assert _column_texts(dlg.tbl_jobs, 0) == ["9", "10", "100"]       # newest first
+    _click_header(dlg.tbl_jobs, 3)
     assert _column_texts(dlg.tbl_jobs, 0) == ["100", "10", "9"]
 
 
