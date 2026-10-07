@@ -783,25 +783,97 @@ def test_linux_apply_waits_off_the_ui_thread_so_the_window_stays_responsive(
     assert no_restart["popen"] == [[str(tmp_path / "LM_LabelingTool")]]
 
 
+def _visible_notices():
+    return [w for w in QApplication.topLevelWidgets()
+            if isinstance(w, ui.QProgressDialog) and w.isVisible()]
+
+
+def _slow_ok(seconds=0.4):
+    import time
+
+    def apply(exe, z, sha):
+        time.sleep(seconds)
+        return ui.installer.InstallOutcome.OK, ""
+    return apply
+
+
 def test_linux_apply_shows_a_busy_notice_while_waiting(monkeypatch, tmp_path, no_restart):
+    from PyQt5.QtCore import QTimer
     from labeling_tool.core import i18n
     monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.LINUX)
     monkeypatch.setattr(ui.app_paths, "app_home", lambda: tmp_path)
+    monkeypatch.setattr(ui.installer, "apply_zip_linux", _slow_ok())
     seen = {}
 
-    def apply(exe, z, sha):
-        bars = [w for w in QApplication.topLevelWidgets()
-                if isinstance(w, ui.QProgressDialog) and w.isVisible()]
+    def look():                            # on the UI thread, mid-wait
+        bars = _visible_notices()
         seen["labels"] = [b.labelText() for b in bars]
         seen["cancel"] = [b.findChildren(QPushButton) for b in bars]
-        return ui.installer.InstallOutcome.OK, ""
 
-    monkeypatch.setattr(ui.installer, "apply_zip_linux", apply)
+    QTimer.singleShot(100, look)
     ui.apply_and_restart(None, _zip_info(), tmp_path / "u.zip")
     assert seen["labels"] == [i18n.tr("update_applying")]
     assert seen["cancel"] == [[]]          # nothing to cancel: pkexec owns it now
-    assert not any(isinstance(w, ui.QProgressDialog) and w.isVisible()
-                   for w in QApplication.topLevelWidgets())
+    assert _visible_notices() == []
+
+
+def test_the_busy_notice_cannot_be_dismissed(monkeypatch, tmp_path, no_restart):
+    # Esc or the window manager's close would drop the modality while the
+    # root swap still runs, and the app would quit under the user.
+    from PyQt5.QtCore import QTimer
+    monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.LINUX)
+    monkeypatch.setattr(ui.app_paths, "app_home", lambda: tmp_path)
+    monkeypatch.setattr(ui.installer, "apply_zip_linux", _slow_ok())
+    seen = {}
+
+    def dismiss():
+        for bar in _visible_notices():
+            bar.reject()                   # what Esc does
+            bar.close()                    # what the window's close button does
+        seen["after"] = len(_visible_notices())
+        seen["modal"] = QApplication.activeModalWidget() is not None
+
+    QTimer.singleShot(100, dismiss)
+    assert ui.apply_and_restart(None, _zip_info(), tmp_path / "u.zip") is True
+    assert seen == {"after": 1, "modal": True}
+    assert _visible_notices() == []
+
+
+def test_a_quit_request_while_waiting_does_not_freeze_the_window(monkeypatch, tmp_path, no_restart):
+    import time
+    from PyQt5.QtCore import QCoreApplication, QTimer
+    monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.LINUX)
+    monkeypatch.setattr(ui.app_paths, "app_home", lambda: tmp_path)
+    monkeypatch.setattr(ui.installer, "apply_zip_linux", _slow_ok(0.6))
+    late_ticks = []
+    timer = QTimer()
+    start = time.monotonic()
+    timer.timeout.connect(lambda: time.monotonic() - start > 0.3 and late_ticks.append(1))
+    timer.start(10)
+    QTimer.singleShot(100, QCoreApplication.quit)   # e.g. session logout
+    try:
+        assert ui.apply_and_restart(None, _zip_info(), tmp_path / "u.zip") is True
+    finally:
+        timer.stop()
+        # quit() leaves Qt's quitNow flag set, which makes every later
+        # QEventLoop.exec() return at once; QApplication.exec_() clears it.
+        QTimer.singleShot(0, QCoreApplication.quit)
+        QApplication.exec_()
+    assert len(late_ticks) >= 5
+
+
+def test_linux_apply_unexpected_error_is_reported_not_raised(monkeypatch, tmp_path, no_restart):
+    monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.LINUX)
+
+    def broken(*a):
+        raise RuntimeError("weird")
+
+    monkeypatch.setattr(ui.installer, "apply_zip_linux", broken)
+    shown = []
+    monkeypatch.setattr(ui.QMessageBox, "warning", staticmethod(lambda *a, **k: shown.append(a)))
+    assert ui.apply_and_restart(None, _zip_info(), tmp_path / "u.zip") is False
+    assert shown and "weird" in shown[0][2]
+    assert no_restart["popen"] == []
 
 
 def test_linux_apply_os_error_in_the_worker_is_reported(monkeypatch, tmp_path, no_restart):
