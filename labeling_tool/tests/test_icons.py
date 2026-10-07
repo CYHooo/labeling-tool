@@ -55,3 +55,24 @@ def test_the_build_ships_the_icons_and_their_license():
     spec = (REPO / "packaging" / "labeling_tool.spec").read_text(encoding="utf-8")
     assert '"icons"' in spec and "*.svg" in spec
     assert (ICON_DIR / "LICENSE-lucide.txt").is_file()
+
+
+def test_each_size_is_drawn_at_that_size_not_rescaled():
+    """Lucide SVGs say width/height 24; drawing them at 24 and shrinking to
+    16 with nearest-neighbour gave jagged edges. Each size renders natively."""
+    for px in (16, 18, 24, 32):
+        assert f'width="{px}"' in icons._svg("download", icons.THEME_COLOR, px).decode()
+        assert icons._render("download", icons.THEME_COLOR, px).width() == px
+
+
+def test_a_missing_icon_file_is_a_blank_icon_not_a_crash():
+    ic = icons.icon("no-such-icon")      # a broken bundle must not crash a dialog
+    pm = ic.pixmap(16, 16)
+    assert pm.isNull() or pm.toImage().pixelColor(8, 8).alpha() == 0
+
+
+def test_the_selftest_checks_that_svg_icons_render():
+    from labeling_tool import selftest
+    names = [name for name, _ in selftest._checks("full")]
+    assert "SVG icons render" in names
+    dict(selftest._checks("full"))["SVG icons render"]()        # passes here

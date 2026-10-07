@@ -102,3 +102,18 @@ def test_cancelled_weights_download_leaves_no_error(dlg):
     dlg.exit_loading_state(None)
     assert not dlg._loading_box.isVisibleTo(dlg)
     assert dlg.tabs.isEnabled()
+
+
+def test_log_out_is_locked_while_the_model_loads():
+    """Log-out moved to the bottom row, outside the disabled tabs; a click
+    queued during the load would flip the page under the accept."""
+    from labeling_tool import auth
+    dlg = ld.LoginDialog(user=auth.User("admin"))
+    try:
+        dlg.enter_loading_state("loading")
+        assert not dlg.btn_log_out.isEnabled()
+        dlg.exit_loading_state()
+        assert dlg.btn_log_out.isEnabled()
+    finally:
+        dlg._loading = False
+        dlg.close()

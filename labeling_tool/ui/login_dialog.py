@@ -525,6 +525,8 @@ class LoginDialog(QDialog):
         self.tabs.setEnabled(False)
         self.cmb_language.setEnabled(False)
         self.btn_check_update.setEnabled(False)
+        # outside the disabled tabs since it moved to the bottom row
+        self.btn_log_out.setEnabled(False)
         self._loading = True
         QApplication.processEvents()
 
@@ -535,6 +537,7 @@ class LoginDialog(QDialog):
         pick another tab without restarting."""
         self.tabs.setEnabled(True)
         self.cmb_language.setEnabled(True)
+        self.btn_log_out.setEnabled(True)
         self.btn_check_update.setEnabled(True)
         self._loading = False
         if error:

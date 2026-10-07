@@ -45,6 +45,22 @@ def _check_onnx() -> None:
         raise FileNotFoundError(", ".join(str(p) for p in default_model_paths()))
 
 
+def _check_svg_icons() -> None:
+    """The bundle carries Qt's SVG image plugin and the icon files: without
+    either, every button icon would silently come out blank."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    global _qt_app
+    from PyQt5.QtWidgets import QApplication
+    _qt_app = QApplication.instance() or QApplication(["selftest"])
+    from labeling_tool.ui import icons
+    pm = icons._render("download", icons.THEME_COLOR, 24)
+    if pm.isNull():
+        raise RuntimeError("SVG icon did not render (Qt svg imageformat plugin or icon file missing)")
+    img = pm.toImage()
+    if not any(img.pixelColor(x, y).alpha() > 200 for x in range(24) for y in range(24)):
+        raise RuntimeError("SVG icon rendered empty")
+
+
 def _check_login_dialog() -> None:
     """Qt platform plugins + stylesheet + login dialog construct offscreen."""
     global _qt_app
@@ -84,6 +100,7 @@ def _checks(variant: str):
         yield f"import {mod}", lambda mod=mod: importlib.import_module(mod)
     yield "MobileSAM ONNX models", _check_onnx
     yield "Qt login dialog (offscreen)", _check_login_dialog
+    yield "SVG icons render", _check_svg_icons
     for mod in FULL_MODULES:
         yield f"import {mod}", lambda mod=mod: importlib.import_module(mod)
     yield "SAM2 hydra config composes", _check_sam2_cfg
