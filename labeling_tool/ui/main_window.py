@@ -63,7 +63,8 @@ class ViewerMainWindow(CoreMainWindow):
         btn = getattr(self, "_btn_sam_toggle", None)
         if btn is not None and predictor is None:
             btn.setEnabled(False)
-            btn.setToolTip(self.tr_("sam_unavailable"))
+            self._tool_tabs.setTabToolTip(2, self.tr_("sam_unavailable"))
+        self._refresh_tool_tabs()
 
     # ------------------------------------------------------------ job info
     def _job_info(self) -> tuple[str, str]:
@@ -105,17 +106,11 @@ class ViewerMainWindow(CoreMainWindow):
         self._upload_bar.setObjectName("uploadProgress")
         self._upload_bar.setTextVisible(True)
         self._upload_bar.setVisible(False)
-        # _panel_layout is the side panel's QVBoxLayout (exposed by the
-        # ui_builder patch). Insert above the consolidated help group so the
-        # button + bar sit at the bottom of the content, not floating.
-        layout = getattr(self, "_panel_layout", None)
-        if layout is not None:
-            grp_hint = getattr(self, "_grp_hint", None)
-            idx = layout.indexOf(grp_hint) if grp_hint is not None else -1
-            if idx < 0:
-                idx = layout.count() - 1
-            layout.insertWidget(idx, self.btn_upload)
-            layout.insertWidget(idx + 1, self._upload_bar)
+        # Pinned under the scrolling panel (build_side_panel), so upload is
+        # always in reach whatever the panel's scroll position.
+        layout = self._panel_bottom_layout
+        layout.addWidget(self.btn_upload)
+        layout.addWidget(self._upload_bar)
 
     def _resolve_scale(self, filename: str, origin):
         """Use the server-provided pxPerCm fetched into the manifest (captured

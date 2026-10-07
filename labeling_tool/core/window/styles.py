@@ -237,6 +237,7 @@ STYLESHEET = """
             padding: 6px 14px;
             margin-right: 2px;
         }
+        QTabWidget#toolTabs QTabBar::tab { padding: 6px 6px; }
         QTabBar::tab:selected {
             background-color: #1f2329;
             color: #f0f0f0;

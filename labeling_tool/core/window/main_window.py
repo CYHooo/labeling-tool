@@ -27,7 +27,7 @@ from labeling_tool.session import mask_store
 from labeling_tool.core.result import export_result
 from labeling_tool.core.window.styles import STYLESHEET
 from labeling_tool.core.window.ui_builder import (
-    SECONDARY_TEXT_ROLE, TwoPartItemDelegate, build_side_panel,
+    SECONDARY_TEXT_ROLE, TwoPartItemDelegate, build_help_dialog, build_side_panel,
 )
 from labeling_tool.core.window.shortcuts import register_shortcuts
 
@@ -124,49 +124,49 @@ class MainWindow(QMainWindow):
 
     def _retranslate_ui(self):
         self.setWindowTitle(self.tr_("window_title"))
-        self._lbl_app_title.setText(self.tr_("window_title"))
-        self._grp_job_info.setTitle(self.tr_("group_job_info"))
-        self._lbl_job_id_key.setText(self.tr_("lbl_job_id"))
-        self._lbl_inspection_key.setText(self.tr_("lbl_inspection_name"))
-        self._lbl_photo_count_key.setText(self.tr_("lbl_photo_count"))
         self._refresh_job_info()
-        self._grp_category.setTitle(self.tr_("lbl_category"))
-        self._btn_cat_crack.setText(self.tr_("cat_crack"))
-        self._btn_cat_spalling.setText(self.tr_("cat_spalling"))
-        self._btn_sam_toggle.setText(self.tr_("btn_sam"))
-        self._btn_sam_commit.setText(self.tr_("btn_sam_commit"))
-        self._btn_sam_cancel.setText(self.tr_("btn_sam_cancel"))
-        self._btn_sam_undo.setText(self.tr_("btn_sam_undo"))
+        self._btn_help.setToolTip(self.tr_("group_hint"))
 
-        self._grp_brush.setTitle(self.tr_("group_brush"))
-        self._btn_brush_toggle.setText(
-            self.tr_("btn_brush_off") if self.canvas.brush_mode
-            else self.tr_("btn_brush_on"))
-        self._lbl_brush_size.setText(self.tr_("lbl_brush_size"))
-        self._chk_fine_annotation.setText(self.tr_("btn_fine_annotation"))
-        self._btn_brush_reset.setText(self.tr_("btn_brush_reset"))
-        self._btn_brush_save.setText(self.tr_("btn_brush_save"))
+        self._grp_list.setTitle(self.tr_("group_list"))
+        self._refresh_list_header()
+        self.btn_prev.setText(self.tr_("btn_prev"))
+        self.btn_next.setText(self.tr_("btn_next"))
+        self.btn_save.setText(self.tr_("btn_save"))
+        self._refresh_nav_tooltips()
 
-        self._grp_scale.setTitle(self.tr_("group_scale"))
+        self._grp_tools.setTitle(self.tr_("group_tools"))
         self._btn_measure.setText(
             self.tr_("btn_measure_cancel") if self.canvas.measure_mode
             else self.tr_("btn_measure"))
         self._refresh_scale_label()
+        self._btn_cat_crack.setText(self.tr_("cat_crack"))
+        self._btn_cat_spalling.setText(self.tr_("cat_spalling"))
+        self._btn_show_highlight.setText(self.tr_("btn_show_highlight"))
+        self._btn_show_repair15.setText(self.tr_("btn_show_repair15"))
+        for idx, key in enumerate(("tab_view", "tab_brush", "tab_sam", "tab_bbox")):
+            self._tool_tabs.setTabText(idx, self.tr_(key))
+        self._lbl_view_hint.setText(self.tr_("tab_view_hint"))
+        self._lbl_bbox_hint.setText(self.tr_("tab_bbox_hint"))
 
-        self._grp_bbox.setTitle(self.tr_("group_bbox"))
+        # hidden mode switches (the tabs show the mode)
+        self._btn_brush_toggle.setText(
+            self.tr_("btn_brush_off") if self.canvas.brush_mode
+            else self.tr_("btn_brush_on"))
         self._btn_bbox_toggle.setText(
             self.tr_("btn_bbox_off") if self.canvas.bbox_mode
             else self.tr_("btn_bbox_on"))
-        self._btn_show_highlight.setText(self.tr_("btn_show_highlight"))
-        self._btn_show_repair15.setText(self.tr_("btn_show_repair15"))
+        self._btn_sam_toggle.setText(self.tr_("btn_sam"))
+        self._lbl_brush_size.setText(self.tr_("lbl_brush_size"))
+        self._chk_fine_annotation.setText(self.tr_("btn_fine_annotation"))
+        self._btn_brush_reset.setText(self.tr_("btn_brush_reset"))
+        self._btn_sam_commit.setText(self.tr_("btn_sam_commit"))
+        self._btn_sam_cancel.setText(self.tr_("btn_sam_cancel"))
+        self._btn_sam_undo.setText(self.tr_("btn_sam_undo"))
 
-        self._grp_list.setTitle(self.tr_("group_list"))
-        self._grp_nav.setTitle(self.tr_("group_nav"))
-        self._grp_hint.setTitle(self.tr_("group_hint"))
-        self.btn_prev.setText(self.tr_("btn_prev"))
-        self.btn_next.setText(self.tr_("btn_next"))
-        self.btn_save.setText(self.tr_("btn_save"))
-        self._lbl_hint.setText(self.tr_("hint_text"))
+        help_dialog = getattr(self, "_help_dialog", None)
+        if help_dialog is not None:
+            help_dialog.setWindowTitle(self.tr_("group_hint"))
+            self._lbl_hint.setText(self.tr_("hint_text"))
 
         if self.current_idx >= 0:
             self._update_status_for_current()
@@ -197,10 +197,73 @@ class MainWindow(QMainWindow):
 
     def _refresh_job_info(self):
         job_id, inspection = self._job_info()
-        self._lbl_job_id_value.setText(job_id)
-        self._lbl_inspection_value.setText(inspection)
-        self._lbl_photo_count_value.setText(
-            self.tr_("photo_count", n=len(self.image_files)))
+        self._lbl_job_info.set_full_text(self.tr_(
+            "job_info_line", job=job_id, name=inspection,
+            count=self.tr_("photo_count", n=len(self.image_files))))
+
+    def _refresh_list_header(self):
+        self._list_header.set_labels(self.tr_("list_col_number"),
+                                     self.tr_("list_col_file"))
+        self._fit_list_columns()
+
+    def _fit_list_columns(self):
+        """Size the id column to the widest id or its header, whichever is
+        wider, so the file names (and their header) start in one column."""
+        delegate = self.file_list.itemDelegate()
+        if not isinstance(delegate, TwoPartItemDelegate):
+            return
+        ids = [self.file_list.item(i).text() for i in range(self.file_list.count())
+               if self.file_list.item(i).data(SECONDARY_TEXT_ROLE)]
+        delegate.fit_primary_column(ids + [self._list_header.labels()[0]],
+                                    self.file_list.font())
+        self._list_header.update()
+        self.file_list.viewport().update()
+
+    def _refresh_nav_tooltips(self):
+        for btn, key in ((self.btn_prev, "A"), (self.btn_next, "D"), (self.btn_save, "S")):
+            btn.setToolTip(self.tr_("tip_shortcut", shortcut=key))
+
+    def _show_help(self):
+        if getattr(self, "_help_dialog", None) is None:
+            self._help_dialog = build_help_dialog(self)
+        self._help_dialog.show()
+        self._help_dialog.raise_()
+        self._help_dialog.activateWindow()
+
+    # ------------------------------------------------------------------
+    # Tool tabs: the selected tab is the editing mode
+    # ------------------------------------------------------------------
+    def _tool_mode_buttons(self):
+        """Mode switch per tab index; the view tab (0) has none."""
+        return (None, self._btn_brush_toggle, self._btn_sam_toggle,
+                self._btn_bbox_toggle)
+
+    def _on_tool_tab_changed(self, idx: int):
+        buttons = self._tool_mode_buttons()
+        target = buttons[idx] if 0 <= idx < len(buttons) else None
+        if target is None:
+            for btn in buttons[1:]:
+                btn.setChecked(False)
+        elif target.isEnabled():
+            target.setChecked(True)      # its handler leaves the other modes
+        self._sync_tool_tab()
+
+    def _sync_tool_tab(self, *_):
+        """Show the active mode's tab (after B / X, measuring, or a refused
+        switch). The view tab when no editing mode is on."""
+        buttons = self._tool_mode_buttons()
+        idx = next((i for i, btn in enumerate(buttons)
+                    if btn is not None and btn.isChecked()), 0)
+        self._tool_tabs.blockSignals(True)
+        self._tool_tabs.setCurrentIndex(idx)
+        self._tool_tabs.blockSignals(False)
+
+    def _refresh_tool_tabs(self):
+        """A tool whose switch is disabled (SAM without its model, the repair
+        area without a scale) has its tab disabled too."""
+        for idx, btn in enumerate(self._tool_mode_buttons()):
+            if btn is not None:
+                self._tool_tabs.setTabEnabled(idx, btn.isEnabled())
 
     def _list_item_parts(self, filename: str) -> tuple[str, str]:
         """(main text, dim second part) of the image-list row for filename."""
@@ -265,6 +328,7 @@ class MainWindow(QMainWindow):
         self.scale_tracker.last_known_scale = scale
         self.canvas.set_bbox_padding_px(scale * 15.0)
         self._btn_bbox_toggle.setEnabled(True)
+        self._refresh_tool_tabs()
         self._refresh_scale_label()
         mm_per_px = 10.0 / scale
         self.status.showMessage(
@@ -584,11 +648,13 @@ class MainWindow(QMainWindow):
         self.canvas.bbox_edited.connect(self._on_bbox_edited)
         self.canvas.measure_completed.connect(self._on_measure_completed)
 
-        panel_scroll = build_side_panel(self)
+        side_panel = build_side_panel(self)
+        self._refresh_nav_tooltips()
+        self._refresh_tool_tabs()
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self.canvas)
-        splitter.addWidget(panel_scroll)
+        splitter.addWidget(side_panel)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
         # Give the panel a comfortable starting width; the canvas absorbs all
@@ -634,17 +700,14 @@ class MainWindow(QMainWindow):
 
         self.image_files = files
         self.file_list.clear()
-        parts = [self._list_item_parts(name) for name in files]
-        delegate = self.file_list.itemDelegate()
-        if isinstance(delegate, TwoPartItemDelegate):
-            delegate.fit_primary_column([t for t, sec in parts if sec],
-                                        self.file_list.font())
-        for name, (text, secondary) in zip(files, parts):
+        for name in files:
+            text, secondary = self._list_item_parts(name)
             item = QListWidgetItem(text)
             if secondary:
                 item.setData(SECONDARY_TEXT_ROLE, secondary)
             item.setToolTip(name)
             self.file_list.addItem(item)
+        self._fit_list_columns()
         self._refresh_job_info()
 
         if self.output_dir is not None:
@@ -742,6 +805,7 @@ class MainWindow(QMainWindow):
         self.canvas.set_bbox_padding_px(scale * 15.0 if scale else 0.0)
         self._refresh_scale_label()
         self._btn_bbox_toggle.setEnabled(scale is not None)
+        self._refresh_tool_tabs()
 
         # ----- BBox JSON -----
         if bbox_path is not None:
