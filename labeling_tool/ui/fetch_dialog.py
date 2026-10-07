@@ -143,19 +143,32 @@ class FetchDialog(QDialog):
         ws = Workspace.default(session_id=sid)
         previous = None
         if ws.manifest_path.exists():
-            # Already on this PC: fetching would replace its manifest, so ask.
-            choice = self._ask_existing(sid)
-            if choice is None:
-                return
+            # Already on this PC. The folder is named by job number only, and
+            # numbers are per server: a job fetched from another server is a
+            # different job in the same folder -- opening or refetching it
+            # here would send its labels to this server's job. Refuse.
+            load_error = None
             try:
                 previous = Manifest.load(ws.manifest_path)
             except (ValueError, KeyError, TypeError, OSError) as exc:
+                load_error = exc
                 vlog().warning("session %s: unreadable manifest (%s)", sid, exc)
-                if choice == "open":
-                    QMessageBox.warning(self, tr("login_warn_manifest_error_title"),
-                                        tr("login_warn_manifest_error_msg",
-                                           path=ws.manifest_path, exc=exc))
-                    return
+            if previous is not None and previous.base and \
+                    previous.base.rstrip("/") != self.base.rstrip("/"):
+                vlog().warning("session %s on this PC is from %s, not %s: refused",
+                               sid, previous.base, self.base)
+                QMessageBox.warning(self, tr("fetch_other_server_title"),
+                                    tr("fetch_other_server_msg", sid=sid, base=previous.base))
+                return
+            # Fetching would replace its manifest, so ask.
+            choice = self._ask_existing(sid)
+            if choice is None:
+                return
+            if choice == "open" and previous is None:
+                QMessageBox.warning(self, tr("login_warn_manifest_error_title"),
+                                    tr("login_warn_manifest_error_msg",
+                                       path=ws.manifest_path, exc=load_error))
+                return
             if choice == "open":
                 attach_session_log(ws.session_dir)
                 vlog().info("=== session %s opened from fetch (already on this PC) ===", sid)

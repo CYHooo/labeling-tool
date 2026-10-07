@@ -108,6 +108,8 @@ STRINGS = {
     "fetch_existing_title": "已获取的任务",
     "fetch_existing_msg": "任务 {sid} 已在本机。\n要继续打开，还是从服务器重新获取？\n（重新获取也会保留标注结果和上传记录。）",
     "fetch_existing_refetch": "重新获取",
+    "fetch_other_server_title": "其他服务器的任务",
+    "fetch_other_server_msg": "本机的任务 {sid} 是从 {base} 获取的另一个任务。\n只是编号相同，与当前服务器的任务不同，不能在这里打开或重新获取。\n请在登录界面的本地任务列表中打开它。",
     "login_open":                     "打开",
     "login_fewshot_hint_lite":
         "⚠ 此构建为 lite 版本，无法使用 few-shot 工具。\n"
@@ -124,7 +126,7 @@ STRINGS = {
     "login_warn_input_required_title": "需要输入",
     "login_warn_input_required_msg":   "请输入 BASE/Key。",
     "login_upload_possible": "上传: 可以 → {host}",
-    "login_upload_impossible": "上传: 不可 — 仅本地保存 (输入 Key 后可上传)",
+    "login_upload_impossible": "上传: 不可 — 仅本地保存 (输入 BASE URL 和 Key 后可上传)",
     "login_warn_no_manifest_title":    "未找到",
     "login_warn_no_manifest_msg":      "未找到本地清单: {path}",
     "login_warn_manifest_error_title": "清单错误",

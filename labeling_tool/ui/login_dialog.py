@@ -296,8 +296,11 @@ class LoginDialog(QDialog):
         self.btn_open_job = QPushButton("")
         self.btn_open_job.clicked.connect(self._on_open_job)
         self.btn_open_job.setEnabled(False)
-        # Enter opens the newest job when there is one, else fetches a new job.
-        (self.btn_open_job if self._jobs else self.btn_new_job).setDefault(True)
+        # No default button: Enter after typing a new server must not open the
+        # newest old job, nor start a fetch. Both take an explicit click.
+        for btn in (self.btn_new_job, self.btn_open_job):
+            btn.setAutoDefault(False)
+            btn.setDefault(False)
         nav = QHBoxLayout()
         nav.addWidget(self.lbl_upload, 1)
         nav.addWidget(self.btn_new_job)
@@ -316,7 +319,7 @@ class LoginDialog(QDialog):
         return page
 
     def _build_fewshot_page(self) -> QWidget:
-        """Tab 3: few-shot annotation tool (annotation_tool, needs torch)."""
+        """Tab 2: few-shot annotation tool (annotation_tool, needs torch)."""
         self.btn_fewshot = QPushButton("")
         self.btn_fewshot.clicked.connect(self.fewshotRequested.emit)
         self.lbl_fewshot_hint = QLabel("")

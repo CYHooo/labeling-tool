@@ -108,13 +108,15 @@ def test_no_jobs_points_at_the_new_job_button(tmp_path):
     assert dlg.tbl_jobs.rowCount() == 0
     assert not dlg.btn_open_job.isEnabled()
     assert dlg.btn_new_job.text() in dlg.lbl_jobs_empty.text()
-    assert dlg.btn_new_job.isDefault()
 
 
-def test_open_is_the_default_button_when_jobs_exist(tmp_path):
+def test_enter_in_the_fields_neither_opens_nor_fetches(tmp_path):
+    """Enter after typing a new server must not open the newest old job (or
+    start a fetch): both actions take an explicit click."""
     _job(tmp_path, 16)
     dlg = ld.LoginDialog()
-    assert dlg.btn_open_job.isDefault() and not dlg.btn_new_job.isDefault()
+    for btn in (dlg.btn_open_job, dlg.btn_new_job):
+        assert not btn.isDefault() and not btn.autoDefault()
 
 
 def test_selecting_a_job_leaves_the_server_field_alone(tmp_path):

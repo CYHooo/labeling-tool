@@ -108,6 +108,8 @@ STRINGS = {
     "fetch_existing_title": "Already fetched",
     "fetch_existing_msg": "Job {sid} is already on this PC.\nOpen it, or fetch it again from the server?\n(Fetching again keeps your labeling and upload records.)",
     "fetch_existing_refetch": "Fetch again",
+    "fetch_other_server_title": "Job from another server",
+    "fetch_other_server_msg": "Job {sid} on this PC is a different job, fetched from {base}.\nOnly the number matches the current server's job, so it can't be opened or fetched again here.\nOpen it from the Local jobs list on the login screen.",
     "login_open":                     "Open",
     "login_fewshot_hint_lite":
         "⚠ This build is the lite variant, so the few-shot tool is unavailable.\n"
@@ -124,7 +126,7 @@ STRINGS = {
     "login_warn_input_required_title": "Input required",
     "login_warn_input_required_msg":   "Enter BASE/Key.",
     "login_upload_possible": "Upload: possible → {host}",
-    "login_upload_impossible": "Upload: not possible — local save only (enter the Key to enable upload)",
+    "login_upload_impossible": "Upload: not possible — local save only (enter the BASE URL and Key to enable upload)",
     "login_warn_no_manifest_title":    "Not found",
     "login_warn_no_manifest_msg":      "Local manifest not found: {path}",
     "login_warn_manifest_error_title": "Manifest error",
