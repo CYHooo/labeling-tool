@@ -126,6 +126,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(self.tr_("window_title"))
         self._refresh_job_info()
         self._btn_help.setToolTip(self.tr_("group_hint"))
+        if not self._btn_sam_toggle.isEnabled():
+            self._tool_tabs.setTabToolTip(2, self.tr_("sam_unavailable"))
 
         self._grp_list.setTitle(self.tr_("group_list"))
         self._refresh_list_header()
@@ -260,10 +262,25 @@ class MainWindow(QMainWindow):
 
     def _refresh_tool_tabs(self):
         """A tool whose switch is disabled (SAM without its model, the repair
-        area without a scale) has its tab disabled too."""
+        area without a scale) has its tab disabled too, and its mode ends.
+
+        Signals stay blocked while tabs are disabled: Qt moves the current
+        index off a tab it disables, and that move must not switch the user
+        into the neighbouring tool's mode."""
+        for btn in self._tool_mode_buttons():
+            if btn is not None and not btn.isEnabled() and btn.isChecked():
+                btn.setChecked(False)
+        self._tool_tabs.blockSignals(True)
         for idx, btn in enumerate(self._tool_mode_buttons()):
             if btn is not None:
                 self._tool_tabs.setTabEnabled(idx, btn.isEnabled())
+        self._tool_tabs.blockSignals(False)
+        self._sync_tool_tab()
+
+    def _toggle_mode_shortcut(self, btn):
+        """B / X: toggle a tool's mode, unless the tool is unavailable."""
+        if btn.isEnabled():
+            btn.toggle()
 
     def _list_item_parts(self, filename: str) -> tuple[str, str]:
         """(main text, dim second part) of the image-list row for filename."""

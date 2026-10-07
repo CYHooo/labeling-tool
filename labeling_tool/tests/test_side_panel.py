@@ -21,7 +21,7 @@ VIEW, BRUSH, SAM, BBOX = range(4)
 
 
 def _make_window(tmp_path, monkeypatch, *, inspection_name: str | None = "교량 정기점검",
-                 sam_available=True):
+                 sam_available=True, second_photo_scale=2.0):
     monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: None)
     monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
     monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path / "settings")
@@ -35,7 +35,8 @@ def _make_window(tmp_path, monkeypatch, *, inspection_name: str | None = "교량
     for num, name in enumerate(_FILES, start=1):
         cv2.imwrite(str(ws.origin_dir / name), np.zeros((8, 8, 3), np.uint8))
         manifest.add(PhotoEntry(filename=name, timestamp=num, photo_id=num,
-                                report_photo_num=num, px_per_cm=2.0))
+                                report_photo_num=num,
+                                px_per_cm=2.0 if num == 1 else second_photo_scale))
     win = ViewerMainWindow(ws, manifest, None)
     win.resize(1400, 900)
     win.show()
@@ -283,6 +284,9 @@ def test_panel_content_fits_the_panel_width_in_every_language(tmp_path, monkeypa
                 win._tool_tabs.setCurrentIndex(idx)
                 QApplication.processEvents()
                 assert content.minimumSizeHint().width() <= narrowest, (code, idx)
+                for btn in content.findChildren(QPushButton):
+                    if btn.isVisible():
+                        assert btn.width() >= btn.minimumSizeHint().width(), (code, btn.text())
     finally:
         i18n.set_language("ko")
         win.close()
@@ -300,3 +304,60 @@ def test_the_image_list_takes_the_spare_height(tmp_path, monkeypatch):
         assert win.file_list.height() - list_before >= 150      # most of the 200 px
     finally:
         win.close()
+
+
+def test_moving_to_a_photo_without_scale_leaves_repair_area_mode_safely(tmp_path, monkeypatch):
+    # Disabling the current tab made Qt jump to a neighbouring tab, and that
+    # switched the user into SAM (or brush) mode without a word.
+    for sam in (True, False):
+        win = _make_window(tmp_path / str(sam), monkeypatch, sam_available=sam,
+                           second_photo_scale=0.0)
+        try:
+            win._tool_tabs.setCurrentIndex(BBOX)
+            assert win.canvas.bbox_mode
+            win.go_next()                                    # photo 2: no scale
+            assert not (win.canvas.brush_mode or win.canvas.sam_mode or win.canvas.bbox_mode)
+            assert win._tool_tabs.currentIndex() == VIEW
+            assert not win._tool_tabs.isTabEnabled(BBOX)
+        finally:
+            win.close()
+
+
+def test_mode_shortcuts_do_nothing_while_the_tool_is_unavailable(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    win = _make_window(tmp_path, monkeypatch, second_photo_scale=0.0)
+    try:
+        win.go_next()                                        # no scale: no repair area
+        win.activateWindow()
+        win.canvas.setFocus()
+        QTest.keyClick(win, Qt.Key_X)
+        assert not win.canvas.bbox_mode
+        assert win._tool_tabs.currentIndex() == VIEW
+    finally:
+        win.close()
+
+
+def test_help_button_has_a_tooltip_from_the_start(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        assert win._btn_help.toolTip() == i18n.tr("group_hint")
+    finally:
+        win.close()
+
+
+def test_sam_unavailable_tooltip_follows_the_language(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch, sam_available=False)
+    try:
+        i18n.set_language("en")
+        assert win._tool_tabs.tabToolTip(SAM) == i18n.tr("sam_unavailable")
+    finally:
+        i18n.set_language("ko")
+        win.close()
+
+
+def test_help_text_uses_the_glossary_term_for_repair_areas():
+    for code, term in (("ko", "보수 구역"), ("zh", "修补区域"), ("en", "Repair")):
+        import importlib
+        text = importlib.import_module(f"labeling_tool.core.i18n.strings_{code}").STRINGS["hint_text"]
+        assert term in text, code

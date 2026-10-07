@@ -22,7 +22,7 @@ STRINGS = {
     "brush_saved":        "Mask saved -> {p}",
     "brush_no_image":     "No image loaded",
     "brush_reset":        "Mask reset to loaded mask",
-    "photo_count":        "{n} photos",
+    "photo_count":        "Photos: {n}",
     "job_info_line":      "Job {job} · {name} · {count}",
     "list_col_number":    "No.",
     "list_col_file":      "File name",
@@ -42,7 +42,7 @@ STRINGS = {
     "hint_text":
         "Brush   L-drag paint · R-drag erase · 1/2 crack/spalling\n"
         "        B toggle · [ / ] size · R=crack G=spalling\n"
-        "BBox    click add point · Enter commit · Esc cancel · Del delete\n"
+        "Repair  click add point · Enter commit · Esc cancel · Del delete\n"
         "Measure click the two ends of a known-length reference\n"
         "View    Ctrl+drag pan · wheel zoom\n"
         "Nav     A / D prev/next · S save · auto-save on switch",
@@ -75,7 +75,7 @@ STRINGS = {
     "bbox_need_more_clicks": "Need at least 2 clicks",
     "bbox_no_scale":         "No scale; cannot compute 15cm padding",
     "btn_show_highlight":    "Highlight",
-    "btn_show_repair15":     "15cm zone",
+    "btn_show_repair15":     "15cm boundary",
     "btn_sam":         "SAM segment (spalling)",
     "btn_sam_commit":  "Confirm (write spalling)",
     "btn_sam_cancel":  "Cancel",

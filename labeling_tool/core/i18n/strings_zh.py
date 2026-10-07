@@ -31,8 +31,8 @@ STRINGS = {
     "tab_brush":          "画笔",
     "tab_sam":            "SAM",
     "tab_bbox":           "修补区域",
-    "tab_view_hint":      "只查看，不编辑。Ctrl+拖动移动，滚轮缩放。",
-    "tab_bbox_hint":      "单击添加点，Enter 确认；Esc 取消，Del 删除选中的区域。",
+    "tab_view_hint":      "只查看，不编辑：Ctrl+拖动移动，滚轮缩放",
+    "tab_bbox_hint":      "单击添加点，Enter 确认；Esc 取消，Del 删除选中的区域",
     "tip_shortcut":       "快捷键：{shortcut}",
     "group_list":         "图片列表",
     "group_hint":         "帮助 / 用法",
@@ -42,7 +42,7 @@ STRINGS = {
     "hint_text":
         "画笔   左键拖拽=绘制 · 右键拖拽=擦除 · 1/2=裂缝/剥落\n"
         "       B=切换 · [ / ]=笔大小 · R通道=裂缝 G通道=剥落\n"
-        "画框   点击=加点 · Enter=提交 · Esc=取消 · Del=删除\n"
+        "修补区域 点击=加点 · Enter=提交 · Esc=取消 · Del=删除\n"
         "测量   点已知长度参照物的两端(默认 marker 边 7cm)\n"
         "视图   Ctrl+拖拽=平移 · 滚轮=缩放\n"
         "导航   A / D=上/下一张 · S=保存 · 切换时自动保存",

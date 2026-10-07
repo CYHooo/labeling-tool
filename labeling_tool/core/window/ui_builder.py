@@ -203,6 +203,7 @@ def build_job_info_row(window: "MainWindow") -> QWidget:
     window._btn_help = QToolButton()
     window._btn_help.setIcon(icons.icon("circle-help"))
     window._btn_help.setAutoRaise(True)
+    window._btn_help.setToolTip(window.tr_("group_hint"))
     window._btn_help.clicked.connect(window._show_help)
     lay.addWidget(window._lbl_job_info, 1)
     lay.addWidget(window._btn_help)
