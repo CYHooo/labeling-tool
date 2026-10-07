@@ -144,7 +144,7 @@ notice.setWindowFlags(Qt.SplashScreen | Qt.WindowStaysOnTopHint)
 |---|---|
 | `build_category_group` | 顶部工具条的分段控件 |
 | `build_brush_group` / `build_bbox_group` / `build_scale_group` / SAM 相关 | 右栏的可切换工具面板，同一时刻只有一个可见 |
-| `build_settings_group` | 顶部工具条右侧的设置入口 |
+| `build_settings_group` | 顶部工具条右侧的设置入口（2026-10-07 起已由 `build_job_info_group` 取代：标注窗口不再有语言/文件夹设置，改为显示作业信息） |
 | `build_list_group` | 左侧 dock |
 | `build_nav_group` | 顶部工具条的保存按钮 + 底部状态栏的进度 |
 | `build_hint_group` | 右栏底部的快捷键说明区 |

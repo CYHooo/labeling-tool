@@ -45,7 +45,6 @@ class ViewerMainWindow(CoreMainWindow):
         self.result_dir = workspace.result_dir.resolve()
         self.highlight_dir = workspace.highlight_dir.resolve()
         self.repair15_dir = workspace.repair15_dir.resolve()
-        self._refresh_path_labels()
         self._reload_data()
 
         self._add_upload_button()
@@ -65,6 +64,20 @@ class ViewerMainWindow(CoreMainWindow):
         if btn is not None and predictor is None:
             btn.setEnabled(False)
             btn.setToolTip(self.tr_("sam_unavailable"))
+
+    # ------------------------------------------------------------ job info
+    def _job_info(self) -> tuple[str, str]:
+        return (str(self._ws.session_id),
+                (self._manifest.inspection_name if self._manifest else None) or "—")
+
+    def _list_item_parts(self, filename: str) -> tuple[str, str]:
+        """"<job id>-<photo number>" then the file name; a file the manifest
+        does not know (should not happen) is listed by name alone."""
+        entry = (self._manifest.photos.get(filename)
+                 if self._manifest is not None else None)
+        if entry is None:
+            return filename, ""
+        return f"{self._ws.session_id}-{entry.report_photo_num}", filename
 
     # ------------------------------------------------------------ i18n
     def retranslate(self) -> None:
