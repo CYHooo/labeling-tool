@@ -155,7 +155,7 @@ runtime id 是对运行时层每个文件的「路径 + 大小」做哈希。以
 完整更新。建议每季度一次，或在 OpenSSL 等出现重要安全问题时。改完先跑一遍本地完整验证（Linux）。
 
 同样会改变 Linux runtime id 的还有：`PYTHON_URL` / `PYTHON_SHA256`、镜像里的 apt 包列表，以及经
-`COPY` 进镜像的 `deb.py` 里的 `RUNTIME_DEPENDS` / `BUNDLED_LIBS`。改这些时也按“计划内的运行时变更”对待。
+`COPY` 进镜像的 `deb.py`（`RUNTIME_DEPENDS` / `BUNDLED_LIBS`）和 `layers.py`。改这些时也按“计划内的运行时变更”对待。
 镜像里所有 apt 包都只从快照安装，从不访问实时仓库（证书也从快照装），所以镜像缓存失效后重建，结果仍然相同。
 
 ## 升级依赖
@@ -198,21 +198,20 @@ docker run --rm -v "$PWD:/repo" -v /var/run/docker.sock:/var/run/docker.sock \
   （如 `/usr/bin/python3`），在容器里会解析成一个完全不同、没装任何依赖的解释器。用 `--tmpfs` 盖住它
   即可，不需要也不应该在容器里直接修改宿主机的 `.venv`。
 
-依赖安装顺序（含 `SAM2_BUILD_CUDA=0`、`GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0`/`GIT_CONFIG_VALUE_0`
-三个 sam2 符号链接变量）逐字照抄 `release.yml` 的 `build-linux` job，这样本地验证的环境和 CI 一致。
+依赖安装、PyInstaller 构建、自检和分层由 `packaging/ci/linux-build.sh` 完成——就是 CI 在同一个镜像里
+运行的那个脚本，所以本地验证的环境和 CI 一致。
 
 六个步骤，和 `local-build.ps1` 对应，可以用 `--steps` 只跑一部分（例如 `--steps build,layers`）：
 
 | 步骤 | 内容 |
 |---|---|
 | `tests` | 仓库权威测试命令：`pytest tests labeling_tool/tests annotation_tool/tests` |
-| `build` | `pyinstaller packaging/labeling_tool.spec` |
-| `selftest` | 对刚构建的二进制跑 `--selftest=full`（`xvfb-run`） |
-| `layers` | 打印 runtime id，校验应用层体积护栏（>20 MB 即失败），生成 update zip |
-| `deb` | `packaging/deb.py build`，默认快速压缩，产出单个 deb |
+| `build` | 运行 `linux-build.sh`：安装锁定的依赖 → PyInstaller → `--selftest=full`（`xvfb-run`）→ 打印 runtime id、校验应用层体积护栏（>20 MB 即失败） |
+| `selftest`、`layers` | 已包含在 `build` 里，保留名字只为与 `local-build.ps1` 对应；不和 `build` 一起指定时会报错 |
+| `deb` | `packaging/deb.py build`，默认快速压缩，产出单个 deb 和 update zip |
 | `smoke` | 与 CI 一致：22.04 桌面环境可用性、安装 + selftest、更新往返（用同一次构建的 zip 执行真实的 `--apply-update`）、24.04 交叉验证 |
 
-`layers` 步骤打印出的 runtime id，和 Windows 的 runtime id 一样，发布前要记下来和上一个 release 的
+`build` 步骤打印出的 runtime id，和 Windows 的 runtime id 一样，发布前要记下来和上一个 release 的
 资产名核对（见下面「核对 CI 日志中的 Linux runtime id」）——**但这是两个平台各自独立的 runtime id**，
 Windows 和 Linux 的运行时层文件列表本来就不同，两者之间不需要也不可能相等，只需要分别对比同一
 平台前后两次构建。

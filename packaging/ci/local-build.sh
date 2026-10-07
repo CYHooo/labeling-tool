@@ -41,10 +41,10 @@
 # path. Confirmed by hitting exactly that failure before this comment and
 # the HOST_REPO_ROOT plumbing below existed.
 #
-# The dependency-install order below is copied from
-# .github/workflows/release.yml's build-linux job, field for field,
-# including the three sam2-symlink environment variables -- a local
-# environment that diverges from CI's is not a verification of CI's build.
+# The dependency install, PyInstaller build, selftest and layers are
+# packaging/ci/linux-build.sh -- the script release.yml's build-linux job runs
+# in the same pinned image -- so this is a verification of CI's build, not of
+# a look-alike.
 #
 # Every external call that can hang -- a GUI process, dpkg, a container
 # download -- goes through bounded() below. This project has already been
@@ -229,12 +229,15 @@ step_build() {
     echo "runtime id: $RUNTIME_ID"
 }
 
+# selftest and layers run inside the build step's linux-build.sh; the names
+# stay for parity with local-build.ps1. Asked for without build they would
+# check nothing, so refuse rather than report a pass.
 step_selftest() {
-    echo "(the selftest runs inside the build step's linux-build.sh)"
+    want_step build || { echo "selftest runs inside the build step: add build to --steps" >&2; exit 1; }
 }
 
 step_layers() {
-    echo "(the runtime id and app layer come from the build step's linux-build.sh)"
+    want_step build || { echo "layers runs inside the build step: add build to --steps" >&2; exit 1; }
 }
 
 step_deb() {
