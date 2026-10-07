@@ -19,7 +19,7 @@ import threading
 from pathlib import Path
 
 from PyQt5 import sip
-from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
+from PyQt5.QtCore import QEventLoop, Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QMessageBox, QProgressDialog,
 )
@@ -360,6 +360,62 @@ def _installed_exe() -> Path:
     return app_paths.app_home() / name
 
 
+class _BusyNotice(QProgressDialog):
+    """Modal "working…" notice the user cannot dismiss: no cancel button,
+    and Esc / the window manager's close are ignored. Closed with hide()."""
+
+    def __init__(self, label: str, parent=None):
+        super().__init__(label, "", 0, 0, parent)
+        self.setCancelButton(None)
+        self.setWindowTitle(tr("update_title"))
+        self.setWindowModality(Qt.ApplicationModal)
+        self.setMinimumDuration(0)
+
+    def reject(self):                       # Esc
+        pass
+
+    def closeEvent(self, event):            # the window's close button
+        event.ignore()
+
+
+def _wait_off_ui_thread(parent, label: str, work):
+    """Run work() on a worker thread and return its result (or re-raise its
+    exception) while the UI keeps processing events, behind a modal notice
+    that cannot be dismissed.
+
+    Linux's apply blocks for seconds (polkit password prompt, then the root
+    swap with an fsync per file). Waited for on the UI thread, the window
+    stopped answering the window manager's pings and GNOME offered to force
+    quit it after its 5 s check-alive timeout.
+
+    Events are pumped with processEvents rather than a nested QEventLoop: a
+    quit request (e.g. session logout) ends every running event loop at
+    once, and the wait would then block the UI thread after all. The root
+    child cannot be stopped anyway, so the wait always lasts until it ends."""
+    outcome: dict = {}
+
+    def run():
+        try:
+            outcome["result"] = work()
+        except BaseException as exc:  # noqa: BLE001 - handed back to the caller
+            outcome["error"] = exc
+
+    notice = _BusyNotice(label, parent)
+    notice.show()
+    worker = threading.Thread(target=run, name="update-apply", daemon=True)
+    worker.start()
+    try:
+        while worker.is_alive():
+            QApplication.processEvents(QEventLoop.AllEvents, 50)
+            worker.join(0.02)
+    finally:
+        notice.hide()
+        notice.deleteLater()
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome["result"]
+
+
 def apply_and_restart(parent, info, zip_path: Path) -> bool:
     """Apply a downloaded zip and relaunch. False = still on the old version.
 
@@ -379,8 +435,11 @@ def apply_and_restart(parent, info, zip_path: Path) -> bool:
             return False
     else:
         try:
-            outcome, detail = installer.apply_zip_linux(exe, zip_path, sha)
-        except OSError as exc:
+            outcome, detail = _wait_off_ui_thread(
+                parent, tr("update_applying"),
+                lambda: installer.apply_zip_linux(exe, zip_path, sha))
+        except Exception as exc:  # noqa: BLE001 - this runs in a Qt slot
+            vlog().exception("update apply failed")
             outcome, detail = installer.InstallOutcome.FAILED, str(exc)
         if outcome is installer.InstallOutcome.CANCELLED:
             return False  # the user dismissed the password dialog

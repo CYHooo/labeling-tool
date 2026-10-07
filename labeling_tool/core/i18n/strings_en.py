@@ -189,6 +189,7 @@ STRINGS = {
     "update_ready_status":             "Version {version} is ready — it installs when you close this window",
     "update_btn_restart":              "Restart and update",
     "update_ready_informative":        "The update is ready and applies on restart.\n\n{notes}",
+    "update_applying":                 "Applying the update…",
     "update_apply_failed_msg":         "The update could not be applied. Close every window of the program and try again.\n\n{exc}",
     "update_progress_label":           "Downloading update…",
     "update_progress_template":        "Downloading update… {done} / {total} MB",
