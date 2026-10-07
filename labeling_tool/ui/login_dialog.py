@@ -1,10 +1,12 @@
 """Startup login screen and tool selector.
 
-Tabs pick which labeling tool to open:
-  * Labeling (default): one BASE URL + API key, and the jobs already fetched
-    to this PC (labeling_tool/data/session_<id>/). "Fetch a new job" goes on
-    to the fetch screen; "Open" reopens a fetched job, uploading to the
-    server it came from when a key is entered.
+A signed-in user comes first: page 1 asks for ID / PW (labeling_tool.auth)
+and the server (BASE URL + API key); page 2 is the jobs page, whose tabs pick
+which labeling tool to open:
+  * Labeling (default): the jobs already fetched to this PC
+    (labeling_tool/data/session_<id>/). "Fetch a new job" goes on to the
+    fetch screen with page 1's server; "Open" reopens a fetched job,
+    uploading to the server it came from when a key is entered.
   * Few-shot labeling: the torch-based annotation_tool (only when torch is installed).
 
 Outputs for app.py (`self.mode`):
@@ -22,15 +24,16 @@ from urllib.parse import urlparse
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
-    QDialog, QFormLayout, QLineEdit, QPushButton, QHBoxLayout, QVBoxLayout,
+    QDialog, QFormLayout, QLineEdit, QPushButton, QHBoxLayout, QVBoxLayout, QStackedWidget,
     QLabel, QMessageBox, QTabWidget, QWidget, QTableWidget,
     QTableWidgetItem, QAbstractItemView, QHeaderView, QComboBox, QFrame,
     QApplication,
 )
 
+from labeling_tool import auth
 from labeling_tool.core import i18n
 from labeling_tool.core.i18n import LANGUAGES, LANG_DISPLAY_NAMES
-from labeling_tool.ui.dialog_helpers import load_config, save_config
+from labeling_tool.ui.dialog_helpers import load_config, save_config, save_user_id
 from labeling_tool.session.workspace import Workspace, DEFAULT_DATA_ROOT
 from labeling_tool.session.local_jobs import LocalJob, list_local_jobs
 from labeling_tool.session.manifest import Manifest
@@ -43,6 +46,7 @@ MODE_SESSION = "session"
 MODE_FEWSHOT = "fewshot"
 
 TAB_LABELING, TAB_FEWSHOT = 0, 1
+PAGE_SIGN_IN, PAGE_WORK = 0, 1
 
 # Translation keys for the job table's column headers, in display order.
 JOB_COLUMN_KEYS = (
@@ -84,12 +88,17 @@ class LoginDialog(QDialog):
     # (circular import), so the ordering lives on the app side.
     fewshotRequested = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, user: auth.User | None = None,
+                 authenticator: auth.Authenticator | None = None):
         super().__init__(parent)
         self.resize(680, 460)
 
         # which tool / flow the user picked (see module docstring)
         self.mode: str | None = None
+        # The signed-in user. app.py passes the previous dialog's user back in
+        # when it reopens this dialog, so one sign-in lasts until log-out.
+        self.user: auth.User | None = user
+        self._auth = authenticator or auth.default_authenticator()
         # online outputs
         self.base: str = ""
         self.key: str = ""
@@ -108,13 +117,20 @@ class LoginDialog(QDialog):
 
         cfg = load_config()
 
+        sign_in_page = self._build_sign_in_page(cfg)
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_labeling_page(cfg), "")
         self.tabs.addTab(self._build_fewshot_page(), "")
         self.tabs.setCurrentIndex(TAB_LABELING)
 
         root = QVBoxLayout(self)
-        root.addWidget(self.tabs)
+        self.pages = QStackedWidget()
+        self.pages.addWidget(sign_in_page)
+        self.pages.addWidget(self.tabs)
+        self.pages.setCurrentIndex(PAGE_WORK if user is not None else PAGE_SIGN_IN)
+        root.addWidget(self.pages)
+        # The ID is usually remembered: start typing the password.
+        (self.ed_password if self.ed_user.text() else self.ed_user).setFocus()
 
         # Inline loading area, shown while the few-shot model loads. Hidden
         # until enter_loading_state() is called. This replaces the old
@@ -204,7 +220,17 @@ class LoginDialog(QDialog):
         """Re-apply every translated string. Called on init and whenever
         the language changes (either from this dialog's own combo, or from
         elsewhere, e.g. the main window)."""
-        self.setWindowTitle(i18n.tr("login_title"))
+        self.setWindowTitle(i18n.tr(
+            "login_title" if self.pages.currentIndex() == PAGE_SIGN_IN else "work_title"))
+        self.lbl_app_name.setText("LM Labeling Tool")
+        self.lbl_field_user.setText(i18n.tr("signin_field_id"))
+        self.lbl_field_password.setText(i18n.tr("signin_field_password"))
+        self.lbl_server.setText(i18n.tr("signin_server_section"))
+        self.btn_sign_in.setText(i18n.tr("signin_button"))
+        if self.lbl_sign_in_error.text():
+            self.lbl_sign_in_error.setText(i18n.tr("signin_error"))
+        self.btn_log_out.setText(i18n.tr("login_logout"))
+        self.lbl_user.setText(i18n.tr("login_signed_in_as", user=self.user.user_id) if self.user else "")
         self.lbl_language.setText(i18n.tr("language"))
         self.tabs.setTabText(TAB_LABELING, i18n.tr("login_tab_labeling"))
         self.tabs.setTabText(TAB_FEWSHOT, i18n.tr("login_tab_fewshot"))
@@ -246,9 +272,23 @@ class LoginDialog(QDialog):
             thread.finished.connect(lambda: self.btn_check_update.setEnabled(True))
 
     # ---------------------------------------------------------------- tabs
-    def _build_labeling_page(self, cfg: dict) -> QWidget:
-        """One server + key, the jobs already on this PC, and two ways on:
-        fetch a new job, or open a fetched one."""
+    def _build_sign_in_page(self, cfg: dict) -> QWidget:
+        """Page 1: ID / PW, then the server every later step uses."""
+        self.lbl_app_name = QLabel("")
+        self.lbl_app_name.setAlignment(Qt.AlignCenter)
+        self.lbl_app_name.setStyleSheet("font-size: 18px; font-weight: bold; padding: 8px;")
+        self.ed_user = QLineEdit(cfg.get("userId", ""))
+        self.ed_password = QLineEdit()
+        self.ed_password.setEchoMode(QLineEdit.Password)
+        self.lbl_field_user = QLabel("")
+        self.lbl_field_password = QLabel("")
+        # One form for both groups so every field lines up in one column.
+        form = QFormLayout()
+        form.addRow(self.lbl_field_user, self.ed_user)
+        form.addRow(self.lbl_field_password, self.ed_password)
+
+        self.lbl_server = QLabel("")
+        self.lbl_server.setStyleSheet("font-weight: bold; padding-top: 8px;")
         self.ed_base = QLineEdit(cfg.get("base", ""))
         self.ed_key = QLineEdit(cfg.get("apiKey", ""))
         self.ed_key.setEchoMode(QLineEdit.Password)
@@ -256,10 +296,60 @@ class LoginDialog(QDialog):
             ed.textChanged.connect(self._update_upload_state)
         self.lbl_field_base = QLabel("")
         self.lbl_field_key = QLabel("")
-        form = QFormLayout()
+        form.addRow(self.lbl_server)
         form.addRow(self.lbl_field_base, self.ed_base)
         form.addRow(self.lbl_field_key, self.ed_key)
 
+        self.lbl_sign_in_error = QLabel("")
+        self.lbl_sign_in_error.setStyleSheet("color: #e06c6c;")
+        self.btn_sign_in = QPushButton("")
+        # Enter in any field signs in -- wired per field, not as the dialog's
+        # default button, which would also fire from the jobs page.
+        self.btn_sign_in.setAutoDefault(False)
+        self.btn_sign_in.clicked.connect(self._on_sign_in)
+        for ed in (self.ed_user, self.ed_password, self.ed_base, self.ed_key):
+            ed.returnPressed.connect(self._on_sign_in)
+        row = QHBoxLayout()
+        row.addWidget(self.lbl_sign_in_error, 1)
+        row.addWidget(self.btn_sign_in)
+
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.addWidget(self.lbl_app_name)
+        lay.addLayout(form)
+        lay.addStretch(1)
+        lay.addLayout(row)
+        return page
+
+    def _on_sign_in(self):
+        try:
+            user = self._auth.login(self.ed_user.text(), self.ed_password.text())
+        except auth.AuthError:
+            vlog().info("sign-in refused for %r", self.ed_user.text().strip())
+            self.lbl_sign_in_error.setText(i18n.tr("signin_error"))
+            self.ed_password.selectAll()
+            self.ed_password.setFocus()
+            return
+        self.user = user
+        save_user_id(user.user_id)
+        vlog().info("signed in as %s", user.user_id)
+        self.lbl_sign_in_error.setText("")
+        self.pages.setCurrentIndex(PAGE_WORK)
+        self.retranslate()
+
+    def _on_log_out(self):
+        vlog().info("signed out (%s)", self.user.user_id if self.user else "-")
+        self.user = None
+        self.ed_password.clear()
+        self.pages.setCurrentIndex(PAGE_SIGN_IN)
+        self.retranslate()
+        self.ed_password.setFocus()
+
+    def _build_labeling_page(self, cfg: dict) -> QWidget:
+        """The jobs already on this PC and two ways on: fetch a new job with
+        the sign-in page's server, or open a fetched one."""
+        self.lbl_user = QLabel("")
+        self.lbl_user.setStyleSheet("color: #9ea3aa;")
         self.lbl_jobs_title = QLabel("")
         self.lbl_jobs_title.setStyleSheet("font-weight: bold;")
         self._jobs: list[LocalJob] = list_local_jobs(DEFAULT_DATA_ROOT)
@@ -301,15 +391,21 @@ class LoginDialog(QDialog):
         for btn in (self.btn_new_job, self.btn_open_job):
             btn.setAutoDefault(False)
             btn.setDefault(False)
+        self.btn_log_out = QPushButton("")
+        self.btn_log_out.setAutoDefault(False)
+        self.btn_log_out.clicked.connect(self._on_log_out)
         nav = QHBoxLayout()
+        nav.addWidget(self.btn_log_out)
         nav.addWidget(self.lbl_upload, 1)
         nav.addWidget(self.btn_new_job)
         nav.addWidget(self.btn_open_job)
 
+        title = QHBoxLayout()
+        title.addWidget(self.lbl_jobs_title, 1)
+        title.addWidget(self.lbl_user)
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.addLayout(form)
-        lay.addWidget(self.lbl_jobs_title)
+        lay.addLayout(title)
         lay.addWidget(self.tbl_jobs, 1)
         lay.addWidget(self.lbl_jobs_empty)
         lay.addLayout(nav)

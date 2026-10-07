@@ -115,6 +115,14 @@ STRINGS = {
     "fetch_existing_refetch": "다시 가져오기",
     "fetch_other_server_title": "다른 서버의 작업",
     "fetch_other_server_msg": "이 PC 의 작업 {sid} 은(는) {base} 에서 받은 다른 작업입니다.\n번호만 같을 뿐 지금 서버의 작업과 다르므로 여기서 열거나 다시 가져올 수 없습니다.\n그 작업은 로그인 화면의 로컬 작업 목록에서 여세요.",
+    "work_title": "작업",
+    "signin_field_id": "ID",
+    "signin_field_password": "비밀번호",
+    "signin_server_section": "서버",
+    "signin_button": "로그인",
+    "signin_error": "ID 또는 비밀번호가 올바르지 않습니다.",
+    "login_logout": "로그아웃",
+    "login_signed_in_as": "로그인: {user}",
     "login_open":                     "열기",
     "login_fewshot_hint_lite":
         "⚠ 이 빌드는 lite 버전이라 few-shot 도구를 사용할 수 없습니다.\n"

@@ -110,6 +110,14 @@ STRINGS = {
     "fetch_existing_refetch": "重新获取",
     "fetch_other_server_title": "其他服务器的任务",
     "fetch_other_server_msg": "本机的任务 {sid} 是从 {base} 获取的另一个任务。\n只是编号相同，与当前服务器的任务不同，不能在这里打开或重新获取。\n请在登录界面的本地任务列表中打开它。",
+    "work_title": "任务",
+    "signin_field_id": "ID",
+    "signin_field_password": "密码",
+    "signin_server_section": "服务器",
+    "signin_button": "登录",
+    "signin_error": "ID 或密码不正确。",
+    "login_logout": "退出登录",
+    "login_signed_in_as": "已登录: {user}",
     "login_open":                     "打开",
     "login_fewshot_hint_lite":
         "⚠ 此构建为 lite 版本，无法使用 few-shot 工具。\n"

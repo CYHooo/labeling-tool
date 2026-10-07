@@ -27,6 +27,8 @@
 | upload | **업로드** | 上传 | Upload | 音译已通用 |
 | download / fetch | **가져오기** | 获取 | Fetch | 从服务器取数据用 `가져오기`；文件下载用 `다운로드` |
 | local（本机已取得的作业） | **로컬 작업** | 本地任务 | Local jobs | 登录界面「라벨링」标签页里的任务列表标题（原独立标签页已合并） |
+| sign in / log out | **로그인** / **로그아웃** | 登录 / 退出登录 | Log in / Log out | 第一页的账号登录；`로그인: {user}` 显示当前用户 |
+| password | **비밀번호** | 密码 | Password | 账号字段名保持 `ID` |
 | output folder | **저장 폴더** | 保存文件夹 | Output folder | |
 
 ## 3. 测量与几何

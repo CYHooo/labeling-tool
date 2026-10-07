@@ -175,8 +175,11 @@ def main(argv: list[str] | None = None) -> int:
 
     base = key = ""
     workspace = manifest = None
+    # Signed in once per run: a reopened dialog (back from the fetch screen,
+    # a failed few-shot load) starts on its jobs page until the user logs out.
+    user = None
     while True:
-        login = LoginDialog()
+        login = LoginDialog(user=user)
         # The few-shot model loads while this dialog is still up, so the
         # notice lives inside it. `holder` carries the built window out of
         # the callback; the dialog only accepts once it exists.
@@ -189,7 +192,9 @@ def main(argv: list[str] | None = None) -> int:
 
         login.fewshotRequested.connect(_on_fewshot)
 
-        if not login.exec_():
+        accepted = login.exec_()
+        user = login.user
+        if not accepted:
             wait_for_checks()
             return 0  # user cancelled
 

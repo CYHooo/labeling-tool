@@ -72,6 +72,7 @@ def test_main_sets_the_application_window_icon(monkeypatch):
     class _RejectingLogin:
         def __init__(self, *a, **k):
             self.fewshotRequested = _FakeSignal()
+            self.user = None
 
         def exec_(self):
             return 0

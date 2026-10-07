@@ -55,7 +55,9 @@ The login screen has two tabs.
 
 ### 1. Log in and open a job
 
-Enter `BASE URL` and `X-Viewer-Api-Key`; they are saved and filled in next time. Below them, **Local jobs** lists the jobs already on this PC, newest first.
+On the first screen, enter your **ID / password** and the **server** (`BASE URL`, `X-Viewer-Api-Key`), then click "Log in". The ID and server are saved and filled in next time; the password is never stored. For now the development account `admin` / `admin` is used (per-user accounts will come with server support).
+
+After logging in, the jobs screen opens: **Local jobs** lists the jobs already on this PC, newest first. "Log out" returns to the first screen.
 
 - **A new job**: "Fetch a new job" → pick the job and, if needed, the photo range with `fromNum` / `toNum` (0 = from the start / to the end) → "Fetch (download)". The labeling window opens once the photos are in.
 - **A job you already have**: pick it in the list and click "Open" (or double-click). Uploads go to the server the job came from; with the Key empty, work is saved on this PC only.

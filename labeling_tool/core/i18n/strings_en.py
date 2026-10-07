@@ -110,6 +110,14 @@ STRINGS = {
     "fetch_existing_refetch": "Fetch again",
     "fetch_other_server_title": "Job from another server",
     "fetch_other_server_msg": "Job {sid} on this PC is a different job, fetched from {base}.\nOnly the number matches the current server's job, so it can't be opened or fetched again here.\nOpen it from the Local jobs list on the login screen.",
+    "work_title": "Jobs",
+    "signin_field_id": "ID",
+    "signin_field_password": "Password",
+    "signin_server_section": "Server",
+    "signin_button": "Log in",
+    "signin_error": "Incorrect ID or password.",
+    "login_logout": "Log out",
+    "login_signed_in_as": "Signed in: {user}",
     "login_open":                     "Open",
     "login_fewshot_hint_lite":
         "⚠ This build is the lite variant, so the few-shot tool is unavailable.\n"
