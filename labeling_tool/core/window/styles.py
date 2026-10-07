@@ -6,16 +6,6 @@ STYLESHEET = """
             color: #e0e0e0;
         }
         QLabel { color: #e0e0e0; }
-        QLabel#appTitle {
-            font-size: 14px;
-            font-weight: bold;
-            color: #f0f0f0;
-            padding: 4px 0 8px 0;
-            border-bottom: 1px solid #3a4048;
-        }
-        QLabel#jobInfoKey {
-            color: #888c93;
-        }
         QFrame#loadingBox {
             background-color: #181b20;
             border: 1px solid #2c313a;
@@ -71,13 +61,6 @@ STYLESHEET = """
         }
         QPushButton#primaryAction:hover { background-color: #3b7be8; }
         QPushButton#primaryAction:pressed { background-color: #2257bd; }
-        QPushButton#brushToggle:checked {
-            background-color: #2d6cdf;
-            border-color: #2d6cdf;
-            color: #ffffff;
-            font-weight: 600;
-        }
-        QPushButton#brushToggle:checked:hover { background-color: #3b7be8; }
         QPushButton#catCrack:checked {
             background-color: #c75450;
             border-color: #c75450;
@@ -171,13 +154,6 @@ STYLESHEET = """
         QScrollBar::handle:vertical:hover { background: #4a5160; }
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
         QSplitter::handle { background-color: #2c313a; width: 2px; }
-        QPushButton#bboxToggle:checked {
-            background-color: #c08a35;
-            border-color: #c08a35;
-            color: #ffffff;
-            font-weight: 600;
-        }
-        QPushButton#bboxToggle:checked:hover { background-color: #d4983a; }
         QPushButton#measureToggle:checked {
             background-color: #b8862b;
             border-color: #b8862b;
@@ -185,25 +161,16 @@ STYLESHEET = """
             font-weight: 600;
         }
         QPushButton#measureToggle:checked:hover { background-color: #cc972f; }
-        QPushButton#samToggle:checked {
-            background-color: #2a9d8f;
-            border-color: #2a9d8f;
-            color: #ffffff;
-            font-weight: 600;
-        }
-        QPushButton#samToggle:checked:hover { background-color: #33b3a3; }
         QPushButton#showHighlightToggle:checked {
             background-color: #caa42e;
             border-color: #caa42e;
             color: #1f2329;
-            font-weight: 600;
         }
         QPushButton#showHighlightToggle:checked:hover { background-color: #d8b341; }
         QPushButton#showRepair15Toggle:checked {
             background-color: #2596be;
             border-color: #2596be;
             color: #ffffff;
-            font-weight: 600;
         }
         QPushButton#showRepair15Toggle:checked:hover { background-color: #2ba6d2; }
         QLabel#scaleLabel {
@@ -237,6 +204,7 @@ STYLESHEET = """
             padding: 6px 14px;
             margin-right: 2px;
         }
+        QTabWidget#toolTabs QTabBar::tab { padding: 6px 6px; }
         QTabBar::tab:selected {
             background-color: #1f2329;
             color: #f0f0f0;

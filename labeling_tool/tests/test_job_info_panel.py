@@ -1,6 +1,7 @@
-"""The labeling window shows the job it is working on instead of folder and
-language controls: the photos come from the server, so there is nothing to
-pick, and the language is switched on the sign-in / jobs screens."""
+"""The labeling window has no folder or language controls (the photos come
+from the server; the language is switched on the sign-in / jobs screens),
+and its image list shows "<job>-<photo>" ids. The one-line job info is
+covered in test_side_panel.py."""
 import cv2
 import numpy as np
 from PyQt5.QtCore import Qt
@@ -43,39 +44,6 @@ def test_no_folder_pickers_or_language_selector(tmp_path, monkeypatch):
         assert not hasattr(win, "_btn_select_detected")
         texts = [b.text() for b in win.findChildren(QPushButton)]
         assert not any("Origin" in t or "Detected" in t for t in texts)
-    finally:
-        win.close()
-
-
-def test_job_info_shows_id_inspection_name_and_photo_count(tmp_path, monkeypatch):
-    win = _make_window(tmp_path, monkeypatch)
-    try:
-        assert win._grp_job_info.title() == i18n.tr("group_job_info")
-        assert win._lbl_job_id_value.text() == "45"
-        assert win._lbl_inspection_value.text() == "교량 정기점검"
-        assert win._lbl_photo_count_value.text() == i18n.tr("photo_count", n=3)
-    finally:
-        win.close()
-
-
-def test_missing_inspection_name_shows_a_dash(tmp_path, monkeypatch):
-    win = _make_window(tmp_path, monkeypatch, inspection_name=None)
-    try:
-        assert win._lbl_inspection_value.text() == "—"
-    finally:
-        win.close()
-
-
-def test_job_info_follows_language(tmp_path, monkeypatch):
-    win = _make_window(tmp_path, monkeypatch)
-    try:
-        for code in ("en", "zh", "ko"):
-            i18n.set_language(code)
-            assert win._grp_job_info.title() == i18n.tr("group_job_info")
-            assert win._lbl_job_id_key.text() == i18n.tr("lbl_job_id")
-            assert win._lbl_inspection_key.text() == i18n.tr("lbl_inspection_name")
-            assert win._lbl_photo_count_key.text() == i18n.tr("lbl_photo_count")
-            assert win._lbl_photo_count_value.text() == i18n.tr("photo_count", n=3)
     finally:
         win.close()
 

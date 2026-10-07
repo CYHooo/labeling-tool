@@ -66,15 +66,17 @@ After logging in, the jobs screen opens: **Local jobs** lists the jobs already o
 
 ### 2. Label
 
+The top of the right panel shows the job ID, inspection name and photo count; "?" opens the shortcut help. The image list shows "No." (`job ID-photo number`, e.g. 49-3) and "File name", with "Previous" / "Next" / "Save" (A / D / S) below it. Pick an editing tool on the "View · Brush · SAM · Repair area" tabs: the selected tab is the editing mode ("View" edits nothing). "Upload to EC2" stays pinned at the bottom of the panel.
+
 | Feature | What it does |
 |---|---|
 | **Brush** | Draw a crack roughly; when you release the mouse it becomes a 1 px centerline. Turn on "Fine annotation (keep width)" to keep the drawn width. |
 | **Repair area** | Mark repair regions with rotatable rectangles (OBB). Overlaps are counted once. |
-| **Scale (px/cm)** | Uses the value the server computed. To correct it, use "Manual Measure (fallback)": click two points of a reference line and enter its real length. |
+| **Scale (px/cm)** | Uses the value the server computed. To correct it, use "Measure": click two points of a reference line and enter its real length. |
 | **SAM segment (spalling)** | Left-click to include and right-click to exclude; the spalling region is found automatically. "Confirm (write spalling)" records it, Esc undoes the last point. |
-| **Show Highlight / Show 15cm Boundary** | Preview the highlight around cracks and the 15 cm boundary around repair areas. |
+| **Highlight / 15cm zone** | Preview the highlight around cracks and the 15 cm boundary around repair areas. |
 
-Your work is saved automatically when you move to another image; "Save Mask" saves it on demand.
+Your work is saved automatically when you move to another image; "Save" (S) saves it on demand.
 
 ### 3. Upload to EC2
 

@@ -17,7 +17,7 @@ def register_shortcuts(window: "MainWindow") -> None:
     QShortcut(QKeySequence("D"), window, window.go_next)
     QShortcut(QKeySequence("S"), window, window._on_brush_save)
     QShortcut(QKeySequence("B"), window,
-              lambda: window._btn_brush_toggle.toggle())
+              lambda: window._toggle_mode_shortcut(window._btn_brush_toggle))
     QShortcut(QKeySequence("["), window, lambda: window._nudge_brush_size(-2))
     QShortcut(QKeySequence("]"), window, lambda: window._nudge_brush_size(+2))
     QShortcut(QKeySequence("1"), window,
@@ -25,7 +25,7 @@ def register_shortcuts(window: "MainWindow") -> None:
     QShortcut(QKeySequence("2"), window,
               lambda: window._select_category_btn(1))
     QShortcut(QKeySequence("X"), window,
-              lambda: window._btn_bbox_toggle.toggle())
+              lambda: window._toggle_mode_shortcut(window._btn_bbox_toggle))
     QShortcut(QKeySequence(Qt.Key_Return), window, window._on_bbox_commit)
     QShortcut(QKeySequence(Qt.Key_Enter), window, window._on_bbox_commit)
     QShortcut(QKeySequence(Qt.Key_Escape), window, window._on_escape)
