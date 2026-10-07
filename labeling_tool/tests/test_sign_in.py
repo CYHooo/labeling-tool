@@ -194,3 +194,29 @@ def test_a_refused_id_is_not_logged(monkeypatch):
     dlg.ed_password.setText("x")
     dlg.btn_sign_in.click()
     assert lines and not any("secret-typed-here" in str(a) for a in lines)
+
+
+def test_a_language_switch_keeps_which_message_is_shown(monkeypatch, tmp_path):
+    from labeling_tool.core import i18n
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path)
+    i18n.set_language("ko")
+    dlg = ld.LoginDialog()
+    dlg.ed_base.setText("")
+    dlg.ed_password.setText("admin")
+    dlg.btn_sign_in.click()
+    dlg.btn_new_job.click()
+    i18n.set_language("en")
+    assert dlg.lbl_sign_in_error.text() == i18n.tr("signin_server_required")
+    i18n.set_language("ko")
+
+
+def test_a_failed_server_save_never_blocks_opening_or_fetching(monkeypatch, tmp_path):
+    def boom(*_a):
+        raise OSError("disk full")
+    monkeypatch.setattr(ld, "save_config", boom)
+    dlg = ld.LoginDialog()
+    dlg.ed_password.setText("admin")
+    dlg.btn_sign_in.click()
+    assert dlg.pages.currentIndex() == ld.PAGE_WORK
+    dlg.btn_new_job.click()
+    assert dlg.mode == ld.MODE_ONLINE
