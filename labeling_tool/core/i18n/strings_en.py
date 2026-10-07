@@ -93,18 +93,21 @@ STRINGS = {
 
     # --- login ---
     "login_title":                    "Log in",
-    "login_tab_online":               "Online labeling",
-    "login_tab_local":                "Local jobs",
     "login_tab_fewshot":              "Few-shot labeling",
     "login_field_base":               "BASE URL",
     "login_field_key":                "X-Viewer-Api-Key",
-    "login_next":                     "Next",
     "login_col_job":                  "Job",
     "login_col_inspection":           "Inspection name",
     "login_col_photos":               "Photos / uploaded",
     "login_col_server":               "Server",
     "login_col_modified":             "Last modified",
-    "login_jobs_empty":               "No jobs yet. Fetch data in “{tab}” first.",
+    "login_jobs_empty": "No jobs yet. Click “{button}” to fetch one.",
+    "login_tab_labeling": "Labeling",
+    "login_new_job": "Fetch a new job",
+    "login_jobs_title": "Local jobs (fetched to this PC)",
+    "fetch_existing_title": "Already fetched",
+    "fetch_existing_msg": "Job {sid} is already on this PC.\nOpen it, or fetch it again from the server?\n(Fetching again keeps your labeling and upload records.)",
+    "fetch_existing_refetch": "Fetch again",
     "login_open":                     "Open",
     "login_fewshot_hint_lite":
         "⚠ This build is the lite variant, so the few-shot tool is unavailable.\n"
@@ -120,16 +123,10 @@ STRINGS = {
         "Needs a GPU (torch) and SAM weights; the first launch takes time to load the model.",
     "login_warn_input_required_title": "Input required",
     "login_warn_input_required_msg":   "Enter BASE/Key.",
-    "login_upload_possible":           "Upload: possible (URL/Key entered)",
-    "login_upload_impossible":
-        "Upload: not possible — local save only (enter URL/Key to enable upload)",
+    "login_upload_possible": "Upload: possible → {host}",
+    "login_upload_impossible": "Upload: not possible — local save only (enter the Key to enable upload)",
     "login_warn_no_manifest_title":    "Not found",
     "login_warn_no_manifest_msg":      "Local manifest not found: {path}",
-    "login_warn_server_mismatch_title": "Server mismatch",
-    "login_warn_server_mismatch_msg":
-        "This job was fetched from {base}.\n"
-        "It cannot be uploaded to a different server.\n"
-        "Change the URL back to the original server, or clear URL/Key to open it offline.",
     "login_warn_manifest_error_title": "Manifest error",
     "login_warn_manifest_error_msg":
         "Could not read the local manifest: {path}\n{exc}",

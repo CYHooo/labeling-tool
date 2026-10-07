@@ -57,33 +57,41 @@ def _job(root, sid, base="https://srv.example.com", name=None, mtime=1000):
     os.utime(mf, (mtime, mtime))
 
 
-def test_online_tab_is_default_and_unchanged():
+def test_labeling_and_fewshot_are_the_only_tabs():
     dlg = ld.LoginDialog()
-    assert dlg.tabs.currentIndex() == ld.TAB_ONLINE
+    assert dlg.tabs.count() == 2
+    assert dlg.tabs.currentIndex() == ld.TAB_LABELING
+    page = dlg.tabs.widget(ld.TAB_LABELING)
+    for w in (dlg.ed_base, dlg.ed_key, dlg.tbl_jobs, dlg.btn_new_job, dlg.btn_open_job):
+        assert page.isAncestorOf(w)
+
+
+def test_one_server_and_key_field_prefilled_from_config():
+    dlg = ld.LoginDialog()
+    assert dlg.ed_key.text() == "saved-key"
+    assert not hasattr(dlg, "ed_local_base") and not hasattr(dlg, "ed_local_key")
+
+
+def test_new_job_goes_to_fetch_with_the_entered_server():
+    dlg = ld.LoginDialog()
     dlg.ed_base.setText("http://x")
     dlg.ed_key.setText("k")
-    dlg._on_next()
+    dlg.btn_new_job.click()
     assert dlg.mode == ld.MODE_ONLINE
     assert (dlg.base, dlg.key) == ("http://x", "k")
+    assert SAVED == [("http://x", "k")]
     assert dlg.result() == dlg.Accepted
 
 
-def test_online_requires_credentials(monkeypatch):
+def test_new_job_requires_server_and_key(monkeypatch):
     monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
     dlg = ld.LoginDialog()
-    dlg._on_next()
+    dlg.btn_new_job.click()
     assert dlg.mode is None
     assert dlg.result() != dlg.Accepted
 
 
-def test_online_tab_has_no_downloaded_session_section():
-    dlg = ld.LoginDialog()
-    online = dlg.tabs.widget(ld.TAB_ONLINE)
-    assert online.isAncestorOf(dlg.ed_base)
-    assert not online.isAncestorOf(dlg.tbl_jobs)
-
-
-def test_local_tab_lists_jobs_newest_first(tmp_path):
+def test_jobs_listed_newest_first(tmp_path):
     _job(tmp_path, 16, name="B1 주차장", mtime=1000)
     _job(tmp_path, 18, mtime=2000)
     dlg = ld.LoginDialog()
@@ -95,94 +103,77 @@ def test_local_tab_lists_jobs_newest_first(tmp_path):
     assert t.item(1, 3).text() == "srv.example.com"
 
 
-def test_local_tab_empty(tmp_path):
+def test_no_jobs_points_at_the_new_job_button(tmp_path):
     dlg = ld.LoginDialog()
     assert dlg.tbl_jobs.rowCount() == 0
     assert not dlg.btn_open_job.isEnabled()
-    assert "받은 작업이 없습니다" in dlg.lbl_jobs_empty.text()
+    assert dlg.btn_new_job.text() in dlg.lbl_jobs_empty.text()
+    assert dlg.btn_new_job.isDefault()
 
 
-def test_selecting_job_fills_its_server_and_saved_key(tmp_path):
-    _job(tmp_path, 16, base="https://a.example.com", mtime=2000)
-    _job(tmp_path, 18, base="https://b.example.com", mtime=1000)
+def test_open_is_the_default_button_when_jobs_exist(tmp_path):
+    _job(tmp_path, 16)
     dlg = ld.LoginDialog()
-    assert dlg.ed_local_key.text() == "saved-key"
-    dlg.tbl_jobs.selectRow(1)
-    assert dlg.ed_local_base.text() == "https://b.example.com"
-    assert "가능" in dlg.lbl_upload.text()
-    dlg.ed_local_key.setText("")
+    assert dlg.btn_open_job.isDefault() and not dlg.btn_new_job.isDefault()
+
+
+def test_selecting_a_job_leaves_the_server_field_alone(tmp_path):
+    _job(tmp_path, 16, base="https://a.example.com")
+    dlg = ld.LoginDialog()
+    dlg.ed_base.setText("https://typed.example.com")
+    dlg.tbl_jobs.selectRow(0)
+    assert dlg.ed_base.text() == "https://typed.example.com"
+
+
+def test_upload_state_names_the_job_server_and_needs_a_key(tmp_path):
+    _job(tmp_path, 16, base="https://a.example.com")
+    dlg = ld.LoginDialog()
+    dlg.tbl_jobs.selectRow(0)
+    assert "a.example.com" in dlg.lbl_upload.text() and "가능" in dlg.lbl_upload.text()
+    dlg.ed_key.setText("")
     assert "불가" in dlg.lbl_upload.text()
 
 
-def test_open_job_with_credentials_enables_upload(tmp_path):
+def test_open_job_uploads_to_the_server_it_came_from(tmp_path):
     _job(tmp_path, 16, base="https://a.example.com")
     dlg = ld.LoginDialog()
+    dlg.ed_base.setText("https://other.example.com")
     dlg.tbl_jobs.selectRow(0)
     dlg.btn_open_job.click()
     assert dlg.mode == ld.MODE_SESSION
     assert dlg.workspace.session_dir == tmp_path / "session_16"
     assert dlg.manifest.session_id == 16
     assert (dlg.base, dlg.key) == ("https://a.example.com", "saved-key")
-    assert SAVED == [("https://a.example.com", "saved-key")]
+    assert SAVED == [("https://other.example.com", "saved-key")]
 
 
-def test_open_job_without_credentials_stays_offline(tmp_path):
+def test_open_job_without_a_key_stays_offline(tmp_path):
     _job(tmp_path, 16)
     dlg = ld.LoginDialog()
     dlg.tbl_jobs.selectRow(0)
-    dlg.ed_local_key.setText("")
+    dlg.ed_key.setText("")
     dlg.btn_open_job.click()
     assert dlg.mode == ld.MODE_SESSION
     assert (dlg.base, dlg.key) == ("", "")
     assert SAVED == []
 
 
-def test_open_job_refuses_upload_to_a_different_server(monkeypatch, tmp_path):
-    warnings = []
-    monkeypatch.setattr(QMessageBox, "warning",
-                         lambda *a, **k: warnings.append(a))
-    _job(tmp_path, 16, base="https://a.example.com")
+def test_open_job_without_a_recorded_server_uses_the_entered_one(tmp_path):
+    _job(tmp_path, 17, base="")
     dlg = ld.LoginDialog()
+    dlg.ed_base.setText("https://typed.example.com")
     dlg.tbl_jobs.selectRow(0)
-    dlg.ed_local_base.setText("https://other.example.com")
     dlg.btn_open_job.click()
-    assert dlg.mode is None
-    assert dlg.result() != dlg.Accepted
-    assert warnings
-    assert SAVED == []
+    assert (dlg.base, dlg.key) == ("https://typed.example.com", "saved-key")
 
 
-def test_open_job_allows_trailing_slash_difference(tmp_path):
+def test_open_job_never_saves_an_empty_server(tmp_path):
     _job(tmp_path, 16, base="https://a.example.com")
-    dlg = ld.LoginDialog()
+    dlg = ld.LoginDialog()           # config has a key but no base
     dlg.tbl_jobs.selectRow(0)
-    dlg.ed_local_base.setText("https://a.example.com/")
     dlg.btn_open_job.click()
     assert dlg.mode == ld.MODE_SESSION
-    assert dlg.result() == dlg.Accepted
-
-
-def test_open_job_clearing_url_and_key_opens_offline(tmp_path):
-    _job(tmp_path, 16, base="https://a.example.com")
-    dlg = ld.LoginDialog()
-    dlg.tbl_jobs.selectRow(0)
-    dlg.ed_local_base.setText("")
-    dlg.ed_local_key.setText("")
-    dlg.btn_open_job.click()
-    assert dlg.mode == ld.MODE_SESSION
-    assert dlg.result() == dlg.Accepted
-    assert (dlg.base, dlg.key) == ("", "")
     assert SAVED == []
-
-
-def test_selecting_job_with_empty_base_clears_url_field(tmp_path):
-    _job(tmp_path, 16, base="https://a.example.com", mtime=2000)
-    _job(tmp_path, 17, base="", mtime=1000)
-    dlg = ld.LoginDialog()
-    dlg.tbl_jobs.selectRow(0)
-    assert dlg.ed_local_base.text() == "https://a.example.com"
-    dlg.tbl_jobs.selectRow(1)
-    assert dlg.ed_local_base.text() == ""
 
 
 def test_open_job_with_unloadable_manifest_warns_and_stays_open(monkeypatch, tmp_path):
@@ -346,11 +337,11 @@ def test_language_combo_switches_live(monkeypatch, tmp_path):
     dlg = ld.LoginDialog()
     assert [dlg.cmb_language.itemData(i) for i in range(dlg.cmb_language.count())] \
         == list(i18n.LANGUAGES)
-    ko_title = dlg.tabs.tabText(ld.TAB_ONLINE)
+    ko_title = dlg.tabs.tabText(ld.TAB_LABELING)
     dlg.cmb_language.setCurrentIndex(list(i18n.LANGUAGES).index("en"))
     assert i18n.current_language() == "en"
-    assert dlg.tabs.tabText(ld.TAB_ONLINE) != ko_title
-    assert dlg.btn_next.text() == i18n.tr("login_next")
+    assert dlg.tabs.tabText(ld.TAB_LABELING) != ko_title
+    assert dlg.btn_new_job.text() == i18n.tr("login_new_job")
 
 
 def test_dialog_follows_language_changed_signal(monkeypatch, tmp_path):
@@ -359,7 +350,7 @@ def test_dialog_follows_language_changed_signal(monkeypatch, tmp_path):
     i18n.set_language("ko")
     dlg = ld.LoginDialog()
     i18n.set_language("zh")          # changed elsewhere (e.g. the main window)
-    assert dlg.btn_next.text() == i18n.tr("login_next")
+    assert dlg.btn_new_job.text() == i18n.tr("login_new_job")
 
 
 def test_job_table_headers_are_translated(monkeypatch, tmp_path):

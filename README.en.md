@@ -46,21 +46,20 @@ The app checks for a new version **at startup and every 4 hours while running**.
 
 ## How to use
 
-Pick how you want to work from the tabs at the top of the login screen.
+The login screen has two tabs.
 
 | Tab | Purpose |
 |---|---|
-| **Online labeling** | Fetch a job from the server, label it and upload it. |
-| **Local jobs** | Continue a job you have already downloaded. |
+| **Labeling** | Fetch a new job from the server, or continue one already on this PC; label it and upload it. |
 | **Few-shot labeling** | Multi-class labeling with SAM2.1. The model (about 308 MB) downloads once, the first time you open it. |
 
-### 1. Log in and fetch data
+### 1. Log in and open a job
 
-1. On the "Online labeling" tab, enter `BASE URL` and `X-Viewer-Api-Key`, then click "Next". The values are saved and filled in next time.
-2. On the fetch screen, choose a session and, if needed, the photo range with `fromNum` / `toNum` (0 = from the start / to the end).
-3. Click "Fetch (download)". The photos download and the labeling window opens.
+Enter `BASE URL` and `X-Viewer-Api-Key`; they are saved and filled in next time. Below them, **Local jobs** lists the jobs already on this PC, newest first.
 
-To continue a job you already have, pick it on the "Local jobs" tab and click "Open".
+- **A new job**: "Fetch a new job" → pick the job and, if needed, the photo range with `fromNum` / `toNum` (0 = from the start / to the end) → "Fetch (download)". The labeling window opens once the photos are in.
+- **A job you already have**: pick it in the list and click "Open" (or double-click). Uploads go to the server the job came from; with the Key empty, work is saved on this PC only.
+- Fetching a job that is already on this PC asks "Open" or "Fetch again". Fetching again keeps your labeling and upload records.
 
 ### 2. Label
 

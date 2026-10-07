@@ -1,9 +1,10 @@
 """Startup login screen and tool selector.
 
 Tabs pick which labeling tool to open:
-  * Online labeling (default): BASE URL + API key (no network verify) -> fetch.
-  * Local jobs: pick an already-downloaded job (labeling_tool/data/session_<id>/)
-    and open it in the same main window; uploads work when URL + key are set.
+  * Labeling (default): one BASE URL + API key, and the jobs already fetched
+    to this PC (labeling_tool/data/session_<id>/). "Fetch a new job" goes on
+    to the fetch screen; "Open" reopens a fetched job, uploading to the
+    server it came from when a key is entered.
   * Few-shot labeling: the torch-based annotation_tool (only when torch is installed).
 
 Outputs for app.py (`self.mode`):
@@ -17,11 +18,12 @@ from __future__ import annotations
 
 import importlib.util
 from datetime import datetime
+from urllib.parse import urlparse
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QFormLayout, QLineEdit, QPushButton, QHBoxLayout, QVBoxLayout,
-    QLabel, QProgressBar, QMessageBox, QTabWidget, QWidget, QTableWidget,
+    QLabel, QMessageBox, QTabWidget, QWidget, QTableWidget,
     QTableWidgetItem, QAbstractItemView, QHeaderView, QComboBox, QFrame,
     QApplication,
 )
@@ -40,7 +42,7 @@ MODE_ONLINE = "online"
 MODE_SESSION = "session"
 MODE_FEWSHOT = "fewshot"
 
-TAB_ONLINE, TAB_LOCAL, TAB_FEWSHOT = 0, 1, 2
+TAB_LABELING, TAB_FEWSHOT = 0, 1
 
 # Translation keys for the job table's column headers, in display order.
 JOB_COLUMN_KEYS = (
@@ -107,10 +109,9 @@ class LoginDialog(QDialog):
         cfg = load_config()
 
         self.tabs = QTabWidget()
-        self.tabs.addTab(self._build_online_page(cfg), "")
-        self.tabs.addTab(self._build_local_page(cfg), "")
+        self.tabs.addTab(self._build_labeling_page(cfg), "")
         self.tabs.addTab(self._build_fewshot_page(), "")
-        self.tabs.setCurrentIndex(TAB_ONLINE)
+        self.tabs.setCurrentIndex(TAB_LABELING)
 
         root = QVBoxLayout(self)
         root.addWidget(self.tabs)
@@ -205,25 +206,18 @@ class LoginDialog(QDialog):
         elsewhere, e.g. the main window)."""
         self.setWindowTitle(i18n.tr("login_title"))
         self.lbl_language.setText(i18n.tr("language"))
-        self.tabs.setTabText(TAB_ONLINE, i18n.tr("login_tab_online"))
-        self.tabs.setTabText(TAB_LOCAL, i18n.tr("login_tab_local"))
+        self.tabs.setTabText(TAB_LABELING, i18n.tr("login_tab_labeling"))
         self.tabs.setTabText(TAB_FEWSHOT, i18n.tr("login_tab_fewshot"))
 
         self.lbl_field_base.setText(i18n.tr("login_field_base"))
         self.lbl_field_key.setText(i18n.tr("login_field_key"))
-        self.btn_next.setText(i18n.tr("login_next"))
-        # lbl_status is only ever set to "" today (no code path writes a
-        # message into it), but clear it explicitly so a future status
-        # message can never survive a language change untranslated.
-        self.lbl_status.setText("")
-
-        self.lbl_field_local_base.setText(i18n.tr("login_field_base"))
-        self.lbl_field_local_key.setText(i18n.tr("login_field_key"))
+        self.lbl_jobs_title.setText(i18n.tr("login_jobs_title"))
         self.tbl_jobs.setHorizontalHeaderLabels(
             [i18n.tr(k) for k in JOB_COLUMN_KEYS])
+        self.btn_new_job.setText(i18n.tr("login_new_job"))
         if not self._jobs:
             self.lbl_jobs_empty.setText(
-                i18n.tr("login_jobs_empty", tab=i18n.tr("login_tab_online")))
+                i18n.tr("login_jobs_empty", button=i18n.tr("login_new_job")))
         self.btn_open_job.setText(i18n.tr("login_open"))
         self._update_upload_state()
 
@@ -252,50 +246,22 @@ class LoginDialog(QDialog):
             thread.finished.connect(lambda: self.btn_check_update.setEnabled(True))
 
     # ---------------------------------------------------------------- tabs
-    def _build_online_page(self, cfg: dict) -> QWidget:
-        """Tab 1: BASE URL + API key -> FetchDialog (downloaded jobs moved to tab 2)."""
+    def _build_labeling_page(self, cfg: dict) -> QWidget:
+        """One server + key, the jobs already on this PC, and two ways on:
+        fetch a new job, or open a fetched one."""
         self.ed_base = QLineEdit(cfg.get("base", ""))
         self.ed_key = QLineEdit(cfg.get("apiKey", ""))
         self.ed_key.setEchoMode(QLineEdit.Password)
+        for ed in (self.ed_base, self.ed_key):
+            ed.textChanged.connect(self._update_upload_state)
         self.lbl_field_base = QLabel("")
         self.lbl_field_key = QLabel("")
-        self.form_online = QFormLayout()
-        self.form_online.addRow(self.lbl_field_base, self.ed_base)
-        self.form_online.addRow(self.lbl_field_key, self.ed_key)
+        form = QFormLayout()
+        form.addRow(self.lbl_field_base, self.ed_base)
+        form.addRow(self.lbl_field_key, self.ed_key)
 
-        self.progress = QProgressBar(); self.progress.setVisible(False)
-        self.lbl_status = QLabel("")
-
-        self.btn_next = QPushButton("")
-        self.btn_next.setDefault(True)
-        self.btn_next.clicked.connect(self._on_next)
-        nav = QHBoxLayout()
-        nav.addStretch(1)
-        nav.addWidget(self.btn_next)
-
-        page = QWidget()
-        lay = QVBoxLayout(page)
-        lay.addLayout(self.form_online)
-        lay.addStretch(1)
-        lay.addWidget(self.progress)
-        lay.addWidget(self.lbl_status)
-        lay.addLayout(nav)
-        return page
-
-    def _build_local_page(self, cfg: dict) -> QWidget:
-        """Tab 2: already-downloaded jobs, newest first; URL/key enable upload."""
-        # URL follows the selected job's server; the key is prefilled from config
-        self.ed_local_base = QLineEdit(cfg.get("base", ""))
-        self.ed_local_key = QLineEdit(cfg.get("apiKey", ""))
-        self.ed_local_key.setEchoMode(QLineEdit.Password)
-        for ed in (self.ed_local_base, self.ed_local_key):
-            ed.textChanged.connect(self._update_upload_state)
-        self.lbl_field_local_base = QLabel("")
-        self.lbl_field_local_key = QLabel("")
-        self.form_local = QFormLayout()
-        self.form_local.addRow(self.lbl_field_local_base, self.ed_local_base)
-        self.form_local.addRow(self.lbl_field_local_key, self.ed_local_key)
-
+        self.lbl_jobs_title = QLabel("")
+        self.lbl_jobs_title.setStyleSheet("font-weight: bold;")
         self._jobs: list[LocalJob] = list_local_jobs(DEFAULT_DATA_ROOT)
         self.tbl_jobs = QTableWidget(len(self._jobs), len(JOB_COLUMN_KEYS))
         self.tbl_jobs.setHorizontalHeaderLabels(
@@ -323,21 +289,24 @@ class LoginDialog(QDialog):
 
         self.lbl_jobs_empty = QLabel("")
         self.lbl_jobs_empty.setWordWrap(True)
-        if not self._jobs:
-            self.lbl_jobs_empty.setText(
-                i18n.tr("login_jobs_empty", tab=i18n.tr("login_tab_online")))
 
         self.lbl_upload = QLabel("")
+        self.btn_new_job = QPushButton("")
+        self.btn_new_job.clicked.connect(self._on_new_job)
         self.btn_open_job = QPushButton("")
         self.btn_open_job.clicked.connect(self._on_open_job)
         self.btn_open_job.setEnabled(False)
+        # Enter opens the newest job when there is one, else fetches a new job.
+        (self.btn_open_job if self._jobs else self.btn_new_job).setDefault(True)
         nav = QHBoxLayout()
         nav.addWidget(self.lbl_upload, 1)
+        nav.addWidget(self.btn_new_job)
         nav.addWidget(self.btn_open_job)
 
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.addLayout(self.form_local)
+        lay.addLayout(form)
+        lay.addWidget(self.lbl_jobs_title)
         lay.addWidget(self.tbl_jobs, 1)
         lay.addWidget(self.lbl_jobs_empty)
         lay.addLayout(nav)
@@ -415,7 +384,7 @@ class LoginDialog(QDialog):
         vlog().info("login: tool selected -> %s", mode)
         self.accept()
 
-    def _on_next(self):
+    def _on_new_job(self):
         base = self.ed_base.text().strip()
         key = self.ed_key.text().strip()
         if not base or not key:
@@ -431,19 +400,25 @@ class LoginDialog(QDialog):
         rows = self.tbl_jobs.selectionModel().selectedRows()
         return self._jobs[rows[0].row()] if rows else None
 
+    def _upload_target(self, job: LocalJob | None) -> str:
+        """Where a job's edits go: the server it was fetched from, so it can
+        never land on another one; the entered server only for a job whose
+        manifest predates recording it."""
+        if job is not None and job.base:
+            return job.base
+        return self.ed_base.text().strip()
+
     def _on_job_selected(self):
-        job = self._selected_job()
-        self.btn_open_job.setEnabled(job is not None)
-        # upload must go back to the server the job was fetched from
-        if job is not None:
-            if job.base:
-                self.ed_local_base.setText(job.base)
-            else:
-                self.ed_local_base.clear()
+        self.btn_open_job.setEnabled(self._selected_job() is not None)
+        self._update_upload_state()
 
     def _update_upload_state(self):
-        if self.ed_local_base.text().strip() and self.ed_local_key.text().strip():
-            self.lbl_upload.setText(i18n.tr("login_upload_possible"))
+        if not hasattr(self, "lbl_upload"):
+            return  # a field fired textChanged before the page was built
+        target = self._upload_target(self._selected_job())
+        if target and self.ed_key.text().strip():
+            host = urlparse(target).netloc or target
+            self.lbl_upload.setText(i18n.tr("login_upload_possible", host=host))
             self.lbl_upload.setStyleSheet("color: #3aa55a;")
         else:
             self.lbl_upload.setText(i18n.tr("login_upload_impossible"))
@@ -458,31 +433,27 @@ class LoginDialog(QDialog):
             QMessageBox.warning(self, i18n.tr("login_warn_no_manifest_title"),
                                  i18n.tr("login_warn_no_manifest_msg", path=ws.manifest_path))
             return
-        # Credentials enable uploading this job to EC2; both empty -> fully
-        # offline (upload disabled in the main window).
-        base = self.ed_local_base.text().strip()
-        key = self.ed_local_key.text().strip()
-        if base and key and job.base:
-            if base.rstrip("/") != job.base.rstrip("/"):
-                QMessageBox.warning(
-                    self, i18n.tr("login_warn_server_mismatch_title"),
-                    i18n.tr("login_warn_server_mismatch_msg", base=job.base),
-                )
-                return
-        if base and key:
-            save_config(base, key)
-            self.base, self.key = base, key
-        self.workspace = ws
         try:
-            self.manifest = Manifest.load(ws.manifest_path)
+            manifest = Manifest.load(ws.manifest_path)
         except (ValueError, KeyError, TypeError, OSError) as exc:
             QMessageBox.warning(
                 self, i18n.tr("login_warn_manifest_error_title"),
                 i18n.tr("login_warn_manifest_error_msg", path=ws.manifest_path, exc=exc),
             )
             return
+        # A key enables uploading this job, always to its own server; no key
+        # -> fully offline (upload disabled in the main window).
+        typed_base = self.ed_base.text().strip()
+        key = self.ed_key.text().strip()
+        target = self._upload_target(job)
+        if typed_base and key:
+            save_config(typed_base, key)
+        if target and key:
+            self.base, self.key = target, key
+        self.workspace = ws
+        self.manifest = manifest
         attach_session_log(ws.session_dir)
         vlog().info("=== session %s opened (local, upload=%s) ===",
-                    job.session_id, "on" if (base and key) else "off")
+                    job.session_id, self.base or "off")
         self.mode = MODE_SESSION
         self.accept()

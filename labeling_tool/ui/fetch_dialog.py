@@ -141,6 +141,28 @@ class FetchDialog(QDialog):
         to_num = self.sp_to.value()
 
         ws = Workspace.default(session_id=sid)
+        previous = None
+        if ws.manifest_path.exists():
+            # Already on this PC: fetching would replace its manifest, so ask.
+            choice = self._ask_existing(sid)
+            if choice is None:
+                return
+            try:
+                previous = Manifest.load(ws.manifest_path)
+            except (ValueError, KeyError, TypeError, OSError) as exc:
+                vlog().warning("session %s: unreadable manifest (%s)", sid, exc)
+                if choice == "open":
+                    QMessageBox.warning(self, tr("login_warn_manifest_error_title"),
+                                        tr("login_warn_manifest_error_msg",
+                                           path=ws.manifest_path, exc=exc))
+                    return
+            if choice == "open":
+                attach_session_log(ws.session_dir)
+                vlog().info("=== session %s opened from fetch (already on this PC) ===", sid)
+                save_config(self.base, self.key)
+                self.workspace, self.manifest = ws, previous
+                self.accept()
+                return
         ws.ensure()
         attach_session_log(ws.session_dir)
         vlog().info("=== session %s fetch start (base=%s fromNum=%s toNum=%s) ===",
@@ -182,6 +204,8 @@ class FetchDialog(QDialog):
         failures = download_photos(
             photos, ws.origin_dir, ws.detected_dir, progress=_prog)
 
+        if previous is not None:
+            manifest.keep_from(previous)
         manifest.save(ws.manifest_path)
         save_config(self.base, self.key)
 
@@ -192,6 +216,24 @@ class FetchDialog(QDialog):
         self.workspace = ws
         self.manifest = manifest
         self.accept()
+
+    def _ask_existing(self, sid: int) -> str | None:
+        """"open", "refetch", or None (cancel) for a job already on this PC."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle(tr("fetch_existing_title"))
+        box.setText(tr("fetch_existing_msg", sid=sid))
+        btn_open = box.addButton(tr("login_open"), QMessageBox.AcceptRole)
+        btn_refetch = box.addButton(tr("fetch_existing_refetch"), QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Cancel)
+        box.setDefaultButton(btn_open)
+        box.exec_()
+        clicked = box.clickedButton()
+        if clicked is btn_open:
+            return "open"
+        if clicked is btn_refetch:
+            return "refetch"
+        return None
 
     @staticmethod
     def _fetch_all_photos(client: ViewerApiClient, session_id: int) -> list[dict]:

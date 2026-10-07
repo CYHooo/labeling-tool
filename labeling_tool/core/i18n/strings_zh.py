@@ -93,18 +93,21 @@ STRINGS = {
 
     # --- login ---
     "login_title":                    "登录",
-    "login_tab_online":               "在线标注",
-    "login_tab_local":                "本地任务",
     "login_tab_fewshot":              "Few-shot 标注",
     "login_field_base":               "BASE URL",
     "login_field_key":                "X-Viewer-Api-Key",
-    "login_next":                     "下一步",
     "login_col_job":                  "任务",
     "login_col_inspection":           "检测名称",
     "login_col_photos":               "照片 / 已上传",
     "login_col_server":               "服务器",
     "login_col_modified":             "最近修改",
-    "login_jobs_empty":               "还没有本地任务。请先在「{tab}」获取数据。",
+    "login_jobs_empty": "还没有本地任务。请点击「{button}」获取数据。",
+    "login_tab_labeling": "标注",
+    "login_new_job": "获取新任务",
+    "login_jobs_title": "本地任务（本机已获取的任务）",
+    "fetch_existing_title": "已获取的任务",
+    "fetch_existing_msg": "任务 {sid} 已在本机。\n要继续打开，还是从服务器重新获取？\n（重新获取也会保留标注结果和上传记录。）",
+    "fetch_existing_refetch": "重新获取",
     "login_open":                     "打开",
     "login_fewshot_hint_lite":
         "⚠ 此构建为 lite 版本，无法使用 few-shot 工具。\n"
@@ -120,16 +123,10 @@ STRINGS = {
         "需要 GPU(torch) 和 SAM 权重，首次打开时模型加载需要一些时间。",
     "login_warn_input_required_title": "需要输入",
     "login_warn_input_required_msg":   "请输入 BASE/Key。",
-    "login_upload_possible":           "上传: 可以 (已输入 URL/Key)",
-    "login_upload_impossible":
-        "上传: 不可 — 仅本地保存 (输入 URL/Key 后可上传)",
+    "login_upload_possible": "上传: 可以 → {host}",
+    "login_upload_impossible": "上传: 不可 — 仅本地保存 (输入 Key 后可上传)",
     "login_warn_no_manifest_title":    "未找到",
     "login_warn_no_manifest_msg":      "未找到本地清单: {path}",
-    "login_warn_server_mismatch_title": "服务器不一致",
-    "login_warn_server_mismatch_msg":
-        "此任务是从 {base} 获取的。\n"
-        "无法上传到其他服务器。\n"
-        "请将 URL 改回原服务器，或清空 URL/Key 以离线打开。",
     "login_warn_manifest_error_title": "清单错误",
     "login_warn_manifest_error_msg":
         "无法读取本地清单: {path}\n{exc}",

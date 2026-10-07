@@ -43,6 +43,20 @@ class Manifest:
         return [e.filename for e in sorted(
             self.photos.values(), key=lambda e: e.report_photo_num)]
 
+    def keep_from(self, previous: "Manifest") -> None:
+        """Fold in the manifest this fetch replaces: photos outside the new
+        range stay listed (their label edits are still on disk), and photos
+        fetched again keep their upload record."""
+        for name, old in previous.photos.items():
+            entry = self.photos.get(name)
+            if entry is None:
+                self.add(old)
+            else:
+                entry.synced = old.synced
+                entry.uploaded_batch_id = old.uploaded_batch_id
+        if not self.inspection_name:
+            self.inspection_name = previous.inspection_name
+
     def mark_synced(self, filenames: list[str], batch_id: str) -> None:
         for fn in filenames:
             e = self.photos.get(fn)
