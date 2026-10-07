@@ -318,34 +318,25 @@ jobs:
           # ("Cannot fetch both <sha> and refs/tags/<tag>"); the steps that
           # read the annotation fetch the real tag themselves.
 
+      # The runner's Python only runs the packaging helpers (notes, deb,
+      # reuse, checksums); the app itself is built in the pinned image below.
       - uses: actions/setup-python@v5
         with:
-          # Exact: the interpreter and its DLLs are part of the runtime layer.
           python-version: "3.12.10"
-          cache: pip
-          cache-dependency-path: |
-            packaging/build-lock-linux.txt
-            packaging/build-constraints.txt
-            requirements.txt
-            requirements-dev.txt
 
       - name: Install system dependencies
         run: |
           # dpkg-dev: dpkg-deb, used to build the .deb package.
-          # xvfb: runs the Qt GUI headless for the selftest below.
-          # build-essential: a C compiler, for any pinned package that has
-          #   no prebuilt manylinux wheel.
+          # xvfb: runs the installed app headless in the install checks below.
           #
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends dpkg-dev xvfb build-essential
+          sudo apt-get install -y --no-install-recommends dpkg-dev xvfb
 
-          # RUNTIME_DEPENDS must be present AT BUILD TIME, even though the
-          # deb only declares it for install time. PyInstaller resolves the
-          # Qt plugins' shared-library chain by reading the real .so files:
-          # without them it logs "Library not found: could not resolve
-          # 'libxcb-xinerama.so.0', dependency of libqxcb.so" and ships a
-          # bundle whose xcb platform plugin cannot start (CI run
-          # 36841286350). The hosted runner image does not carry them.
+          # RUNTIME_DEPENDS on THIS runner are for "Install smoke test 2/2"
+          # and the update round trip, which run the installed app here. The
+          # build itself no longer happens on the runner -- the pinned image
+          # (packaging/linux/builder.Dockerfile) installs the same list for
+          # PyInstaller from its apt snapshot.
           #
           # This does NOT make the availability check a tautology: that
           # check moved into a clean container below, because the question
@@ -357,9 +348,8 @@ jobs:
           # `apt-get satisfy` takes Depends syntax verbatim, so the list is
           # derived from deb.py rather than hardcoded a fourth time -- it
           # handles both the version constraint and the jammy/noble glib
-          # alternation on its own. BUNDLED_LIBS ride along: they are not
-          # declared Depends (a stock desktop lacks them), so the runtime
-          # layer only carries them if PyInstaller finds them here.
+          # alternation on its own. BUNDLED_LIBS ride along so the installed
+          # app finds them even if the bundle someday stopped carrying them.
           depends=$(python -c "import sys; sys.path.insert(0, 'packaging'); import deb; print(', '.join(deb.RUNTIME_DEPENDS + deb.BUNDLED_LIBS))")
           echo "build-time Qt/X11 libraries: $depends"
           sudo apt-get satisfy -y --no-install-recommends "$depends"
@@ -388,100 +378,52 @@ jobs:
           fi
           echo "LT_VERSION=$ver" >> "$GITHUB_ENV"
 
-      - name: Create a clean build environment
-        run: |
-          # A fresh venv, never the runner's own Python: preinstalled
-          # packages on the runner image would get bundled by PyInstaller
-          # and move the runtime id between two builds of the same commit.
-          # Everything else is pinned by packaging/build-lock-linux.txt.
-          python -m venv "$RUNNER_TEMP/buildenv"
-          echo "$RUNNER_TEMP/buildenv/bin" >> "$GITHUB_PATH"
+      # The app is built in packaging/linux/builder.Dockerfile, not on the
+      # runner: PyInstaller bundles the build machine's OpenSSL, X11/xcb,
+      # glib..., and the runner's moved with every image update -- libssl.so.3
+      # alone changed the runtime id between v0.2.2 and v0.2.3, forcing every
+      # Linux user onto a 1.7 GB full update. The image pins the base digest,
+      # the apt snapshot date and Python, so only a deliberate edit of the
+      # Dockerfile moves the runtime id.
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Install dependencies
-        env:
-          SAM2_BUILD_CUDA: "0"
-          # sam2's repo has symlinks (sam2/sam2_hiera_*.yaml). Without this,
-          # git on a machine that defaults core.symlinks=false writes 30-byte
-          # placeholder files instead, and the runtime id differs from a
-          # build that resolved them. Set explicitly on both sides.
-          GIT_CONFIG_COUNT: "1"
-          GIT_CONFIG_KEY_0: core.symlinks
-          GIT_CONFIG_VALUE_0: "true"
-        run: |
-          set -euo pipefail
-          # Every step below uses the venv (it is first on PATH now).
-          case "$(command -v python)" in
-            "$RUNNER_TEMP"/buildenv/*) ;;
-            *) echo "not running in the build venv" >&2; exit 1 ;;
-          esac
-          lock=(-c packaging/build-constraints.txt -c packaging/build-lock-linux.txt)
-          python -m pip install "${lock[@]}" -r requirements-dev.txt pyinstaller==6.22.3 pyinstaller-hooks-contrib==2026.7
-          python -m pip install "${lock[@]}" torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu124
-          # sam2's build needs the torch installed above (no CUDA extension: SAM2_BUILD_CUDA=0)
-          python -m pip install "${lock[@]}" --no-build-isolation "git+https://github.com/facebookresearch/sam2.git@2b90b9f5ceec907a1c18123530e92e794ad901a4"
+      - name: Build the pinned builder image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packaging/linux/builder.Dockerfile
+          tags: lt-linux-builder
+          load: true
+          cache-from: type=gha,scope=linux-builder
+          cache-to: type=gha,mode=max,scope=linux-builder
 
-      - name: Build exe
-        run: pyinstaller --noconfirm --log-level WARN packaging/labeling_tool.spec
+      - name: Restore the pip cache for the builder
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/lt-builder-pip
+          key: builder-pip-${{ hashFiles('packaging/build-lock-linux.txt', 'packaging/build-constraints.txt', 'requirements.txt', 'requirements-dev.txt', 'packaging/linux/builder.Dockerfile') }}
+          # A lock change still reuses the ~3 GB of torch/CUDA wheels it did not touch.
+          restore-keys: builder-pip-
 
-      - name: Selftest packaged exe
+      - name: Build, selftest and stage the app in the pinned image
         run: |
           set -euo pipefail
-          set +e
-          timeout 300 xvfb-run -a dist/LM_LabelingTool/LM_LabelingTool --selftest=full
-          code=$?
-          set -e
-          # selftest.py logs via user_data_home(), which on Linux is the XDG
-          # data dir ($HOME/.local/share/lm-labeling-tool), NOT the build
-          # output directory -- that is Windows-only. Reading
-          # dist/LM_LabelingTool/selftest.log here always misses, printing a
-          # misleading "not found (early crash?)" on every successful build.
-          if [ -f "$HOME/.local/share/lm-labeling-tool/selftest.log" ]; then
-            cat "$HOME/.local/share/lm-labeling-tool/selftest.log"
-            rm -f "$HOME/.local/share/lm-labeling-tool/selftest.log"
-          else
-            echo "selftest.log not found (early crash?)"
-          fi
-          if [ "$code" -ne 0 ]; then
-            echo "selftest failed with exit code $code" >&2
-            exit 1
-          fi
-          # the app may create these next to the exe; never ship them
-          rm -rf dist/LM_LabelingTool/data dist/LM_LabelingTool/config.json
-
-      - name: Compute the runtime id and write build info
-        run: |
-          set -euo pipefail
-          # The runtime id measures the runtime layer itself -- each file's
-          # path and size -- the Linux counterpart of the Windows step of
-          # the same name. It must match what a build of the same commit
-          # prints anywhere else; if it does not, the lock has drifted.
-          rt=$(python packaging/layers.py runtime-id dist/LM_LabelingTool)
+          # The script local-build.sh's build step runs too: install the
+          # locked dependencies, PyInstaller, selftest, runtime id + build
+          # info, stage the app layer. As the runner's uid so later steps own
+          # dist/; that uid has no passwd entry in the image, so USER/LOGNAME
+          # stand in for anything that asks getpass.getuser().
+          mkdir -p ~/.cache/lt-builder-pip
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp/home -e USER=builder -e LOGNAME=builder \
+            -e LT_VERSION -e LT_COMMIT="${GITHUB_SHA:0:7}" -e PIP_CACHE_DIR=/pipcache \
+            -v "${PWD}:/w" -v "${HOME}/.cache/lt-builder-pip:/pipcache" -w /w \
+            lt-linux-builder bash packaging/ci/linux-build.sh
+          rt=$(cat diag/runtime-id.txt)
           if ! [[ "$rt" =~ ^r[0-9a-f]{8}$ ]]; then
             echo "bad runtime id: $rt" >&2
             exit 1
           fi
           echo "LT_RUNTIME=$rt" >> "$GITHUB_ENV"
-          echo "runtime id: $rt"
-          mkdir -p diag
-          python packaging/layers.py manifest dist/LM_LabelingTool > diag/runtime-manifest-linux.txt
-          ver="${LT_VERSION#v}"
-          printf '{"version": "%s", "variant": "full", "runtime": "%s", "commit": "%s"}' \
-            "$ver" "$rt" "${GITHUB_SHA:0:7}" > dist/LM_LabelingTool/build-info.json
-          cat dist/LM_LabelingTool/build-info.json
-
-      - name: Stage the app layer
-        run: |
-          set -euo pipefail
-          python packaging/layers.py stage dist/LM_LabelingTool dist/app-layer
-          app_bytes=$(find dist/app-layer -type f -printf '%s\n' | awk '{sum += $1} END {print sum + 0}')
-          printf 'app layer: %.1f MB\n' "$(awk -v b="$app_bytes" 'BEGIN{print b/1024/1024}')"
-          # The update zip is what every routine update downloads. If it
-          # climbs back into the tens of MB something leaked out of the
-          # runtime layer.
-          if [ "$app_bytes" -gt $((20 * 1024 * 1024)) ]; then
-            echo "app layer unexpectedly large: $app_bytes bytes" >&2
-            exit 1
-          fi
 
       - name: Reuse the previous deb if the runtime is unchanged
         env:
@@ -672,15 +614,14 @@ jobs:
           # It says nothing about whether that list is actually SUFFICIENT
           # for Qt to start -- a missing-but-undeclared library would still
           # let dpkg -i succeed and only crash here.
-          # Remove any stale log first: this is the same XDG path the build
-          # step's own "Selftest packaged exe" step just wrote to, and if the
-          # installed app crashes before logging, cat'ing a leftover old log
-          # here would look like fresh output from the installed app.
+          # Remove any stale log first: if the installed app crashes before
+          # logging, cat'ing a leftover old log here would look like fresh
+          # output from the installed app.
           #
           # Install on the runner first: 1/2 installed inside a throwaway
           # container, so nothing it did survives here (CI run 36853951013:
           # "LM_LabelingTool: not found"). The runner already carries
-          # RUNTIME_DEPENDS from the build step, so this install is NOT the
+          # RUNTIME_DEPENDS from "Install system dependencies", so this install is NOT the
           # availability check -- that stays in 1/2's desktop container.
           # The update round trip below also runs against this install.
           sudo dpkg -i out/lm-labeling-tool_*.deb

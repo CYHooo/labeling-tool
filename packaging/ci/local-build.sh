@@ -18,9 +18,14 @@
 # --tmpfs /repo/.venv shadows a host dev venv if one exists -- see the
 # check below for why that matters):
 #
+#   docker build -f packaging/linux/builder.Dockerfile -t lt-linux-builder .
 #   docker run --rm -v "$PWD:/repo" -v /var/run/docker.sock:/var/run/docker.sock \
 #     -e HOST_REPO_ROOT="$PWD" --tmpfs /repo/.venv -w /repo \
-#     ubuntu:22.04 bash packaging/ci/local-build.sh
+#     lt-linux-builder bash packaging/ci/local-build.sh
+#
+# lt-linux-builder is the pinned ubuntu:22.04 image CI builds in (base
+# digest, apt snapshot date, exact Python 3.12.10) -- the same system
+# libraries get bundled, so this build's runtime id is CI's.
 #
 #   ... bash packaging/ci/local-build.sh --steps build,layers   # subset
 #   ... bash packaging/ci/local-build.sh --version 1.4.0         # tag dry run
@@ -36,10 +41,10 @@
 # path. Confirmed by hitting exactly that failure before this comment and
 # the HOST_REPO_ROOT plumbing below existed.
 #
-# The dependency-install order below is copied from
-# .github/workflows/release.yml's build-linux job, field for field,
-# including the three sam2-symlink environment variables -- a local
-# environment that diverges from CI's is not a verification of CI's build.
+# The dependency install, PyInstaller build, selftest and layers are
+# packaging/ci/linux-build.sh -- the script release.yml's build-linux job runs
+# in the same pinned image -- so this is a verification of CI's build, not of
+# a look-alike.
 #
 # Every external call that can hang -- a GUI process, dpkg, a container
 # download -- goes through bounded() below. This project has already been
@@ -63,7 +68,6 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 DIST="dist/LM_LabelingTool"
-VENV=""
 RUNTIME_ID=""
 
 steps=("${known_steps[@]}")
@@ -173,64 +177,30 @@ if [ -d "$REPO_ROOT/.venv" ] && [ -n "$(ls -A "$REPO_ROOT/.venv" 2>/dev/null)" ]
     echo "run.sh would pick it up and use the HOST's python interpreter, which" >&2
     echo "does not exist as such in this container. Re-run with it shadowed:" >&2
     echo "  docker run --rm -v \"\$PWD:/repo\" --tmpfs /repo/.venv -w /repo \\" >&2
-    echo "    ubuntu:22.04 bash packaging/ci/local-build.sh" >&2
+    echo "    lt-linux-builder bash packaging/ci/local-build.sh" >&2
     exit 1
 fi
 
-echo "==> system packages"
-export DEBIAN_FRONTEND=noninteractive
-bounded 300 "apt-get update" apt-get update
-# dpkg-dev: dpkg-deb, used to build the .deb package.
-# xvfb: runs the Qt GUI headless for the tests/selftest steps.
-# build-essential: a C compiler, for any pinned package with no prebuilt wheel.
-# software-properties-common: add-apt-repository, for deadsnakes below.
-# docker.io: only the client binary -- talks to the host's docker socket
-#   (mounted by the `docker run` in the usage comment) so the smoke step's
-#   sibling containers can be started.
-#
-# The X11/GL/dbus libraries below are packaging/deb.py's RUNTIME_DEPENDS,
-# by name (stripped of version/alternative syntax) plus libfontconfig1.
-# They are installed here so Qt's xcb platform plugin can actually start in
-# THIS (outer) container for the tests/build/selftest steps -- seeing the
-# module docstring above for why going without them does not fail cleanly,
-# it hangs. Installing them here is deliberately NOT the sufficiency check;
-# that happens below in a separate, genuinely fresh sibling container.
-bounded 600 "apt-get install base + Qt runtime packages" \
-    apt-get install -y --no-install-recommends \
-    dpkg-dev xvfb build-essential software-properties-common \
-    ca-certificates gnupg git curl docker.io \
-    libfontconfig1 libgl1 libglib2.0-0 libxkbcommon-x11-0 \
-    libxcb-xinerama0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
-    libxcb-randr0 libxcb-render-util0 libxcb-shape0 libdbus-1-3
+# Only the pinned builder image bundles the system libraries CI bundles; a
+# plain ubuntu:22.04 with today's apt would give a different runtime id.
+if [ ! -x /opt/hostedtoolcache/Python/3.12.10/x64/bin/python3.12 ]; then
+    echo "error: not running in the lt-linux-builder image (see the usage comment)." >&2
+    echo "  docker build -f packaging/linux/builder.Dockerfile -t lt-linux-builder ." >&2
+    exit 1
+fi
 
-bounded 120 "add-apt-repository deadsnakes" add-apt-repository -y ppa:deadsnakes/ppa
-bounded 300 "apt-get update (deadsnakes)" apt-get update
-bounded 600 "apt-get install python3.12" \
-    apt-get install -y --no-install-recommends python3.12 python3.12-venv python3.12-dev
+# The dependency install, PyInstaller build, selftest and layers all run
+# through packaging/ci/linux-build.sh -- the very script CI runs in this
+# image -- so this build bundles exactly what a release does.
+PY=/tmp/buildenv/bin/python
+export LT_VERSION="$version" LT_COMMIT=local
 
-VENV="$(mktemp -d /tmp/lt-venv.XXXXXX)"
-python3.12 -m venv "$VENV"
-PY="$VENV/bin/python"
-export PATH="$VENV/bin:$PATH"
-export PIP_DISABLE_PIP_VERSION_CHECK=1
-
-echo "==> install dependencies (mirrors release.yml's build-linux job)"
-# A fresh venv, never any preinstalled interpreter packages: PyInstaller
-# bundles whatever is importable, and a stray package would move the
-# runtime id between two builds of the same commit.
-lock=(-c packaging/build-constraints.txt -c packaging/build-lock-linux.txt)
-bounded 900 "pip install dev dependencies + pyinstaller" \
-    "$PY" -m pip install "${lock[@]}" -r requirements-dev.txt pyinstaller==6.22.3 pyinstaller-hooks-contrib==2026.7
-bounded 1800 "pip install torch/torchvision" \
-    "$PY" -m pip install "${lock[@]}" torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu124
-# sam2's repo has symlinks (sam2/sam2_hiera_*.yaml). Without these three
-# variables, git on a checkout that defaults core.symlinks=false writes
-# 30-byte placeholder files instead, and the runtime id would differ from a
-# real build. Set explicitly, exactly as release.yml does.
-bounded 900 "pip install sam2 (no-build-isolation)" \
-    env SAM2_BUILD_CUDA=0 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.symlinks GIT_CONFIG_VALUE_0=true \
-    "$PY" -m pip install "${lock[@]}" --no-build-isolation \
-        "git+https://github.com/facebookresearch/sam2.git@2b90b9f5ceec907a1c18123530e92e794ad901a4"
+ensure_venv() {
+    if [ ! -x "$PY" ]; then
+        bounded 3600 "install the locked dependencies (linux-build.sh)" \
+            env LT_INSTALL_ONLY=1 bash packaging/ci/linux-build.sh
+    fi
+}
 
 declare -A timings
 
@@ -246,94 +216,62 @@ run_step() {
 }
 
 step_tests() {
+    ensure_venv
     bounded 1800 "pytest (tests labeling_tool/tests annotation_tool/tests)" \
         env QT_QPA_PLATFORM=offscreen "$PY" -m pytest tests labeling_tool/tests annotation_tool/tests -q -p no:cacheprovider
 }
 
 step_build() {
-    rm -rf build "$DIST"
-    bounded 1200 "pyinstaller build" "$PY" -m PyInstaller --noconfirm --log-level WARN packaging/labeling_tool.spec
+    # Install (reused venv), PyInstaller, selftest, runtime id + build info,
+    # app layer: one script, the one CI runs.
+    bounded 3600 "linux-build.sh (build, selftest, layers)" bash packaging/ci/linux-build.sh
+    RUNTIME_ID=$(cat diag/runtime-id.txt)
+    echo "runtime id: $RUNTIME_ID"
 }
 
+# selftest and layers run inside the build step's linux-build.sh; the names
+# stay for parity with local-build.ps1. Asked for without build they would
+# check nothing, so refuse rather than report a pass.
 step_selftest() {
-    # `code=$?` must be set via `||`, not inside `if ! cmd; then` -- see
-    # bounded()'s own comment above for exactly this bug (and this was a
-    # second, independent occurrence of it: fixed inside bounded(), then
-    # reproduced right outside it at this call site). Inside the
-    # then-branch of `if ! cmd; then`, `$?` reflects the NEGATED pipeline's
-    # own status (always 0), not the wrapped command's real exit code --
-    # that silently turned a failed or hung selftest into a reported
-    # success, printed the log, and still `exit 0`'d the whole script,
-    # silently skipping `deb` and `smoke`.
-    # selftest.py logs via user_data_home(), which for a frozen Linux build
-    # is the XDG data dir ($HOME/.local/share/lm-labeling-tool), NOT the
-    # build output directory -- that is Windows-only. Reading
-    # "$DIST/selftest.log" here always misses: on success it silently prints
-    # a misleading "not found (early crash?)", and on FAILURE -- the one time
-    # a debugger actually needs this output -- there is nothing to cat.
-    local log="$HOME/.local/share/lm-labeling-tool/selftest.log"
-    local code=0
-    bounded 300 "selftest on the build output" xvfb-run -a "$DIST/LM_LabelingTool" --selftest=full || code=$?
-    if [ "$code" -ne 0 ]; then
-        if [ -f "$log" ]; then
-            cat "$log"
-        else
-            echo "selftest.log not found (early crash?)"
-        fi
-        exit "$code"
-    fi
-    if [ -f "$log" ]; then
-        cat "$log"
-        rm -f "$log"
-    fi
-    rm -rf "$DIST/data" "$DIST/config.json"
+    want_step build || { echo "selftest runs inside the build step: add build to --steps" >&2; exit 1; }
 }
 
 step_layers() {
-    RUNTIME_ID=$("$PY" packaging/layers.py runtime-id "$DIST")
-    if ! [[ "$RUNTIME_ID" =~ ^r[0-9a-f]{8}$ ]]; then
-        echo "bad runtime id: $RUNTIME_ID" >&2
-        exit 1
-    fi
-    echo "runtime id: $RUNTIME_ID"
-    mkdir -p diag
-    "$PY" packaging/layers.py manifest "$DIST" > diag/runtime-manifest-local.txt
-    printf '{"version": "%s", "variant": "full", "runtime": "%s", "commit": "local"}' \
-        "$version" "$RUNTIME_ID" > "$DIST/build-info.json"
-    rm -rf dist/app-layer
-    "$PY" packaging/layers.py stage "$DIST" dist/app-layer
-    local app_bytes
-    app_bytes=$(find dist/app-layer -type f -printf '%s\n' | awk '{sum += $1} END {print sum + 0}')
-    printf 'app layer: %.1f MB\n' "$(awk -v b="$app_bytes" 'BEGIN{print b/1024/1024}')"
-    if [ "$app_bytes" -gt $((20 * 1024 * 1024)) ]; then
-        echo "app layer unexpectedly large: $app_bytes bytes" >&2
-        exit 1
-    fi
+    want_step build || { echo "layers runs inside the build step: add build to --steps" >&2; exit 1; }
 }
 
 step_deb() {
+    # The packaging helpers are stdlib-only: the image's Python will do, so
+    # `--steps deb` needs no dependency install.
     if [ -z "$RUNTIME_ID" ] && [ -f "$DIST/build-info.json" ]; then
-        RUNTIME_ID=$("$PY" -c "import json,sys; print(json.load(open(sys.argv[1]))['runtime'])" "$DIST/build-info.json")
+        RUNTIME_ID=$(python3.12 -c "import json,sys; print(json.load(open(sys.argv[1]))['runtime'])" "$DIST/build-info.json")
     fi
     if [ -z "$RUNTIME_ID" ]; then
         echo "no runtime id: run the layers step first" >&2
         exit 1
     fi
     if [ ! -d dist/app-layer ]; then
-        "$PY" packaging/layers.py stage "$DIST" dist/app-layer
+        python3.12 packaging/layers.py stage "$DIST" dist/app-layer
     fi
     mkdir -p out
     rm -f out/*.deb out/*.zip
     # Fast gzip compression for local iteration (LT_FAST=1); a release build
     # uses xz via CI's own invocation of this same function.
-    bounded 300 "deb.py build" env LT_FAST=1 "$PY" packaging/deb.py build "$DIST" out "$version"
+    bounded 300 "deb.py build" env LT_FAST=1 python3.12 packaging/deb.py build "$DIST" out "$version"
     # The app-layer update zip, named for the runtime id it was built
     # against -- what the smoke step's update round trip applies.
-    bounded 300 "update_zip.py" "$PY" packaging/update_zip.py dist/app-layer out "$version" "$RUNTIME_ID" linux
+    bounded 300 "update_zip.py" python3.12 packaging/update_zip.py dist/app-layer out "$version" "$RUNTIME_ID" linux
     ls -la out/
 }
 
 step_smoke() {
+    # The docker client for the sibling containers below. Installed here, not
+    # in the image, so nothing beyond what CI has can reach the build steps;
+    # from the image's own apt snapshot.
+    if ! command -v docker >/dev/null; then
+        bounded 300 "apt-get update (snapshot)" apt-get -o Acquire::Check-Valid-Until=false update
+        bounded 600 "apt-get install docker client" apt-get install -y --no-install-recommends docker.io
+    fi
     # Mirrors release.yml's build-linux install checks one for one (CI runs
     # 36841286350..36969300396 settled their shape):
     #
