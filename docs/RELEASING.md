@@ -141,6 +141,18 @@ runtime id 是对运行时层每个文件的「路径 + 大小」做哈希。以
 - **排除构建机的系统 DLL**：PyInstaller 从构建机的 Windows 或 SDK 里收集的 `api-ms-win-*`、
   `ucrtbase`、`vcruntime140*`、`msvcp140*` 不计入 id（文件本身照常发布）。GitHub 每周更新 runner 镜像，
   这些 DLL 的大小会随之改变。
+- **Linux 在固定的构建镜像里构建**（`packaging/linux/builder.Dockerfile`）：PyInstaller 会把构建机的
+  OpenSSL、X11/xcb、glib 等系统库打包进运行时层。以前在 GitHub runner 上直接构建，runner 每次镜像
+  更新这些库就变：v0.2.2 → v0.2.3 只因 `libssl.so.3` 打了安全补丁，runtime id 就变了，所有 Linux 用户
+  都被迫下载 1.7 GB 的完整包。现在镜像锁定了三样东西：基础镜像 digest、apt 快照日期
+  （`snapshot.ubuntu.com`）、Python 3.12.10 安装包（核对 SHA-256）。CI 与 `local-build.sh` 使用同一个
+  镜像和同一个脚本 `packaging/ci/linux-build.sh`。
+
+## 升级 Linux 系统库（构建镜像）
+
+系统库的安全补丁不会自动进入安装包，需要**有计划地**升级：修改 `builder.Dockerfile` 里的
+`SNAPSHOT` 日期（必要时连同基础镜像 digest），这一版的 Linux runtime id 会变，已安装用户收到一次
+完整更新。建议每季度一次，或在 OpenSSL 等出现重要安全问题时。改完先跑一遍本地完整验证（Linux）。
 
 ## 升级依赖
 
@@ -163,10 +175,14 @@ Linux 只有一个 deb 和一个 update zip。
 上直接构建的产物不能代表发布物。脚本检测到不在容器里会直接报错退出，不会误跑。
 
 ```bash
+docker build -f packaging/linux/builder.Dockerfile -t lt-linux-builder .
 docker run --rm -v "$PWD:/repo" -v /var/run/docker.sock:/var/run/docker.sock \
   -e HOST_REPO_ROOT="$PWD" --tmpfs /repo/.venv -w /repo \
-  ubuntu:22.04 bash packaging/ci/local-build.sh
+  lt-linux-builder bash packaging/ci/local-build.sh
 ```
+
+`lt-linux-builder` 就是 CI 构建 Linux 版所用的固定镜像（见上面「为什么本地和 CI 的结果会一致」），
+所以本地算出的 runtime id 与 CI 相同。脚本检测到不在这个镜像里会直接报错。
 
 - `-v /var/run/docker.sock:/var/run/docker.sock` + `-e HOST_REPO_ROOT="$PWD"`：`smoke` 步骤会再拉起
   全新的旁路容器（sibling container，借宿主机自己的 dockerd，不是嵌套 docker-in-docker）去验证 22.04
@@ -238,7 +254,7 @@ sudo dpkg -i lm-labeling-tool_<版本>_amd64.deb
 
 ### 核对 CI 日志中的 Linux runtime id
 
-`build-linux` job 的「Compute the runtime id and write build info」步骤会打印
+`build-linux` job 的「Build, selftest and stage the app in the pinned image」步骤会打印
 `runtime id: r<8位hex>`。它与 Windows 侧的 runtime id 相互独立（两个平台的运行时层文件列表本来
 就不同），不需要跨平台一致，只需要**同一平台**前后两次构建在运行时未变时保持一致。
 

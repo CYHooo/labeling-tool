@@ -18,9 +18,14 @@
 # --tmpfs /repo/.venv shadows a host dev venv if one exists -- see the
 # check below for why that matters):
 #
+#   docker build -f packaging/linux/builder.Dockerfile -t lt-linux-builder .
 #   docker run --rm -v "$PWD:/repo" -v /var/run/docker.sock:/var/run/docker.sock \
 #     -e HOST_REPO_ROOT="$PWD" --tmpfs /repo/.venv -w /repo \
-#     ubuntu:22.04 bash packaging/ci/local-build.sh
+#     lt-linux-builder bash packaging/ci/local-build.sh
+#
+# lt-linux-builder is the pinned ubuntu:22.04 image CI builds in (base
+# digest, apt snapshot date, exact Python 3.12.10) -- the same system
+# libraries get bundled, so this build's runtime id is CI's.
 #
 #   ... bash packaging/ci/local-build.sh --steps build,layers   # subset
 #   ... bash packaging/ci/local-build.sh --version 1.4.0         # tag dry run
@@ -173,40 +178,17 @@ if [ -d "$REPO_ROOT/.venv" ] && [ -n "$(ls -A "$REPO_ROOT/.venv" 2>/dev/null)" ]
     echo "run.sh would pick it up and use the HOST's python interpreter, which" >&2
     echo "does not exist as such in this container. Re-run with it shadowed:" >&2
     echo "  docker run --rm -v \"\$PWD:/repo\" --tmpfs /repo/.venv -w /repo \\" >&2
-    echo "    ubuntu:22.04 bash packaging/ci/local-build.sh" >&2
+    echo "    lt-linux-builder bash packaging/ci/local-build.sh" >&2
     exit 1
 fi
 
-echo "==> system packages"
-export DEBIAN_FRONTEND=noninteractive
-bounded 300 "apt-get update" apt-get update
-# dpkg-dev: dpkg-deb, used to build the .deb package.
-# xvfb: runs the Qt GUI headless for the tests/selftest steps.
-# build-essential: a C compiler, for any pinned package with no prebuilt wheel.
-# software-properties-common: add-apt-repository, for deadsnakes below.
-# docker.io: only the client binary -- talks to the host's docker socket
-#   (mounted by the `docker run` in the usage comment) so the smoke step's
-#   sibling containers can be started.
-#
-# The X11/GL/dbus libraries below are packaging/deb.py's RUNTIME_DEPENDS,
-# by name (stripped of version/alternative syntax) plus libfontconfig1.
-# They are installed here so Qt's xcb platform plugin can actually start in
-# THIS (outer) container for the tests/build/selftest steps -- seeing the
-# module docstring above for why going without them does not fail cleanly,
-# it hangs. Installing them here is deliberately NOT the sufficiency check;
-# that happens below in a separate, genuinely fresh sibling container.
-bounded 600 "apt-get install base + Qt runtime packages" \
-    apt-get install -y --no-install-recommends \
-    dpkg-dev xvfb build-essential software-properties-common \
-    ca-certificates gnupg git curl docker.io \
-    libfontconfig1 libgl1 libglib2.0-0 libxkbcommon-x11-0 \
-    libxcb-xinerama0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
-    libxcb-randr0 libxcb-render-util0 libxcb-shape0 libdbus-1-3
-
-bounded 120 "add-apt-repository deadsnakes" add-apt-repository -y ppa:deadsnakes/ppa
-bounded 300 "apt-get update (deadsnakes)" apt-get update
-bounded 600 "apt-get install python3.12" \
-    apt-get install -y --no-install-recommends python3.12 python3.12-venv python3.12-dev
+# Only the pinned builder image bundles the system libraries CI bundles; a
+# plain ubuntu:22.04 with today's apt would give a different runtime id.
+if [ ! -x /opt/hostedtoolcache/Python/3.12.10/x64/bin/python3.12 ]; then
+    echo "error: not running in the lt-linux-builder image (see the usage comment)." >&2
+    echo "  docker build -f packaging/linux/builder.Dockerfile -t lt-linux-builder ." >&2
+    exit 1
+fi
 
 VENV="$(mktemp -d /tmp/lt-venv.XXXXXX)"
 python3.12 -m venv "$VENV"
@@ -334,6 +316,13 @@ step_deb() {
 }
 
 step_smoke() {
+    # The docker client for the sibling containers below. Installed here, not
+    # in the image, so nothing beyond what CI has can reach the build steps;
+    # from the image's own apt snapshot.
+    if ! command -v docker >/dev/null; then
+        bounded 300 "apt-get update (snapshot)" apt-get -o Acquire::Check-Valid-Until=false update
+        bounded 600 "apt-get install docker client" apt-get install -y --no-install-recommends docker.io
+    fi
     # Mirrors release.yml's build-linux install checks one for one (CI runs
     # 36841286350..36969300396 settled their shape):
     #
