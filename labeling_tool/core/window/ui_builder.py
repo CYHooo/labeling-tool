@@ -6,19 +6,21 @@ returns the widget so build_side_panel can lay them out:
 
     job line (job id, inspection name, photo count; a "?" help button)
     image list with a column header, then previous / next photo / save
-    tools: scale, category, display toggles, tool tabs (tab = mode)
+    edit tools: 2x2 tool picker (the selected tool = the mode), its how-to
+    and options; then display toggles and the scale
     pinned bottom: the Viewer window's upload button
 """
 
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from PyQt5.QtCore import QPoint, QRect, Qt
+from PyQt5.QtCore import QPoint, QRect, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPainter, QPalette
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGroupBox,
     QButtonGroup, QListWidget, QSpinBox, QSlider, QScrollArea, QCheckBox,
-    QStyle, QStyledItemDelegate, QTabWidget, QToolButton, QDialog, QSizePolicy,
+    QStyle, QStyledItemDelegate, QToolButton, QDialog, QSizePolicy, QGridLayout,
+    QFrame,
 )
 
 from labeling_tool.ui import icons
@@ -32,7 +34,6 @@ if TYPE_CHECKING:
 # reads as one consistent stack instead of each group using ad-hoc margins.
 _GROUP_MARGINS = (10, 14, 10, 10)
 _GROUP_SPACING = 6
-_PAGE_MARGINS = (6, 8, 6, 8)       # inside a tool tab
 
 # Item data role holding the dim second part of an image-list row (the file
 # name behind the "<job>-<photo>" id). Empty/None -> the row is one part only.
@@ -220,6 +221,11 @@ def build_list_group(window: "MainWindow") -> QGroupBox:
     window.file_list = QListWidget()
     window.file_list.setItemDelegate(TwoPartItemDelegate(window.file_list))
     window.file_list.currentRowChanged.connect(window._on_list_row_changed)
+    # About four rows: on a short screen the list gives way to the tools
+    # instead of pushing the panel into scrolling.
+    window.file_list.setMinimumHeight(120)
+    # and no preferred height of its own: it takes whatever is left
+    window.file_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
     window._list_header = ListHeader(window.file_list)
     gl.addWidget(window._list_header)
     gl.addWidget(window.file_list, 1)
@@ -263,31 +269,153 @@ def _build_mode_toggles(window: "MainWindow", parent: QWidget) -> None:
     window._btn_bbox_toggle.toggled.connect(window._on_bbox_toggle)
     for btn in (window._btn_brush_toggle, window._btn_sam_toggle, window._btn_bbox_toggle):
         btn.hide()
-        btn.toggled.connect(window._sync_tool_tab)
+        btn.toggled.connect(window._sync_tool)
 
 
-def _hint_label(text: str) -> QLabel:
-    lbl = QLabel(text)
-    lbl.setObjectName("toolHint")
-    lbl.setWordWrap(True)
-    return lbl
+TOOL_VIEW, TOOL_BRUSH, TOOL_SAM, TOOL_BBOX = range(4)
+_TOOL_ICONS = ("eye", "brush", "wand-sparkles", "scan")
 
 
-def _build_view_page(window: "MainWindow") -> QWidget:
+class ToolPicker(QWidget):
+    """Four large tool buttons in a 2x2 grid (one checked at a time) and,
+    under them, the selected tool's page: its name, how to use it, and its
+    options. Only the current page takes space, so the picker's height
+    follows the selected tool.
+
+    currentChanged(int) fires when the user picks a tool; a disabled tool
+    cannot be picked."""
+
+    currentChanged = pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._buttons: list[QPushButton] = []
+        self._pages: list[QWidget] = []
+        self._group = QButtonGroup(self)
+        self._group.setExclusive(True)
+        self._group.idClicked.connect(self._on_clicked)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(_GROUP_SPACING)
+        self._grid = QGridLayout()
+        self._grid.setSpacing(_GROUP_SPACING)
+        lay.addLayout(self._grid)
+        self._pages_layout = QVBoxLayout()
+        self._pages_layout.setContentsMargins(0, 0, 0, 0)
+        lay.addLayout(self._pages_layout)
+        self._current = 0
+
+    def add_tool(self, text: str, page: QWidget) -> None:
+        idx = len(self._buttons)
+        btn = QPushButton(text)
+        btn.setObjectName("toolButton")
+        btn.setCheckable(True)
+        btn.setIconSize(QSize(18, 18))
+        btn.setFixedHeight(38)
+        self._group.addButton(btn, idx)
+        self._grid.addWidget(btn, idx // 2, idx % 2)
+        self._buttons.append(btn)
+        self._pages.append(page)
+        self._pages_layout.addWidget(page)
+        if idx == 0:
+            btn.setChecked(True)
+        self._show(self._current)
+
+    # -- the QTabWidget-like surface MainWindow uses
+    def count(self) -> int:
+        return len(self._buttons)
+
+    def button(self, idx: int) -> QPushButton:
+        return self._buttons[idx]
+
+    def current_page(self) -> QWidget:
+        return self._pages[self._current]
+
+    def currentIndex(self) -> int:
+        return self._current
+
+    def setCurrentIndex(self, idx: int) -> None:
+        if not (0 <= idx < self.count()) or idx == self._current:
+            return
+        if not self._buttons[idx].isEnabled():
+            return
+        self._show(idx)
+        if not self.signalsBlocked():
+            self.currentChanged.emit(idx)
+
+    def toolText(self, idx: int) -> str:
+        return self._buttons[idx].text()
+
+    def setToolText(self, idx: int, text: str) -> None:
+        self._buttons[idx].setText(text)
+
+    def isToolEnabled(self, idx: int) -> bool:
+        return self._buttons[idx].isEnabled()
+
+    def setToolEnabled(self, idx: int, enabled: bool) -> None:
+        self._buttons[idx].setEnabled(enabled)
+
+    def toolToolTip(self, idx: int) -> str:
+        return self._buttons[idx].toolTip()
+
+    def setToolToolTip(self, idx: int, tip: str) -> None:
+        self._buttons[idx].setToolTip(tip)
+
+    def _on_clicked(self, idx: int) -> None:
+        if idx != self._current:
+            self._show(idx)
+            if not self.signalsBlocked():
+                self.currentChanged.emit(idx)
+
+    def _show(self, idx: int) -> None:
+        self._current = idx
+        self._buttons[idx].setChecked(True)
+        for i, (btn, page) in enumerate(zip(self._buttons, self._pages)):
+            btn.setIcon(icons.icon(_TOOL_ICONS[i], primary=(i == idx)))
+            # hidden pages take no space: the picker is as tall as this page
+            page.setVisible(i == idx)
+
+
+def _tool_page(window: "MainWindow", title_key: str, hint_key: str) -> tuple[QWidget, QVBoxLayout]:
+    """A tool page: "── name ───" heading and a how-to line; the caller
+    adds the options to the returned layout."""
     page = QWidget()
     lay = QVBoxLayout(page)
-    lay.setContentsMargins(*_PAGE_MARGINS)
-    window._lbl_view_hint = _hint_label(window.tr_("tab_view_hint"))
-    lay.addWidget(window._lbl_view_hint)
-    lay.addStretch()
-    return page
-
-
-def _build_brush_page(window: "MainWindow") -> QWidget:
-    page = QWidget()
-    lay = QVBoxLayout(page)
-    lay.setContentsMargins(*_PAGE_MARGINS)
+    lay.setContentsMargins(0, 4, 0, 0)
     lay.setSpacing(_GROUP_SPACING)
+    head = QHBoxLayout()
+    title = QLabel(window.tr_(title_key))
+    title.setObjectName("toolTitle")
+    rule = QFrame()
+    rule.setFrameShape(QFrame.HLine)
+    rule.setObjectName("toolRule")
+    head.addWidget(title)
+    head.addWidget(rule, 1)
+    lay.addLayout(head)
+    hint = QLabel(window.tr_(hint_key))
+    hint.setObjectName("toolHint")
+    hint.setWordWrap(True)
+    lay.addWidget(hint)
+    window._tool_texts.append((title, title_key, hint, hint_key))
+    return page, lay
+
+
+def _build_brush_options(window: "MainWindow", lay: QVBoxLayout) -> None:
+    cat_row = QHBoxLayout()
+    window._btn_cat_crack = _checkable(QPushButton(window.tr_("cat_crack")))
+    window._btn_cat_crack.setObjectName("catCrack")
+    window._btn_cat_spalling = _checkable(QPushButton(window.tr_("cat_spalling")))
+    window._btn_cat_spalling.setObjectName("catSpalling")
+    window._cat_group = QButtonGroup(window)
+    window._cat_group.setExclusive(True)
+    window._cat_group.addButton(window._btn_cat_crack, 0)
+    window._cat_group.addButton(window._btn_cat_spalling, 1)
+    window._btn_cat_crack.setChecked(True)
+    window._cat_group.idClicked.connect(window._on_category_changed)
+    cat_row.addWidget(window._btn_cat_crack)
+    cat_row.addWidget(window._btn_cat_spalling)
+    lay.addLayout(cat_row)
+
     size_row = QHBoxLayout()
     window._lbl_brush_size = QLabel(window.tr_("lbl_brush_size"))
     window._sld_brush_size = QSlider(Qt.Horizontal)
@@ -305,22 +433,18 @@ def _build_brush_page(window: "MainWindow") -> QWidget:
     size_row.addWidget(window._spn_brush_size)
     lay.addLayout(size_row)
 
+    action_row = QHBoxLayout()
     window._chk_fine_annotation = QCheckBox(window.tr_("btn_fine_annotation"))
     window._chk_fine_annotation.toggled.connect(window._on_fine_annotation_toggle)
-    lay.addWidget(window._chk_fine_annotation)
     window._btn_brush_reset = QPushButton(window.tr_("btn_brush_reset"))
     window._btn_brush_reset.setIcon(icons.icon("rotate-ccw"))
     window._btn_brush_reset.clicked.connect(window._on_brush_reset)
-    lay.addWidget(window._btn_brush_reset)
-    lay.addStretch()
-    return page
+    action_row.addWidget(window._chk_fine_annotation, 1)
+    action_row.addWidget(window._btn_brush_reset)
+    lay.addLayout(action_row)
 
 
-def _build_sam_page(window: "MainWindow") -> QWidget:
-    page = QWidget()
-    lay = QVBoxLayout(page)
-    lay.setContentsMargins(*_PAGE_MARGINS)
-    lay.setSpacing(_GROUP_SPACING)
+def _build_sam_options(window: "MainWindow", lay: QVBoxLayout) -> None:
     window._btn_sam_commit = QPushButton(window.tr_("btn_sam_commit"))
     window._btn_sam_commit.setIcon(icons.icon("check"))
     window._btn_sam_commit.clicked.connect(window._on_sam_commit)
@@ -332,32 +456,52 @@ def _build_sam_page(window: "MainWindow") -> QWidget:
     window._btn_sam_undo.clicked.connect(window._on_sam_undo)
     for btn in (window._btn_sam_commit, window._btn_sam_cancel, window._btn_sam_undo):
         btn.setEnabled(False)
+    # Confirm on its own row: the three did not fit side by side in English.
     lay.addWidget(window._btn_sam_commit)
     row = QHBoxLayout()
     row.addWidget(window._btn_sam_cancel)
     row.addWidget(window._btn_sam_undo)
     lay.addLayout(row)
-    # (how to click is shown in the status bar on entering SAM mode)
-    lay.addStretch()
-    return page
-
-
-def _build_bbox_page(window: "MainWindow") -> QWidget:
-    page = QWidget()
-    lay = QVBoxLayout(page)
-    lay.setContentsMargins(*_PAGE_MARGINS)
-    window._lbl_bbox_hint = _hint_label(window.tr_("tab_bbox_hint"))
-    lay.addWidget(window._lbl_bbox_hint)
-    lay.addStretch()
-    return page
 
 
 def build_tools_group(window: "MainWindow") -> QGroupBox:
-    """Scale readout, category, display toggles, then the tool tabs: the
-    selected tab is the editing mode (the view tab = none)."""
+    """Edit tools: the tool picker. The selected tool is the editing mode
+    (the view tool = none); its page shows how to use it and its options."""
     window._grp_tools = QGroupBox(window.tr_("group_tools"))
     gt = QVBoxLayout(window._grp_tools)
     _tidy_group_layout(gt)
+    _build_mode_toggles(window, window._grp_tools)
+
+    window._tool_texts = []
+    window._tool_picker = ToolPicker()
+    for key, build_options in (("tool_view", None), ("tool_brush", _build_brush_options),
+                               ("tool_sam", _build_sam_options), ("tool_bbox", None)):
+        page, lay = _tool_page(window, key, key + "_hint")
+        if build_options is not None:
+            build_options(window, lay)
+        window._tool_picker.add_tool(window.tr_(key), page)
+    window._tool_picker.currentChanged.connect(window._on_tool_changed)
+    gt.addWidget(window._tool_picker)
+    # Only as tall as its contents: the image list takes the spare height.
+    window._grp_tools.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+    return window._grp_tools
+
+
+def build_display_group(window: "MainWindow") -> QGroupBox:
+    """Display and scale: what is drawn over the photo, and its scale."""
+    window._grp_display = QGroupBox(window.tr_("group_display"))
+    gd = QVBoxLayout(window._grp_display)
+    _tidy_group_layout(gd)
+
+    show_row = QHBoxLayout()
+    window._chk_show_highlight = QCheckBox(window.tr_("btn_show_highlight"))
+    window._chk_show_highlight.toggled.connect(window._on_toggle_highlight)
+    window._chk_show_repair15 = QCheckBox(window.tr_("btn_show_repair15"))
+    window._chk_show_repair15.toggled.connect(window._on_toggle_repair15)
+    show_row.addWidget(window._chk_show_highlight)
+    show_row.addWidget(window._chk_show_repair15)
+    show_row.addStretch()
+    gd.addLayout(show_row)
 
     scale_row = QHBoxLayout()
     window._lbl_scale = QLabel(
@@ -370,55 +514,12 @@ def build_tools_group(window: "MainWindow") -> QGroupBox:
     window._btn_measure.setObjectName("measureToggle")
     window._btn_measure.setCheckable(True)
     window._btn_measure.toggled.connect(window._on_measure_toggle)
-    window._btn_measure.toggled.connect(window._sync_tool_tab)
+    window._btn_measure.toggled.connect(window._sync_tool)
     scale_row.addWidget(window._lbl_scale, 1)
     scale_row.addWidget(window._btn_measure)
-    gt.addLayout(scale_row)
-
-    cat_row = QHBoxLayout()
-    window._btn_cat_crack = _checkable(QPushButton(window.tr_("cat_crack")))
-    window._btn_cat_crack.setObjectName("catCrack")
-    window._btn_cat_spalling = _checkable(QPushButton(window.tr_("cat_spalling")))
-    window._btn_cat_spalling.setObjectName("catSpalling")
-    window._cat_group = QButtonGroup(window)
-    window._cat_group.setExclusive(True)
-    window._cat_group.addButton(window._btn_cat_crack, 0)
-    window._cat_group.addButton(window._btn_cat_spalling, 1)
-    window._btn_cat_crack.setChecked(True)
-    window._cat_group.idClicked.connect(window._on_category_changed)
-    cat_row.addWidget(window._btn_cat_crack)
-    cat_row.addWidget(window._btn_cat_spalling)
-    gt.addLayout(cat_row)
-
-    show_row = QHBoxLayout()
-    window._btn_show_highlight = _checkable(QPushButton(window.tr_("btn_show_highlight")), 28)
-    window._btn_show_highlight.setIcon(icons.icon("highlighter"))
-    window._btn_show_highlight.setObjectName("showHighlightToggle")
-    window._btn_show_highlight.toggled.connect(window._on_toggle_highlight)
-    window._btn_show_repair15 = _checkable(QPushButton(window.tr_("btn_show_repair15")), 28)
-    window._btn_show_repair15.setIcon(icons.icon("square-dashed"))
-    window._btn_show_repair15.setObjectName("showRepair15Toggle")
-    window._btn_show_repair15.toggled.connect(window._on_toggle_repair15)
-    show_row.addWidget(window._btn_show_highlight)
-    show_row.addWidget(window._btn_show_repair15)
-    gt.addLayout(show_row)
-
-    _build_mode_toggles(window, window._grp_tools)
-    window._tool_tabs = QTabWidget()
-    window._tool_tabs.setObjectName("toolTabs")
-    # Text-only tabs that share the bar's width: with icons, four tabs did
-    # not fit the panel's narrowest width.
-    window._tool_tabs.tabBar().setExpanding(True)
-    window._tool_tabs.tabBar().setUsesScrollButtons(False)
-    window._tool_tabs.addTab(_build_view_page(window), window.tr_("tab_view"))
-    window._tool_tabs.addTab(_build_brush_page(window), window.tr_("tab_brush"))
-    window._tool_tabs.addTab(_build_sam_page(window), window.tr_("tab_sam"))
-    window._tool_tabs.addTab(_build_bbox_page(window), window.tr_("tab_bbox"))
-    window._tool_tabs.currentChanged.connect(window._on_tool_tab_changed)
-    gt.addWidget(window._tool_tabs)
-    # Only as tall as its contents: the image list takes the spare height.
-    window._grp_tools.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-    return window._grp_tools
+    gd.addLayout(scale_row)
+    window._grp_display.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+    return window._grp_display
 
 
 def build_side_panel(window: "MainWindow") -> QWidget:
@@ -433,6 +534,7 @@ def build_side_panel(window: "MainWindow") -> QWidget:
     panel_layout.addWidget(build_job_info_row(window))
     panel_layout.addWidget(build_list_group(window), stretch=1)
     panel_layout.addWidget(build_tools_group(window))
+    panel_layout.addWidget(build_display_group(window))
     window._panel_layout = panel_layout
 
     panel_scroll = QScrollArea()

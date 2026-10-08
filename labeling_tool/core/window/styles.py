@@ -161,18 +161,16 @@ STYLESHEET = """
             font-weight: 600;
         }
         QPushButton#measureToggle:checked:hover { background-color: #cc972f; }
-        QPushButton#showHighlightToggle:checked {
-            background-color: #caa42e;
-            border-color: #caa42e;
-            color: #1f2329;
-        }
-        QPushButton#showHighlightToggle:checked:hover { background-color: #d8b341; }
-        QPushButton#showRepair15Toggle:checked {
-            background-color: #2596be;
-            border-color: #2596be;
+        QPushButton#toolButton { text-align: left; padding: 6px 10px; }
+        QPushButton#toolButton:checked {
+            background-color: #2d6cdf;
+            border-color: #2d6cdf;
             color: #ffffff;
         }
-        QPushButton#showRepair15Toggle:checked:hover { background-color: #2ba6d2; }
+        QPushButton#toolButton:checked:hover { background-color: #3b7be8; }
+        QLabel#toolTitle { color: #e0e0e0; font-weight: 600; }
+        QLabel#toolHint { color: #9ea3aa; }
+        QFrame#toolRule { color: #3a4048; }
         QLabel#scaleLabel {
             color: #66d9e8;
             font-size: 13px;
@@ -204,7 +202,6 @@ STYLESHEET = """
             padding: 6px 14px;
             margin-right: 2px;
         }
-        QTabWidget#toolTabs QTabBar::tab { padding: 6px 6px; }
         QTabBar::tab:selected {
             background-color: #1f2329;
             color: #f0f0f0;

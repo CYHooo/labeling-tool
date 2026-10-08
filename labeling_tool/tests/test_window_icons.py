@@ -13,7 +13,7 @@ _app = QApplication.instance() or QApplication([])
 
 WINDOW_BUTTONS = ("_btn_brush_toggle", "_btn_brush_reset",
                   "_btn_sam_toggle", "_btn_sam_commit", "_btn_sam_cancel", "_btn_sam_undo",
-                  "_btn_measure", "_btn_bbox_toggle", "_btn_show_highlight", "_btn_show_repair15",
+                  "_btn_measure", "_btn_bbox_toggle",
                   "btn_prev", "btn_next", "btn_save", "btn_upload")
 
 

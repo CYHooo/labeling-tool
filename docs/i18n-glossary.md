@@ -25,7 +25,7 @@
 | inspection name | **점검명** | 检测名称 | Inspection name | `점검` 是设施点检的标准用词，保留 |
 | photo | **사진** | 照片 | Photo | |
 | previous / next photo | **이전 사진** / **다음 사진** | 上一张 / 下一张 | Previous / Next | 标注窗口导航按钮；中/英为了面板宽度用短形式 |
-| tool tabs | **보기** · **브러시** · **SAM** · **보수 구역** | 查看 · 画笔 · SAM · 修补区域 | View · Brush · SAM · Repair area | 选中的页签即编辑模式；`보기` = 不编辑 |
+| edit tools | **편집 도구**: **보기** · **브러시** · **SAM** · **보수 구역** | 编辑工具：查看 · 画笔 · SAM · 修补区域 | Edit tools: View · Brush · SAM · Repair area | 2×2 工具按钮，选中的工具即编辑模式；`보기` = 不编辑。另一组 **표시 · 축척** / 显示 · 比例尺 / Display · Scale |
 | job info | **작업 정보** | 任务信息 | Job info | 标注窗口右侧顶部一行：`작업 {id} · {점검명} · {n}장`；图片列表表头 `번호` / `파일 이름`，列表项 `<작업 ID>-<사진 번호>` + 文件名 |
 | upload | **업로드** | 上传 | Upload | 音译已通用 |
 | download / fetch | **가져오기** | 获取 | Fetch | 从服务器取数据用 `가져오기`；文件下载用 `다운로드` |
