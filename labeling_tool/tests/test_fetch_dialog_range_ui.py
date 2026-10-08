@@ -177,3 +177,40 @@ def test_disabled_range_and_checked_radio_look_the_part(dlg):
     img = dlg.rb_range.grab().toImage()
     blue = [img.pixelColor(x, y) for x in range(min(24, img.width())) for y in range(img.height())]
     assert any(c.blue() > 180 and c.red() < 90 for c in blue)       # the checked dot ring
+
+
+def test_a_typed_job_with_an_open_range_downloads_from_there_to_the_last(monkeypatch, tmp_path):
+    # The whole path: job list down, typed ID, range 5 ~ 끝, Enter. Photo
+    # numbers have gaps and go past the photo count.
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    from labeling_tool.session import workspace as ws_mod
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path / "settings")
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
+    monkeypatch.setattr(ws_mod, "DEFAULT_DATA_ROOT", tmp_path / "data")
+    monkeypatch.setattr(fd, "save_config", lambda *a: None)
+    monkeypatch.setattr(fd, "attach_session_log", lambda *a: None)
+    photos = [{"timestamp": 1000 + n, "photoId": n, "reportPhotoNum": n, "pxPerCm": 1.0}
+              for n in (1, 2, 3, 4, 5, 6, 8, 9, 12)]
+    monkeypatch.setattr(fd.FetchDialog, "_fetch_all_photos", staticmethod(lambda c, sid: photos))
+    downloaded = []
+    monkeypatch.setattr(fd, "download_photos",
+                        lambda chosen, *a, **k: downloaded.extend(p["reportPhotoNum"] for p in chosen) or [])
+    i18n.set_language("ko")
+    d = fd.FetchDialog(base="https://x", key="k")
+
+    def down():
+        raise OSError("offline")
+
+    d.client.list_sessions = down
+    d._load_sessions()
+    try:
+        d.rb_range.setChecked(True)
+        d.sp_from.setValue(5)
+        d.show()
+        QTest.keyClicks(d.cb_session.lineEdit(), "49")
+        QTest.keyClick(d.cb_session.lineEdit(), Qt.Key_Return)
+        assert downloaded == [5, 6, 8, 9, 12]
+        assert d.manifest is not None and d.manifest.session_id == 49
+    finally:
+        d.close()
