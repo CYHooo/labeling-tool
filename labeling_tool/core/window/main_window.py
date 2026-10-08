@@ -226,7 +226,8 @@ class MainWindow(QMainWindow):
         self.file_list.viewport().update()
 
     def _refresh_nav_tooltips(self):
-        for btn, key in ((self.btn_prev, "A"), (self.btn_next, "D"), (self.btn_save, "S")):
+        for btn, key in ((self.btn_prev, "A"), (self.btn_next, "D"),
+                         (self.btn_save, "S / Ctrl+S")):
             btn.setToolTip(self.tr_("tip_shortcut", shortcut=key))
 
     def _open_log_folder(self):
