@@ -71,7 +71,7 @@ STRINGS = {
     "btn_bbox_on":           "보수 구역 모드 진입",
     "btn_bbox_off":          "보수 구역 모드 종료",
     "lbl_scale":             "축척: {scale} mm/px",
-    "lbl_scale_manual":      "축척: {scale} mm/px · 수동",
+    "scale_manual_tip":      "수동 측정값 (서버 값 대신 사용)",
     "btn_measure":           "수동 측정",
     "btn_measure_cancel":    "측정 취소",
     "measure_dialog_title":  "수동 축척",

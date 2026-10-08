@@ -604,12 +604,20 @@ def test_scale_label_shows_only_the_value(tmp_path, monkeypatch):
         win.close()
 
 
-def test_a_manual_scale_is_marked(tmp_path, monkeypatch):
+def test_a_manual_scale_is_marked_by_colour_and_tooltip(tmp_path, monkeypatch):
+    # A text marker ("· 수동") did not fit the narrowest panel; the value
+    # keeps its length and turns amber instead, with a tooltip saying why.
     win = _make_window(tmp_path, monkeypatch)
     try:
+        assert not win._lbl_scale.property("manual")
         win.current_scale, win.current_scale_source = 4.0, "manual"
         win._refresh_scale_label()
-        assert win._lbl_scale.text() == i18n.tr("lbl_scale_manual", scale="2.5000")
+        assert win._lbl_scale.text() == i18n.tr("lbl_scale", scale="2.5000")
+        assert win._lbl_scale.property("manual") is True
+        assert win._lbl_scale.toolTip() == i18n.tr("scale_manual_tip")
+        win.current_scale_source = "server"
+        win._refresh_scale_label()
+        assert not win._lbl_scale.property("manual") and win._lbl_scale.toolTip() == ""
     finally:
         win.close()
 
@@ -624,15 +632,25 @@ def test_no_scale_shows_a_dash(tmp_path, monkeypatch):
 
 
 def test_scale_row_fits_on_one_line_in_every_language(tmp_path, monkeypatch):
+    # At the panel's narrowest width, manual or not: no clipping, the row
+    # stays one line and the panel does not widen.
     win = _make_window(tmp_path, monkeypatch)
     try:
+        side = win._splitter.widget(1)
+        win._splitter.setSizes([10_000, 0])                  # panel at its minimum
         for code in ("ko", "zh", "en"):
             i18n.set_language(code)
-            QApplication.processEvents()
-            lbl, btn = win._lbl_scale, win._btn_measure
-            assert lbl.width() >= lbl.sizeHint().width(), code              # not clipped
-            assert abs(lbl.mapTo(win, lbl.rect().center()).y()
-                       - btn.mapTo(win, btn.rect().center()).y()) <= 2, code  # same row
+            for scale, source in ((2.0, "server"), (28.49, "manual")):
+                win.current_scale, win.current_scale_source = scale, source
+                win._refresh_scale_label()
+                QApplication.processEvents()
+                lbl, btn = win._lbl_scale, win._btn_measure
+                assert side.width() == side.minimumWidth(), (code, source)
+                assert lbl.width() >= lbl.sizeHint().width(), (code, source)
+                assert abs(lbl.mapTo(win, lbl.rect().center()).y()
+                           - btn.mapTo(win, btn.rect().center()).y()) <= 2, (code, source)
     finally:
         i18n.set_language("ko")
         win.close()
+
+

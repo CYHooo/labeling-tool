@@ -896,16 +896,22 @@ class MainWindow(QMainWindow):
         return self.scale_tracker.update_for_image(origin)
 
     def _refresh_scale_label(self):
-        # Internal canonical scale is px/cm. The label shows mm/px = 10 / (px/cm),
-        # marked only when it was measured by hand (it then overrides the
-        # server's value); where an automatic value came from is not shown.
+        # Internal canonical scale is px/cm. The label shows mm/px = 10 / (px/cm).
+        # Where an automatic value came from is not shown; a hand-measured one
+        # (it overrides the server's) is amber with a tooltip -- a text marker
+        # did not fit the narrowest panel.
+        manual = (self.current_scale_source == "manual"
+                  and self.current_scale is not None and self.current_scale > 0)
         if self.current_scale is None or self.current_scale <= 0:
             txt = self.tr_("lbl_scale", scale="--")
         else:
-            key = ("lbl_scale_manual" if self.current_scale_source == "manual"
-                   else "lbl_scale")
-            txt = self.tr_(key, scale=f"{10.0 / self.current_scale:.4f}")
+            txt = self.tr_("lbl_scale", scale=f"{10.0 / self.current_scale:.4f}")
         self._lbl_scale.setText(txt)
+        if bool(self._lbl_scale.property("manual")) != manual:
+            self._lbl_scale.setProperty("manual", manual)
+            self._lbl_scale.style().unpolish(self._lbl_scale)   # re-read the QSS
+            self._lbl_scale.style().polish(self._lbl_scale)
+        self._lbl_scale.setToolTip(self.tr_("scale_manual_tip") if manual else "")
 
     def _update_status_for_current(self):
         if self.current_idx < 0:

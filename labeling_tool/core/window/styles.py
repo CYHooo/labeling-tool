@@ -200,6 +200,10 @@ STYLESHEET = """
             border: 1px solid #2c4e58;
             border-radius: 4px;
         }
+        QLabel#scaleLabel[manual="true"] {
+            color: #f0b54a;
+            border-color: #6b5320;
+        }
         /* login screen tool tabs: without these the pane falls back to the
            light native palette and the light label text becomes unreadable */
         QTabWidget::pane {

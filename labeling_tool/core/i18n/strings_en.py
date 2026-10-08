@@ -66,7 +66,7 @@ STRINGS = {
     "btn_bbox_on":           "Enter Repair Area Mode",
     "btn_bbox_off":          "Exit Repair Area Mode",
     "lbl_scale":             "Scale: {scale} mm/px",
-    "lbl_scale_manual":      "Scale: {scale} mm/px · manual",
+    "scale_manual_tip":      "Measured by hand (used instead of the server's value)",
     "btn_measure":           "Measure",
     "btn_measure_cancel":    "Cancel",
     "measure_dialog_title":  "Manual Scale",

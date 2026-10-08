@@ -66,7 +66,7 @@ STRINGS = {
     "btn_bbox_on":           "进入修补区域模式",
     "btn_bbox_off":          "退出修补区域模式",
     "lbl_scale":             "比例尺：{scale} mm/px",
-    "lbl_scale_manual":      "比例尺：{scale} mm/px · 手动",
+    "scale_manual_tip":      "手动测量值（替代服务器的值）",
     "btn_measure":           "手动测量",
     "btn_measure_cancel":    "取消测量",
     "measure_dialog_title":  "手动比例尺",
