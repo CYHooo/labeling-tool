@@ -704,6 +704,33 @@ def test_windows_applies_the_zip_in_process_and_restarts(monkeypatch, tmp_path, 
     assert no_restart["quit"] == [True]
 
 
+def test_windows_apply_runs_off_the_ui_thread_behind_the_notice(monkeypatch, tmp_path, no_restart):
+    # Windows swapped the files on the UI thread with no window at all: the
+    # app looked frozen ("not responding" past ~5 s) until it restarted.
+    from PyQt5.QtCore import QTimer
+    from labeling_tool.core import i18n
+    monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.WINDOWS)
+    monkeypatch.setattr(ui.app_paths, "app_home", lambda: tmp_path)
+    seen = {}
+    looked = threading.Event()
+
+    def slow_patch(z, root, sha):
+        seen["thread"] = threading.current_thread()
+        looked.wait(5)                   # the swap lasts until the UI has looked
+
+    def look():
+        seen["labels"] = [w.labelText() for w in QApplication.topLevelWidgets()
+                          if isinstance(w, ui.QProgressDialog) and w.isVisible()]
+        looked.set()
+
+    monkeypatch.setattr(ui.patch, "apply_patch", slow_patch)
+    QTimer.singleShot(0, look)
+    assert ui.apply_and_restart(None, _zip_info(), tmp_path / "u.zip") is True
+    assert seen["thread"] is not threading.main_thread()
+    assert seen["labels"] == [i18n.tr("update_applying")]
+    assert no_restart["popen"] == [[str(tmp_path / "LM_LabelingTool.exe")]]
+
+
 def test_a_failed_windows_apply_keeps_the_old_version_running(monkeypatch, tmp_path, no_restart):
     monkeypatch.setattr(ui.checker, "current_platform", lambda: ui.checker.WINDOWS)
     monkeypatch.setattr(ui.app_paths, "app_home", lambda: tmp_path)

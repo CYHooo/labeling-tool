@@ -381,7 +381,7 @@ class _BusyNotice(QProgressDialog):
 def _wait_off_ui_thread(parent, label: str, work):
     """Run work() on a worker thread and return its result (or re-raise its
     exception) while the UI keeps processing events, behind a modal notice
-    that cannot be dismissed.
+    that cannot be dismissed. Used for applying an update on both platforms.
 
     Linux's apply blocks for seconds (polkit password prompt, then the root
     swap with an fsync per file). Waited for on the UI thread, the window
@@ -427,7 +427,11 @@ def apply_and_restart(parent, info, zip_path: Path) -> bool:
     exe = _installed_exe()
     if checker.current_platform() == checker.WINDOWS:
         try:
-            patch.apply_patch(zip_path, app_paths.app_home(), sha)
+            # Off the UI thread behind the same notice as Linux: on the UI
+            # thread the window showed nothing and froze until the restart.
+            _wait_off_ui_thread(
+                parent, tr("update_applying"),
+                lambda: patch.apply_patch(zip_path, app_paths.app_home(), sha))
         except Exception as exc:  # noqa: BLE001 - PatchError, a locked file, ...
             vlog().exception("update apply failed")
             QMessageBox.warning(parent, tr("update_failed_title"),
