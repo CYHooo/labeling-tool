@@ -17,6 +17,9 @@ def register_shortcuts(window: "MainWindow") -> None:
     QShortcut(QKeySequence("D"), window, window.go_next)
     QShortcut(QKeySequence("S"), window, window._on_brush_save)
     QShortcut(QKeySequence("Ctrl+S"), window, window._on_brush_save)
+    QShortcut(QKeySequence("Ctrl+Z"), window, window._on_undo)
+    QShortcut(QKeySequence("Ctrl+Y"), window, window._on_redo)
+    QShortcut(QKeySequence("Ctrl+Shift+Z"), window, window._on_redo)
     QShortcut(QKeySequence("B"), window,
               lambda: window._toggle_mode_shortcut(window._btn_brush_toggle))
     QShortcut(QKeySequence("["), window, lambda: window._nudge_brush_size(-2))
@@ -35,16 +38,24 @@ def register_shortcuts(window: "MainWindow") -> None:
 
 class _LetterShortcutsPassThrough(QObject):
     """Lets a number box hand letter keys to the window's single-key
-    shortcuts (A / D / S / B / X ..., and [ / ] for the brush size). A focused QSpinBox otherwise claims
+    shortcuts (A / D / S / B / X ..., [ / ] for the brush size, and Ctrl+Z /
+    Ctrl+Y for undoing strokes). A focused QSpinBox otherwise claims
     every printable key -- and with an input method (pinyin, hangul) turns
     it into composition -- so after adjusting the brush size the shortcuts
     seemed gone. Digits, arrows and editing keys still reach the box."""
 
     def eventFilter(self, obj, event):
-        if (event.type() == QEvent.ShortcutOverride
-                and (Qt.Key_A <= event.key() <= Qt.Key_Z
-                     or event.key() in (Qt.Key_BracketLeft, Qt.Key_BracketRight))
-                and not event.modifiers() & ~Qt.ShiftModifier):
+        if event.type() != QEvent.ShortcutOverride:
+            return False
+        key, mods = event.key(), event.modifiers()
+        letter = (Qt.Key_A <= key <= Qt.Key_Z
+                  or key in (Qt.Key_BracketLeft, Qt.Key_BracketRight))
+        plain = not mods & ~Qt.ShiftModifier
+        # the box's own text undo must not shadow undoing a stroke
+        undo_redo = (key in (Qt.Key_Z, Qt.Key_Y)
+                     and mods & Qt.ControlModifier
+                     and not mods & ~(Qt.ControlModifier | Qt.ShiftModifier))
+        if (letter and plain) or undo_redo:
             event.ignore()               # not ours: let the shortcut fire
             return True
         return False

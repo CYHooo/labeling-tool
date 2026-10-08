@@ -24,6 +24,7 @@
 | session id | **작업 ID** | 任务 ID | Job ID | 列表里仍显示服务器返回的数字 |
 | inspection name | **점검명** | 检测名称 | Inspection name | `점검` 是设施点检的标准用词，保留 |
 | photo | **사진** | 照片 | Photo | |
+| upload status (list) | **✓ 업로드됨** · **● 수정됨 (업로드 필요)** | ✓ 已上传 · ● 已修改（需上传） | ✓ uploaded · ● edited (needs upload) | 图片列表编号前的标记；表头悬停提示 |
 | photo range (fetch) | **사진**: **전체** / **범위 지정**, **사진 번호** `a ~ b`（`b` 可为 **끝** / 最后 / End） | 照片：全部 / 指定范围，照片编号 | Photos: All / Range, Photo number | 「새 작업 가져오기」界面；接口参数 `fromNum`/`toNum` 不出现在界面上 |
 | previous / next photo | **이전 사진** / **다음 사진** | 上一张 / 下一张 | Previous / Next | 标注窗口导航按钮；中/英为了面板宽度用短形式 |
 | edit tools | **편집 도구**: **보기** · **브러시** · **SAM** · **보수 구역** | 编辑工具：查看 · 画笔 · SAM · 修补区域 | Edit tools: View · Brush · SAM · Repair area | 2×2 工具按钮，选中的工具即编辑模式；`보기` = 不编辑。另一组 **표시 · 축척** / 显示 · 比例尺 / Display · Scale |
@@ -44,6 +45,7 @@
 | manual measurement | **수동 측정** | 手动测量 | Manual measurement | 保留；英文按钮因面板宽度用短形式 `Measure`。手动测得的축척数值以琥珀色显示，提示文字 `수동 측정값 (서버 값 대신 사용)` / 手动测量值（替代服务器的值） / Measured by hand (used instead of the server's value) |
 | bounding box / 补修区域 | **보수 구역** | 修补区域 | Repair area | 现状为 OBB/bbox 等技术词，对用户改用 `보수 구역` |
 | brush / eraser | **브러시** / **지우개** | 画笔 / 橡皮擦 | Brush / Eraser | |
+| undo / redo | **실행 취소** / **다시 실행** | 撤销 / 重做 | Undo / Redo | 掩码编辑（画笔、SAM 确认、복원）；Ctrl+Z / Ctrl+Y |
 
 ## 4. 程序与更新
 

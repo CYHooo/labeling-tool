@@ -39,6 +39,12 @@ _GROUP_SPACING = 6
 # Item data role holding the dim second part of an image-list row (the file
 # name behind the "<job>-<photo>" id). Empty/None -> the row is one part only.
 SECONDARY_TEXT_ROLE = Qt.UserRole + 1
+# Item data role holding a row's upload mark: "uploaded" (✓), "pending" (●)
+# or None. Drawn in its own narrow column before the id when the delegate's
+# mark_width is set.
+MARK_ROLE = Qt.UserRole + 2
+_MARKS = {"uploaded": ("✓", QColor(92, 200, 122)),
+          "pending": ("●", QColor(240, 181, 74))}
 _SECONDARY_COLOR = QColor(140, 140, 140)
 _SECONDARY_SELECTED_COLOR = QColor(215, 225, 245)   # readable on the blue highlight
 _SELECTED_TEXT_COLOR = QColor(255, 255, 255)        # QListWidget::item:selected
@@ -54,6 +60,7 @@ class TwoPartItemDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._primary_width = 0
+        self.mark_width = 0          # > 0: a column for MARK_ROLE before the id
 
     def fit_primary_column(self, texts, font) -> None:
         metrics = QFontMetrics(font)
@@ -91,6 +98,23 @@ class TwoPartItemDelegate(QStyledItemDelegate):
         painter.save()
         painter.setFont(option.font)
         selected = bool(option.state & QStyle.State_Selected)
+        if self.mark_width:
+            kind = index.data(MARK_ROLE)
+            mark = _MARKS.get(kind)
+            if mark is not None:
+                colour = _SELECTED_TEXT_COLOR if selected else mark[1]
+                if kind == "pending":
+                    # drawn, not a glyph: fonts fall back to a large emoji dot
+                    d = max(6, option.fontMetrics.height() // 3)
+                    cy = rect.center().y()
+                    painter.setRenderHint(QPainter.Antialiasing)
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(colour)
+                    painter.drawEllipse(rect.left() + 2, cy - d // 2, d, d)
+                else:
+                    painter.setPen(colour)
+                    painter.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter, mark[0])
+            rect = rect.adjusted(self.mark_width, 0, 0, 0)
         # initStyleOption copied the item's status colour into palette Text;
         # a selected row is white on the highlight, as the stylesheet had it.
         painter.setPen(_SELECTED_TEXT_COLOR if selected
@@ -170,7 +194,7 @@ class ListHeader(QWidget):
         delegate = self._view.itemDelegate()
         viewport_x = self._view.viewport().mapTo(self.window(), QPoint(0, 0)).x()
         own_x = self.mapTo(self.window(), QPoint(0, 0)).x()
-        number_x = viewport_x - own_x + delegate.text_left(self._view)
+        number_x = viewport_x - own_x + delegate.text_left(self._view) + delegate.mark_width
         return number_x, number_x + delegate.primary_column_width() + _PART_GAP
 
     def paintEvent(self, event):
@@ -448,6 +472,18 @@ def _build_brush_options(window: "MainWindow", lay: QVBoxLayout) -> None:
     action_row.addWidget(window._chk_fine_annotation, 1)
     action_row.addWidget(window._btn_brush_reset)
     lay.addLayout(action_row)
+
+    undo_row = QHBoxLayout()
+    window._btn_undo = QPushButton(window.tr_("btn_undo"))
+    window._btn_undo.setIcon(icons.icon("undo-2"))
+    window._btn_undo.clicked.connect(window._on_undo)
+    window._btn_redo = QPushButton(window.tr_("btn_redo"))
+    window._btn_redo.setIcon(icons.icon("redo-2"))
+    window._btn_redo.clicked.connect(window._on_redo)
+    for btn in (window._btn_undo, window._btn_redo):
+        btn.setEnabled(False)
+        undo_row.addWidget(btn)
+    lay.addLayout(undo_row)
 
 
 def _build_sam_options(window: "MainWindow", lay: QVBoxLayout) -> None:
