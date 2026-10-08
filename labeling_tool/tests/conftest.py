@@ -24,3 +24,15 @@ def _reset_i18n_current_language():
     i18n._current = None
     yield
     i18n._current = None
+
+
+@pytest.fixture(autouse=True)
+def app_log_starts(monkeypatch):
+    """app.main() would write <repo>/logs/app.log and install process-wide
+    exception hooks (sys.excepthook / threading.excepthook / Qt's message
+    handler) that outlive the test. Record the call instead; a test that
+    needs to know whether logging started reads this list."""
+    import labeling_tool.app as app_module
+    calls = []
+    monkeypatch.setattr(app_module, "_start_app_logging", lambda: calls.append(True))
+    return calls

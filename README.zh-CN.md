@@ -82,6 +82,16 @@ sudo dpkg -i lm-labeling-tool_<版本>_amd64.deb
 
 点击「上传到 EC2」，**只上传修改过的照片**，同时上传 mask、高亮和 15cm 边界。上传后会重新读取服务器确认是否生效，未生效的照片会连同编号一起提示。详细记录保存在任务文件夹的 `vapi.log` 中。
 
+### 数据与日志位置
+
+| 项目 | Linux | Windows |
+|---|---|---|
+| 任务（照片 · 标注结果） | `~/.local/share/lm-labeling-tool/data/session_<任务 ID>/` | `<安装目录>\data\session_<任务 ID>\` |
+| 任务日志 | 任务文件夹中的 `vapi.log` | 任务文件夹中的 `vapi.log` |
+| 程序日志 | `~/.local/share/lm-labeling-tool/logs/app.log` | `<安装目录>\logs\app.log` |
+
+程序日志（`app.log`）记录启动信息、登录、更新、意外错误以及所有任务日志，每 1 MB 轮换一次，保留最近 5 个。遇到问题时，在标注界面点「?」→「打开日志文件夹」，把 `app.log` 发给开发人员。密码和 API Key 不会被记录。
+
 ## 语言设置
 
 界面语言（한국어 / 中文 / English）可以在登录界面底部或标注界面「设置」里的「语言:」中切换，选择会被保存。

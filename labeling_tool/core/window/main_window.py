@@ -4,12 +4,12 @@ from pathlib import Path
 
 import numpy as np
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QUrl
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QSplitter,
     QStatusBar, QMessageBox, QApplication, QInputDialog, QListWidgetItem,
 )
-from PyQt5.QtGui import QColor
+from PyQt5.QtGui import QColor, QDesktopServices
 
 from labeling_tool.core.constants import (
     CATEGORIES, DEFAULT_CATEGORY, OUTPUT_DIR_NAME,
@@ -172,6 +172,7 @@ class MainWindow(QMainWindow):
         if help_dialog is not None:
             help_dialog.setWindowTitle(self.tr_("group_hint"))
             self._lbl_hint.setText(self.tr_("hint_text"))
+            self._btn_open_logs.setText(self.tr_("btn_open_logs"))
 
         if self.current_idx >= 0:
             self._update_status_for_current()
@@ -227,6 +228,18 @@ class MainWindow(QMainWindow):
     def _refresh_nav_tooltips(self):
         for btn, key in ((self.btn_prev, "A"), (self.btn_next, "D"), (self.btn_save, "S")):
             btn.setToolTip(self.tr_("tip_shortcut", shortcut=key))
+
+    def _open_log_folder(self):
+        """Open the folder holding app.log in the file manager, so a user
+        can send the log when something went wrong."""
+        from labeling_tool import logging_setup
+        folder = logging_setup.log_dir()
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:              # never let a slot raise
+            self.status.showMessage(str(exc))
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     def _show_help(self):
         if getattr(self, "_help_dialog", None) is None:

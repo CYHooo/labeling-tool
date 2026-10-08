@@ -37,6 +37,7 @@ STRINGS = {
     "tool_brush_hint":    "Left-drag to draw, right-drag to erase.",
     "tool_sam_hint":      "Left-click includes, right-click excludes, Esc undoes the last point. Confirm records it as spalling.",
     "tool_bbox_hint":     "Click to add points, Enter to confirm, Esc to cancel, Del to delete.",
+    "btn_open_logs":      "Open log folder",
     "group_list":         "Image List",
     "group_hint":         "Help / Usage",
     "btn_prev":           "Previous",

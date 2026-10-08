@@ -33,6 +33,7 @@
 | sign in / log out | **로그인** / **로그아웃** | 登录 / 退出登录 | Log in / Log out | 第一页的账号登录；`로그인: {user}` 显示当前用户 |
 | password | **비밀번호** | 密码 | Password | 账号字段名保持 `ID` |
 | output folder | **저장 폴더** | 保存文件夹 | Output folder | |
+| log / app log | **로그** / **프로그램 로그** | 日志 / 程序日志 | Log / App log | 帮助窗口按钮 `로그 폴더 열기` / 打开日志文件夹 / Open log folder；文件名 `app.log`、`vapi.log` 不翻译 |
 
 ## 3. 测量与几何
 

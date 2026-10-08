@@ -495,3 +495,23 @@ def test_the_sam_how_to_mentions_esc():
     for code in ("ko", "zh", "en"):
         strings = importlib.import_module(f"labeling_tool.core.i18n.strings_{code}").STRINGS
         assert "Esc" in strings["tool_sam_hint"], code
+
+
+def test_help_dialog_opens_the_log_folder(tmp_path, monkeypatch):
+    from labeling_tool import logging_setup
+    from labeling_tool.core.window import main_window as core_main
+    logs = tmp_path / "logs-here"
+    monkeypatch.setattr(logging_setup, "log_dir", lambda: logs)
+    opened = []
+    monkeypatch.setattr(core_main.QDesktopServices, "openUrl",
+                        staticmethod(lambda url: opened.append(url.toLocalFile()) or True))
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._btn_help.click()
+        assert win._btn_open_logs.text() == i18n.tr("btn_open_logs")
+        win._btn_open_logs.click()
+        assert opened == [str(logs)]
+        assert logs.is_dir()                       # created if it was missing
+        win._help_dialog.close()
+    finally:
+        win.close()
