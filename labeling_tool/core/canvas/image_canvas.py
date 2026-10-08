@@ -674,6 +674,8 @@ class ImageCanvas(QWidget):
             return
 
         if self.brush_mode:
+            if self._brushing:
+                return      # a second button during a stroke: keep the undo point
             if event.button() == Qt.LeftButton:
                 self._brushing = True
                 self._brush_erase = False

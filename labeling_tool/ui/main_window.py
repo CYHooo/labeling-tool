@@ -86,9 +86,17 @@ class ViewerMainWindow(CoreMainWindow):
             return "pending"
         return "uploaded" if entry.synced else None
 
+    def _begin_upload_tracking(self) -> None:
+        """From now until the upload finishes, remember photos saved again:
+        the upload carries their older version."""
+        self._saved_during_upload: set[str] | None = set()
+
     def _on_photo_saved(self, filename: str) -> None:
         """A re-edited photo needs uploading again: drop its synced flag (it
         used to stay set, so the photo looked uploaded)."""
+        during = getattr(self, "_saved_during_upload", None)
+        if during is not None:
+            during.add(filename)
         entry = (self._manifest.photos.get(filename)
                  if self._manifest is not None else None)
         if entry is not None and entry.synced:
@@ -201,6 +209,7 @@ class ViewerMainWindow(CoreMainWindow):
         self.btn_upload.setEnabled(False)
         self.status.showMessage(self.tr_("vmw_status_upload_starting", total=total))
 
+        self._begin_upload_tracking()
         worker = UploadWorker(
             self._client, session_id=self._ws.session_id, specs=specs,
             labeling_dir=str(self.output_dir),
@@ -227,6 +236,7 @@ class ViewerMainWindow(CoreMainWindow):
         self._finish_upload(result)
 
     def _on_upload_error(self, msg):
+        self._saved_during_upload = None
         self._upload_bar.setVisible(False)
         self.btn_upload.setEnabled(True)
         self._upload_worker = None
@@ -239,9 +249,13 @@ class ViewerMainWindow(CoreMainWindow):
         # photos as synced.
         synced_ts = set(result.get("timestamps") or [])
         anomalies = result.get("anomalies") or []
+        # saved again while uploading: the server has the older version
+        resaved = getattr(self, "_saved_during_upload", None) or set()
+        self._saved_during_upload = None
         if synced_ts:
             files = [fn for fn in self._manifest.filenames_in_order()
-                     if self._manifest.get(fn).timestamp in synced_ts]
+                     if self._manifest.get(fn).timestamp in synced_ts
+                     and fn not in resaved]
             self._manifest.mark_synced(files, batch_id=result.get("batch_id", ""))
             self._manifest.save(self._ws.manifest_path)
             self._refresh_list_colors()

@@ -382,7 +382,10 @@ class MainWindow(QMainWindow):
         # Persist immediately so the manual scale survives an image switch /
         # is used at upload even if the user doesn't redraw the mask.
         if self.current_idx >= 0:
-            self._save_all_artifacts(silent=True)
+            if self._save_all_artifacts(silent=True):
+                # the upload sends px_per_cm: a new scale needs uploading again
+                self._on_photo_saved(self.image_files[self.current_idx])
+                self._refresh_list_colors()
         self._btn_measure.setChecked(False)         # leaves measure mode (clears line)
         self.canvas.set_measure_points(measure_pts)  # keep the line visible after measuring
 
@@ -416,8 +419,11 @@ class MainWindow(QMainWindow):
             return
         filename = self.image_files[self.current_idx]
         before = self.canvas.snapshot()
+        # Reloading starts a fresh history (earlier strokes cannot be undone
+        # past a reset); the reset itself is recorded, so Ctrl+Z brings the
+        # discarded edits back.
         self._show_image(self.current_idx, force_reload=True)
-        self.canvas.record_external_change(before)      # Ctrl+Z brings the edits back
+        self.canvas.record_external_change(before)
         self._edited.pop(filename, None)
         self._refresh_list_colors()
         self.status.showMessage(self.tr_("brush_reset"))

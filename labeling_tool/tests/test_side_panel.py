@@ -831,3 +831,94 @@ def test_the_list_header_explains_the_marks(tmp_path, monkeypatch):
         assert win._list_header.toolTip() == i18n.tr("list_marks_tip")
     finally:
         win.close()
+
+
+def test_a_new_manual_scale_on_an_uploaded_photo_makes_it_pending(tmp_path, monkeypatch):
+    # The upload sends px_per_cm; a re-measured photo kept ✓ while the server
+    # still had the old scale.
+    from PyQt5.QtWidgets import QInputDialog
+    win = _make_window(tmp_path, monkeypatch, synced=(_FILES[0],))
+    try:
+        assert _mark(win, 0) == "uploaded"
+        monkeypatch.setattr(QInputDialog, "getDouble", staticmethod(lambda *a, **k: (7.0, True)))
+        win._on_measure_completed(10.0)
+        assert _mark(win, 0) == "pending"
+        from labeling_tool.session.manifest import Manifest
+        assert not Manifest.load(win._ws.manifest_path).get(_FILES[0]).synced
+    finally:
+        win.close()
+
+
+def test_ctrl_z_undoes_a_stroke_from_the_brush_size_box(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        blank = win.canvas.brush_mask_crack.copy()
+        _stroke(win)
+        _focus_brush_size(win)
+        QTest.keyClick(QApplication.focusWidget(), Qt.Key_Z, Qt.ControlModifier)
+        assert (win.canvas.brush_mask_crack == blank).all()
+        QTest.keyClick(QApplication.focusWidget(), Qt.Key_Y, Qt.ControlModifier)
+        assert (win.canvas.brush_mask_crack != blank).any()
+    finally:
+        win.close()
+
+
+def test_a_second_button_during_a_stroke_keeps_the_undo_point(tmp_path, monkeypatch):
+    from PyQt5.QtCore import QPoint, Qt
+    from PyQt5.QtTest import QTest
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        c = win.canvas
+        blank = c.brush_mask_crack.copy()
+        win._tool_picker.setCurrentIndex(BRUSH)
+        QApplication.processEvents()
+        mid = QPoint(c.width() // 2, c.height() // 2)
+        QTest.mousePress(c, Qt.LeftButton, Qt.NoModifier, mid)
+        QTest.mouseMove(c, mid + QPoint(5, 0))
+        QTest.mousePress(c, Qt.RightButton, Qt.NoModifier, mid + QPoint(5, 0))
+        QTest.mouseRelease(c, Qt.RightButton, Qt.NoModifier, mid + QPoint(5, 0))
+        QTest.mouseRelease(c, Qt.LeftButton, Qt.NoModifier, mid + QPoint(5, 0))
+        while c.undo():
+            pass
+        assert (c.brush_mask_crack == blank).all()
+    finally:
+        win.close()
+
+
+def test_right_button_erase_can_be_undone(tmp_path, monkeypatch):
+    from PyQt5.QtCore import QPoint, Qt
+    from PyQt5.QtTest import QTest
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        c = win.canvas
+        _stroke(win)
+        drawn = c.brush_mask_crack.copy()
+        mid = QPoint(c.width() // 2, c.height() // 2)
+        QTest.mousePress(c, Qt.RightButton, Qt.NoModifier, mid)
+        QTest.mouseRelease(c, Qt.RightButton, Qt.NoModifier, mid)
+        assert (c.brush_mask_crack != drawn).any()
+        c.undo()
+        assert (c.brush_mask_crack == drawn).all()
+    finally:
+        win.close()
+
+
+def test_a_photo_saved_during_an_upload_stays_pending(tmp_path, monkeypatch):
+    # The upload sent the old version; marking it ✓ afterwards would hide
+    # the newer edit.
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        _stroke(win)
+        win._save_all_artifacts(silent=True)
+        win._begin_upload_tracking()
+        _stroke(win)                                    # edited again while uploading
+        win._save_all_artifacts(silent=True)
+        win._finish_upload({"timestamps": [1], "failed": [], "uploaded": 1,
+                            "anomalies": [], "verify_failures": [], "batch_id": "b"})
+        assert _mark(win, 0) == "pending"
+        assert not win._manifest.get(_FILES[0]).synced
+    finally:
+        win.close()
