@@ -190,6 +190,7 @@ STYLESHEET = """
         QLabel#toolTitle { color: #e0e0e0; font-weight: 600; }
         QLabel#toolHint { color: #9ea3aa; }
         QFrame#toolRule { color: #3a4048; }
+        QPushButton#compactButton { padding: 2px 10px; min-height: 18px; }
         QLabel#scaleLabel {
             color: #66d9e8;
             font-size: 13px;

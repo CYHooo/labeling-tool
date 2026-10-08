@@ -26,6 +26,7 @@
 | photo | **사진** | 照片 | Photo | |
 | upload status (list) | **✓ 업로드됨** · **● 수정됨 (업로드 필요)** | ✓ 已上传 · ● 已修改（需上传） | ✓ uploaded · ● edited (needs upload) | 图片列表编号前的标记；表头悬停提示 |
 | photo range (fetch) | **사진**: **전체** / **범위 지정**, **사진 번호** `a ~ b`（`b` 可为 **끝** / 最后 / End） | 照片：全部 / 指定范围，照片编号 | Photos: All / Range, Photo number | 「새 작업 가져오기」界面；接口参数 `fromNum`/`toNum` 不出现在界面上 |
+| range view (labeling) | **사진 {a} ~ {b} ({n}장)** · **전체 보기** / **범위만 보기** · `{shown} / {total}장` | 照片 {a} ~ {b}（{n} 张）· 显示全部 / 只看范围 · `{shown} / {total} 张` | Photos {a} ~ {b} ({n}) · Show all / Range only · `Photos: {shown} / {total}` | 范围下载后标注窗口只列出该范围；上传也只传列出的照片 |
 | previous / next photo | **이전 사진** / **다음 사진** | 上一张 / 下一张 | Previous / Next | 标注窗口导航按钮；中/英为了面板宽度用短形式 |
 | edit tools | **편집 도구**: **보기** · **브러시** · **SAM** · **보수 구역** | 编辑工具：查看 · 画笔 · SAM · 修补区域 | Edit tools: View · Brush · SAM · Repair area | 2×2 工具按钮，选中的工具即编辑模式；`보기` = 不编辑。另一组 **표시 · 축척** / 显示 · 比例尺 / Display · Scale |
 | job info | **작업 정보** | 任务信息 | Job info | 标注窗口右侧顶部一行：`작업 {id} · {점검명} · {n}장`；图片列表表头 `번호` / `파일 이름`，列表项 `<작업 ID>-<사진 번호>` + 文件名 |

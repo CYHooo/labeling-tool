@@ -49,11 +49,15 @@ class ViewerMainWindow(CoreMainWindow):
         self.result_dir = workspace.result_dir.resolve()
         self.highlight_dir = workspace.highlight_dir.resolve()
         self.repair15_dir = workspace.repair15_dir.resolve()
+        if self._focus is not None:
+            # A range with none of its photos on disk, or with every local
+            # photo, has nothing to narrow: open the job as usual.
+            in_range = self._range_files()
+            if not in_range or len(in_range) == len(self._all_local_files()):
+                self._focus = None
+                self._show_all = True
         self._add_range_bar()
         self._reload_data()
-        if self._focus is not None and not self.image_files:
-            self._show_all = True          # nothing of the range on disk: show all
-            self._reload_data()
         self._refresh_range_bar()
 
         self._add_upload_button()
@@ -84,16 +88,21 @@ class ViewerMainWindow(CoreMainWindow):
         """"Photos 5 ~ 10 (6)  [Show all]" above the list after a range fetch."""
         self._range_bar = QWidget()
         row = QHBoxLayout(self._range_bar)
-        row.setContentsMargins(0, 0, 0, 6)
+        row.setContentsMargins(0, 0, 0, 2)        # compact: the list keeps its rows
         self._lbl_range = QLabel()
         self._lbl_range.setObjectName("rangeLabel")
         self._btn_range_toggle = QPushButton()
+        self._btn_range_toggle.setObjectName("compactButton")
         self._btn_range_toggle.setAutoDefault(False)
         self._btn_range_toggle.clicked.connect(self._toggle_range_view)
         row.addWidget(self._lbl_range, 1)
         row.addWidget(self._btn_range_toggle)
         self._grp_list.layout().insertWidget(0, self._range_bar)
         self._range_bar.setVisible(self._focus is not None)
+        if self._focus is not None:
+            # the bar's row comes out of the list: about three rows minimum
+            # keeps a 900 px window from scrolling (a range is usually short)
+            self.file_list.setMinimumHeight(92)
 
     def _refresh_range_bar(self):
         if self._focus is None:
@@ -129,9 +138,17 @@ class ViewerMainWindow(CoreMainWindow):
         current = (self.image_files[self.current_idx]
                    if 0 <= self.current_idx < len(self.image_files) else None)
         self._show_all = not self._show_all
-        self._reload_data()
-        if current in self.image_files:
-            self._show_image(self.image_files.index(current))
+        # Rebuild the list without letting it open photo 1 on the way.
+        self.file_list.blockSignals(True)
+        try:
+            self._reload_data()
+        finally:
+            self.file_list.blockSignals(False)
+        if self.image_files:
+            target = (self.image_files.index(current)
+                      if current in self.image_files else 0)
+            self.current_idx = -1                 # force a real load
+            self._show_image(target)
         self._refresh_range_bar()
         self._refresh_job_info()
 

@@ -1019,3 +1019,57 @@ def test_without_a_range_there_is_no_range_bar(tmp_path, monkeypatch):
         assert win._lbl_job_info.full_text().endswith(i18n.tr("photo_count", n=2))
     finally:
         win.close()
+
+
+def test_range_view_never_makes_the_panel_scroll_in_a_900px_window(tmp_path, monkeypatch):
+    win = _range_window(tmp_path, monkeypatch)
+    try:
+        win.resize(1400, 900)
+        scroll = win.findChild(QScrollArea)
+        for code in ("ko", "en", "zh"):
+            i18n.set_language(code)
+            for idx in (VIEW, BRUSH, SAM, BBOX):
+                win._tool_picker.setCurrentIndex(idx)
+                for _ in range(6):
+                    QApplication.processEvents()
+                assert not scroll.verticalScrollBar().isVisible(), (code, idx)
+    finally:
+        i18n.set_language("ko")
+        win.close()
+
+
+def test_a_range_with_nothing_on_disk_opens_normally(tmp_path, monkeypatch):
+    from labeling_tool.session.focus import PhotoFocus
+    warned = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(a))
+    win = _make_window(tmp_path, monkeypatch, files=_SIX,
+                       focus=PhotoFocus(7, 8, ("missing_7.jpg", "missing_8.jpg")))
+    try:
+        assert _rows(win) == list(_SIX)
+        assert not win._range_bar.isVisible() and warned == []
+    finally:
+        win.close()
+
+
+def test_a_range_covering_every_local_photo_needs_no_bar(tmp_path, monkeypatch):
+    from labeling_tool.session.focus import PhotoFocus
+    win = _make_window(tmp_path, monkeypatch, files=_SIX, focus=PhotoFocus(1, 0, _SIX))
+    try:
+        assert _rows(win) == list(_SIX)
+        assert not win._range_bar.isVisible()
+        assert win._lbl_job_info.full_text().endswith(i18n.tr("photo_count", n=6))
+    finally:
+        win.close()
+
+
+def test_switching_the_view_does_not_load_the_first_photo_on_the_way(tmp_path, monkeypatch):
+    win = _range_window(tmp_path, monkeypatch)
+    try:
+        win.file_list.setCurrentRow(2)                         # stitched_004
+        shown = []
+        orig = win._show_image
+        monkeypatch.setattr(win, "_show_image", lambda i, *a, **k: (shown.append(win.image_files[i]), orig(i, *a, **k))[1])
+        win._btn_range_toggle.click()
+        assert shown == [_SIX[3]]
+    finally:
+        win.close()
