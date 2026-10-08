@@ -405,6 +405,30 @@ class ToolPicker(QWidget):
             page.setVisible(i == idx)
 
 
+class WrappedLabel(QLabel):
+    """Word-wrapped label that asks its layout for the height its text
+    really needs at the current width. A plain wrapped QLabel inside a box
+    whose height follows its size hint got the one-width estimate, so a
+    three-line hint was squeezed into two and overlapped."""
+
+    def __init__(self, text: str = "", parent=None):
+        super().__init__(text, parent)
+        self.setWordWrap(True)
+
+    def _fit_height(self) -> None:
+        need = self.heightForWidth(self.width()) if self.width() > 0 else -1
+        if need > 0 and need != self.minimumHeight():
+            self.setMinimumHeight(need)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit_height()
+
+    def setText(self, text: str) -> None:
+        super().setText(text)
+        self._fit_height()
+
+
 def _tool_page(window: "MainWindow", title_key: str, hint_key: str) -> tuple[QWidget, QVBoxLayout]:
     """A tool page: "── name ───" heading and a how-to line; the caller
     adds the options to the returned layout."""
@@ -421,9 +445,8 @@ def _tool_page(window: "MainWindow", title_key: str, hint_key: str) -> tuple[QWi
     head.addWidget(title)
     head.addWidget(rule, 1)
     lay.addLayout(head)
-    hint = QLabel(window.tr_(hint_key))
+    hint = WrappedLabel(window.tr_(hint_key))
     hint.setObjectName("toolHint")
-    hint.setWordWrap(True)
     lay.addWidget(hint)
     window._tool_texts.append((title, title_key, hint, hint_key))
     return page, lay
