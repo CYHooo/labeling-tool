@@ -63,8 +63,8 @@ class ViewerMainWindow(CoreMainWindow):
         btn = getattr(self, "_btn_sam_toggle", None)
         if btn is not None and predictor is None:
             btn.setEnabled(False)
-            self._tool_tabs.setTabToolTip(2, self.tr_("sam_unavailable"))
-        self._refresh_tool_tabs()
+            self._tool_picker.setToolToolTip(2, self.tr_("sam_unavailable"))
+        self._refresh_tools()
 
     # ------------------------------------------------------------ job info
     def _job_info(self) -> tuple[str, str]:

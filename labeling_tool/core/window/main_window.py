@@ -80,7 +80,7 @@ class MainWindow(QMainWindow):
         from labeling_tool.ui.derived_mask_worker import DerivedMaskSignals
         self._derived_signals = DerivedMaskSignals()
         self._derived_signals.done.connect(self._on_derived_ready)
-        self._btn_show_repair15.setChecked(True)   # 15cm contour on by default
+        self._chk_show_repair15.setChecked(True)   # 15cm contour on by default
         self._offer_refit_for: str | None = None   # filename awaiting silent bbox refit
 
         if self.origin_dir is not None:
@@ -127,7 +127,7 @@ class MainWindow(QMainWindow):
         self._refresh_job_info()
         self._btn_help.setToolTip(self.tr_("group_hint"))
         if not self._btn_sam_toggle.isEnabled():
-            self._tool_tabs.setTabToolTip(2, self.tr_("sam_unavailable"))
+            self._tool_picker.setToolToolTip(2, self.tr_("sam_unavailable"))
 
         self._grp_list.setTitle(self.tr_("group_list"))
         self._refresh_list_header()
@@ -137,20 +137,23 @@ class MainWindow(QMainWindow):
         self._refresh_nav_tooltips()
 
         self._grp_tools.setTitle(self.tr_("group_tools"))
+        for idx, key in enumerate(("tool_view", "tool_brush", "tool_sam", "tool_bbox")):
+            self._tool_picker.setToolText(idx, self.tr_(key))
+        for title, title_key, hint, hint_key in self._tool_texts:
+            title.setText(self.tr_(title_key))
+            hint.setText(self.tr_(hint_key))
+        self._btn_cat_crack.setText(self.tr_("cat_crack"))
+        self._btn_cat_spalling.setText(self.tr_("cat_spalling"))
+
+        self._grp_display.setTitle(self.tr_("group_display"))
+        self._chk_show_highlight.setText(self.tr_("btn_show_highlight"))
+        self._chk_show_repair15.setText(self.tr_("btn_show_repair15"))
         self._btn_measure.setText(
             self.tr_("btn_measure_cancel") if self.canvas.measure_mode
             else self.tr_("btn_measure"))
         self._refresh_scale_label()
-        self._btn_cat_crack.setText(self.tr_("cat_crack"))
-        self._btn_cat_spalling.setText(self.tr_("cat_spalling"))
-        self._btn_show_highlight.setText(self.tr_("btn_show_highlight"))
-        self._btn_show_repair15.setText(self.tr_("btn_show_repair15"))
-        for idx, key in enumerate(("tab_view", "tab_brush", "tab_sam", "tab_bbox")):
-            self._tool_tabs.setTabText(idx, self.tr_(key))
-        self._lbl_view_hint.setText(self.tr_("tab_view_hint"))
-        self._lbl_bbox_hint.setText(self.tr_("tab_bbox_hint"))
 
-        # hidden mode switches (the tabs show the mode)
+        # hidden mode switches (the tool picker shows the mode)
         self._btn_brush_toggle.setText(
             self.tr_("btn_brush_off") if self.canvas.brush_mode
             else self.tr_("btn_brush_on"))
@@ -233,14 +236,14 @@ class MainWindow(QMainWindow):
         self._help_dialog.activateWindow()
 
     # ------------------------------------------------------------------
-    # Tool tabs: the selected tab is the editing mode
+    # Tool picker: the selected tool is the editing mode
     # ------------------------------------------------------------------
     def _tool_mode_buttons(self):
-        """Mode switch per tab index; the view tab (0) has none."""
+        """Mode switch per tool index; the view tool (0) has none."""
         return (None, self._btn_brush_toggle, self._btn_sam_toggle,
                 self._btn_bbox_toggle)
 
-    def _on_tool_tab_changed(self, idx: int):
+    def _on_tool_changed(self, idx: int):
         buttons = self._tool_mode_buttons()
         target = buttons[idx] if 0 <= idx < len(buttons) else None
         if target is None:
@@ -248,34 +251,32 @@ class MainWindow(QMainWindow):
                 btn.setChecked(False)
         elif target.isEnabled():
             target.setChecked(True)      # its handler leaves the other modes
-        self._sync_tool_tab()
+        self._sync_tool()
 
-    def _sync_tool_tab(self, *_):
-        """Show the active mode's tab (after B / X, measuring, or a refused
-        switch). The view tab when no editing mode is on."""
+    def _sync_tool(self, *_):
+        """Select the active mode's tool (after B / X, measuring, or a
+        refused switch); the view tool when no editing mode is on."""
         buttons = self._tool_mode_buttons()
         idx = next((i for i, btn in enumerate(buttons)
                     if btn is not None and btn.isChecked()), 0)
-        self._tool_tabs.blockSignals(True)
-        self._tool_tabs.setCurrentIndex(idx)
-        self._tool_tabs.blockSignals(False)
+        self._tool_picker.blockSignals(True)
+        self._tool_picker.setCurrentIndex(idx)
+        self._tool_picker.blockSignals(False)
 
-    def _refresh_tool_tabs(self):
+    def _refresh_tools(self):
         """A tool whose switch is disabled (SAM without its model, the repair
-        area without a scale) has its tab disabled too, and its mode ends.
-
-        Signals stay blocked while tabs are disabled: Qt moves the current
-        index off a tab it disables, and that move must not switch the user
-        into the neighbouring tool's mode."""
+        area without a scale) is disabled in the picker too, and its mode
+        ends. Signals stay blocked meanwhile, so no tool change on the way
+        can switch the user into another mode."""
         for btn in self._tool_mode_buttons():
             if btn is not None and not btn.isEnabled() and btn.isChecked():
                 btn.setChecked(False)
-        self._tool_tabs.blockSignals(True)
+        self._tool_picker.blockSignals(True)
         for idx, btn in enumerate(self._tool_mode_buttons()):
             if btn is not None:
-                self._tool_tabs.setTabEnabled(idx, btn.isEnabled())
-        self._tool_tabs.blockSignals(False)
-        self._sync_tool_tab()
+                self._tool_picker.setToolEnabled(idx, btn.isEnabled())
+        self._tool_picker.blockSignals(False)
+        self._sync_tool()
 
     def _toggle_mode_shortcut(self, btn):
         """B / X: toggle a tool's mode, unless the tool is unavailable."""
@@ -345,7 +346,7 @@ class MainWindow(QMainWindow):
         self.scale_tracker.last_known_scale = scale
         self.canvas.set_bbox_padding_px(scale * 15.0)
         self._btn_bbox_toggle.setEnabled(True)
-        self._refresh_tool_tabs()
+        self._refresh_tools()
         self._refresh_scale_label()
         mm_per_px = 10.0 / scale
         self.status.showMessage(
@@ -667,7 +668,7 @@ class MainWindow(QMainWindow):
 
         side_panel = build_side_panel(self)
         self._refresh_nav_tooltips()
-        self._refresh_tool_tabs()
+        self._refresh_tools()
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self.canvas)
@@ -822,7 +823,7 @@ class MainWindow(QMainWindow):
         self.canvas.set_bbox_padding_px(scale * 15.0 if scale else 0.0)
         self._refresh_scale_label()
         self._btn_bbox_toggle.setEnabled(scale is not None)
-        self._refresh_tool_tabs()
+        self._refresh_tools()
 
         # ----- BBox JSON -----
         if bbox_path is not None:

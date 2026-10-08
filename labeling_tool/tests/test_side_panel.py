@@ -1,11 +1,12 @@
-"""Labeling window side panel, layout A: one-line job info with a help
-button, image list with a header, one navigation row with a single save,
-tools on tabs where the selected tab IS the editing mode, and the upload
-button pinned to the bottom."""
+"""Labeling window side panel: one-line job info with a help button, image
+list with a header, one navigation row with a single save, a 2x2 tool
+picker where the selected tool IS the editing mode (its how-to and options
+below it), a display/scale group, and the upload button pinned to the
+bottom."""
 import cv2
 import numpy as np
 from PyQt5.QtWidgets import (
-    QApplication, QDialog, QLabel, QMessageBox, QPushButton, QScrollArea,
+    QApplication, QCheckBox, QDialog, QLabel, QMessageBox, QPushButton, QScrollArea,
 )
 
 from labeling_tool.core import i18n
@@ -141,78 +142,78 @@ def test_one_navigation_row_with_a_single_save(tmp_path, monkeypatch):
         win.close()
 
 
-# ---------------------------------------------------------------- tool tabs
-def test_tabs_are_view_brush_sam_and_repair_area(tmp_path, monkeypatch):
+# ---------------------------------------------------------------- tool modes
+def test_tools_are_view_brush_sam_and_repair_area(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch)
     try:
-        tabs = win._tool_tabs
-        assert [tabs.tabText(i) for i in range(tabs.count())] == [
-            i18n.tr("tab_view"), i18n.tr("tab_brush"), i18n.tr("tab_sam"), i18n.tr("tab_bbox")]
-        assert tabs.currentIndex() == VIEW
+        picker = win._tool_picker
+        assert [picker.toolText(i) for i in range(picker.count())] == [
+            i18n.tr("tool_view"), i18n.tr("tool_brush"), i18n.tr("tool_sam"), i18n.tr("tool_bbox")]
+        assert picker.currentIndex() == VIEW
         assert not (win.canvas.brush_mode or win.canvas.sam_mode or win.canvas.bbox_mode)
     finally:
         win.close()
 
 
-def test_choosing_a_tab_switches_the_mode(tmp_path, monkeypatch):
+def test_choosing_a_tool_switches_the_mode(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch)
     try:
-        tabs = win._tool_tabs
-        tabs.setCurrentIndex(BRUSH)
+        picker = win._tool_picker
+        picker.setCurrentIndex(BRUSH)
         assert win.canvas.brush_mode and not win.canvas.sam_mode
-        tabs.setCurrentIndex(SAM)
+        picker.setCurrentIndex(SAM)
         assert win.canvas.sam_mode and not win.canvas.brush_mode
-        tabs.setCurrentIndex(BBOX)
+        picker.setCurrentIndex(BBOX)
         assert win.canvas.bbox_mode and not win.canvas.sam_mode
-        tabs.setCurrentIndex(VIEW)
+        picker.setCurrentIndex(VIEW)
         assert not (win.canvas.brush_mode or win.canvas.sam_mode or win.canvas.bbox_mode)
     finally:
         win.close()
 
 
-def test_shortcuts_and_measuring_move_the_tab(tmp_path, monkeypatch):
+def test_shortcuts_and_measuring_move_the_selection(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch)
     try:
-        tabs = win._tool_tabs
+        picker = win._tool_picker
         win._btn_brush_toggle.toggle()                       # what B does
-        assert tabs.currentIndex() == BRUSH
+        assert picker.currentIndex() == BRUSH
         win._btn_bbox_toggle.toggle()                        # what X does
-        assert tabs.currentIndex() == BBOX and not win.canvas.brush_mode
+        assert picker.currentIndex() == BBOX and not win.canvas.brush_mode
         win._btn_measure.setChecked(True)                    # 수동 측정 leaves every tool
-        assert tabs.currentIndex() == VIEW and not win.canvas.bbox_mode
+        assert picker.currentIndex() == VIEW and not win.canvas.bbox_mode
         win._btn_measure.setChecked(False)
         win._btn_brush_toggle.toggle()
         win._btn_brush_toggle.toggle()                       # B again: brush off
-        assert tabs.currentIndex() == VIEW
+        assert picker.currentIndex() == VIEW
     finally:
         win.close()
 
 
-def test_choosing_a_tool_tab_leaves_measuring(tmp_path, monkeypatch):
+def test_choosing_a_tool_leaves_measuring(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch)
     try:
         win._btn_measure.setChecked(True)
-        win._tool_tabs.setCurrentIndex(BRUSH)
+        win._tool_picker.setCurrentIndex(BRUSH)
         assert win.canvas.brush_mode and not win._btn_measure.isChecked()
     finally:
         win.close()
 
 
-def test_sam_tab_is_disabled_without_the_model(tmp_path, monkeypatch):
+def test_sam_is_disabled_without_the_model(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch, sam_available=False)
     try:
-        assert not win._tool_tabs.isTabEnabled(SAM)
+        assert not win._tool_picker.isToolEnabled(SAM)
     finally:
         win.close()
 
 
-def test_repair_area_tab_follows_whether_a_scale_is_known(tmp_path, monkeypatch):
+def test_repair_area_follows_whether_a_scale_is_known(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch)
     try:
-        assert win._tool_tabs.isTabEnabled(BBOX)             # server scale present
+        assert win._tool_picker.isToolEnabled(BBOX)             # server scale present
         win._btn_bbox_toggle.setEnabled(False)
-        win._refresh_tool_tabs()
-        assert not win._tool_tabs.isTabEnabled(BBOX)
+        win._refresh_tools()
+        assert not win._tool_picker.isToolEnabled(BBOX)
     finally:
         win.close()
 
@@ -226,14 +227,14 @@ def test_mode_toggle_buttons_are_not_shown(tmp_path, monkeypatch):
         win.close()
 
 
-def test_display_toggles_stay_visible_on_every_tab(tmp_path, monkeypatch):
+def test_display_toggles_stay_visible_for_every_tool(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch)
     try:
         for idx in (VIEW, BRUSH, SAM, BBOX):
-            win._tool_tabs.setCurrentIndex(idx)
+            win._tool_picker.setCurrentIndex(idx)
             QApplication.processEvents()
-            assert win._btn_show_highlight.isVisible()
-            assert win._btn_show_repair15.isVisible()
+            assert win._chk_show_highlight.isVisible()
+            assert win._chk_show_repair15.isVisible()
     finally:
         win.close()
 
@@ -260,7 +261,8 @@ def test_panel_text_follows_the_language(tmp_path, monkeypatch):
             i18n.set_language(code)
             assert win._grp_list.title() == i18n.tr("group_list")
             assert win._grp_tools.title() == i18n.tr("group_tools")
-            assert win._tool_tabs.tabText(BRUSH) == i18n.tr("tab_brush")
+            assert win._grp_display.title() == i18n.tr("group_display")
+            assert win._tool_picker.toolText(BRUSH) == i18n.tr("tool_brush")
             assert win._list_header.labels()[1] == i18n.tr("list_col_file")
             assert win.btn_prev.text() == i18n.tr("btn_prev")
             assert win._lbl_job_info.full_text() == i18n.tr(
@@ -272,7 +274,7 @@ def test_panel_text_follows_the_language(tmp_path, monkeypatch):
 
 def test_panel_content_fits_the_panel_width_in_every_language(tmp_path, monkeypatch):
     # Nothing may be clipped at the panel's narrowest width (horizontal
-    # scrolling is off), on any tab.
+    # scrolling is off), with any tool selected.
     win = _make_window(tmp_path, monkeypatch)
     try:
         scroll = win.findChild(QScrollArea)
@@ -281,7 +283,7 @@ def test_panel_content_fits_the_panel_width_in_every_language(tmp_path, monkeypa
         for code in ("ko", "en", "zh"):
             i18n.set_language(code)
             for idx in (VIEW, BRUSH, SAM, BBOX):
-                win._tool_tabs.setCurrentIndex(idx)
+                win._tool_picker.setCurrentIndex(idx)
                 QApplication.processEvents()
                 assert content.minimumSizeHint().width() <= narrowest, (code, idx)
                 for btn in content.findChildren(QPushButton):
@@ -307,18 +309,19 @@ def test_the_image_list_takes_the_spare_height(tmp_path, monkeypatch):
 
 
 def test_moving_to_a_photo_without_scale_leaves_repair_area_mode_safely(tmp_path, monkeypatch):
-    # Disabling the current tab made Qt jump to a neighbouring tab, and that
+    # (Regression from the tab version.) Disabling the current tab made Qt
+    # jump to a neighbouring tab, and that
     # switched the user into SAM (or brush) mode without a word.
     for sam in (True, False):
         win = _make_window(tmp_path / str(sam), monkeypatch, sam_available=sam,
                            second_photo_scale=0.0)
         try:
-            win._tool_tabs.setCurrentIndex(BBOX)
+            win._tool_picker.setCurrentIndex(BBOX)
             assert win.canvas.bbox_mode
             win.go_next()                                    # photo 2: no scale
             assert not (win.canvas.brush_mode or win.canvas.sam_mode or win.canvas.bbox_mode)
-            assert win._tool_tabs.currentIndex() == VIEW
-            assert not win._tool_tabs.isTabEnabled(BBOX)
+            assert win._tool_picker.currentIndex() == VIEW
+            assert not win._tool_picker.isToolEnabled(BBOX)
         finally:
             win.close()
 
@@ -333,7 +336,7 @@ def test_mode_shortcuts_do_nothing_while_the_tool_is_unavailable(tmp_path, monke
         win.canvas.setFocus()
         QTest.keyClick(win, Qt.Key_X)
         assert not win.canvas.bbox_mode
-        assert win._tool_tabs.currentIndex() == VIEW
+        assert win._tool_picker.currentIndex() == VIEW
     finally:
         win.close()
 
@@ -350,7 +353,7 @@ def test_sam_unavailable_tooltip_follows_the_language(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch, sam_available=False)
     try:
         i18n.set_language("en")
-        assert win._tool_tabs.tabToolTip(SAM) == i18n.tr("sam_unavailable")
+        assert win._tool_picker.toolToolTip(SAM) == i18n.tr("sam_unavailable")
     finally:
         i18n.set_language("ko")
         win.close()
@@ -361,3 +364,134 @@ def test_help_text_uses_the_glossary_term_for_repair_areas():
         import importlib
         text = importlib.import_module(f"labeling_tool.core.i18n.strings_{code}").STRINGS["hint_text"]
         assert term in text, code
+
+
+# ---------------------------------------------------------------- tool picker
+def test_tools_are_a_two_by_two_grid_of_icon_buttons(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        buttons = [win._tool_picker.button(i) for i in range(4)]
+        xs = {b.mapTo(win, b.rect().topLeft()).x() for b in buttons}
+        ys = {b.mapTo(win, b.rect().topLeft()).y() for b in buttons}
+        assert len(xs) == 2 and len(ys) == 2
+        assert all(not b.icon().isNull() for b in buttons)
+        assert [b.isChecked() for b in buttons] == [True, False, False, False]
+    finally:
+        win.close()
+
+
+def test_clicking_a_tool_button_selects_it(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._tool_picker.button(BRUSH).click()
+        assert win.canvas.brush_mode
+        assert win._tool_picker.currentIndex() == BRUSH
+        assert [win._tool_picker.button(i).isChecked() for i in range(4)] == [False, True, False, False]
+    finally:
+        win.close()
+
+
+def test_each_tool_shows_its_name_and_how_to(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        for idx, key in ((VIEW, "tool_view"), (BRUSH, "tool_brush"), (SAM, "tool_sam"), (BBOX, "tool_bbox")):
+            win._tool_picker.setCurrentIndex(idx)
+            QApplication.processEvents()
+            page = win._tool_picker.current_page()
+            texts = [lbl.text() for lbl in page.findChildren(QLabel) if lbl.isVisible()]
+            assert i18n.tr(key) in texts
+            assert i18n.tr(key + "_hint") in texts
+    finally:
+        win.close()
+
+
+def test_crack_and_spalling_are_only_shown_with_the_brush(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        for idx in (VIEW, BRUSH, SAM, BBOX):
+            win._tool_picker.setCurrentIndex(idx)
+            QApplication.processEvents()
+            assert win._btn_cat_crack.isVisible() == (idx == BRUSH)
+    finally:
+        win.close()
+
+
+def test_display_options_are_checkboxes_in_their_own_group(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        assert isinstance(win._chk_show_highlight, QCheckBox)
+        assert win._chk_show_repair15.isChecked()                # on by default
+        assert win._grp_display.isAncestorOf(win._chk_show_highlight)
+        assert win._grp_display.isAncestorOf(win._btn_measure)
+        win._chk_show_highlight.setChecked(True)
+        assert win.canvas.show_highlight
+    finally:
+        win.close()
+
+
+def test_the_tools_area_height_follows_the_selected_tool(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        heights = {}
+        for idx in (VIEW, BRUSH):
+            win._tool_picker.setCurrentIndex(idx)
+            QApplication.processEvents()
+            heights[idx] = (win._grp_tools.height(), win.file_list.height())
+        assert heights[VIEW][0] < heights[BRUSH][0]              # tools shrink
+        assert heights[VIEW][1] > heights[BRUSH][1]              # the list gets it
+    finally:
+        win.close()
+
+
+def test_no_tool_makes_the_panel_scroll_in_a_900px_window(tmp_path, monkeypatch):
+    # The list gives way instead: with the tallest tool page the display
+    # group must still be on screen without scrolling.
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win.resize(1400, 900)
+        scroll = win.findChild(QScrollArea)
+        for code in ("ko", "en", "zh"):
+            i18n.set_language(code)
+            for idx in (VIEW, BRUSH, SAM, BBOX):
+                win._tool_picker.setCurrentIndex(idx)
+                QApplication.processEvents()
+                assert not scroll.verticalScrollBar().isVisible(), (code, idx)
+    finally:
+        i18n.set_language("ko")
+        win.close()
+
+
+def test_a_disabled_tool_cannot_be_picked_and_reclicking_emits_nothing():
+    picker = ui_builder.ToolPicker()
+    for _ in range(4):
+        picker.add_tool("x", QLabel("page"))
+    emitted = []
+    picker.currentChanged.connect(emitted.append)
+    picker.setToolEnabled(SAM, False)
+    picker.setCurrentIndex(SAM)
+    assert picker.currentIndex() == VIEW
+    picker.button(VIEW).click()                     # the current tool again
+    assert emitted == []
+    picker.button(BRUSH).click()
+    assert emitted == [BRUSH]
+
+
+def test_category_shortcuts_work_while_the_brush_page_is_hidden(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        assert not win._btn_cat_spalling.isVisible()                # 보기 selected
+        win.activateWindow()
+        QTest.keyClick(win, Qt.Key_2)
+        assert win.canvas.current_category == "spalling"
+        assert win._btn_cat_spalling.isChecked()
+    finally:
+        win.close()
+
+
+def test_the_sam_how_to_mentions_esc():
+    import importlib
+    for code in ("ko", "zh", "en"):
+        strings = importlib.import_module(f"labeling_tool.core.i18n.strings_{code}").STRINGS
+        assert "Esc" in strings["tool_sam_hint"], code
