@@ -922,3 +922,22 @@ def test_a_photo_saved_during_an_upload_stays_pending(tmp_path, monkeypatch):
         assert not win._manifest.get(_FILES[0]).synced
     finally:
         win.close()
+
+
+def test_tool_how_to_lines_are_never_clipped(tmp_path, monkeypatch):
+    # The wrapped how-to label got its one-width size hint, so SAM's three
+    # lines were squeezed into the height of two and overlapped.
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        for code in ("ko", "zh", "en"):
+            i18n.set_language(code)
+            for idx in (VIEW, BRUSH, SAM, BBOX):
+                win._tool_picker.setCurrentIndex(idx)
+                QApplication.processEvents()
+                QApplication.processEvents()
+                for lbl in win._tool_picker.current_page().findChildren(QLabel):
+                    if lbl.isVisible() and lbl.wordWrap():
+                        assert lbl.height() >= lbl.heightForWidth(lbl.width()), (code, idx, lbl.text())
+    finally:
+        i18n.set_language("ko")
+        win.close()
