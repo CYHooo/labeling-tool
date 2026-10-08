@@ -36,9 +36,7 @@ def dlg(monkeypatch, tmp_path):
     monkeypatch.setattr(fd, "save_config", lambda *a: None)
     monkeypatch.setattr(fd, "attach_session_log", lambda *a: None)
     d = fd.FetchDialog(base="https://a", key="k")
-    d._selected_sid = lambda: 7
-    d.sp_from.setValue(0)
-    d.sp_to.setValue(0)
+    d._selected_sid = lambda: 7                 # all photos: the default
     yield d
     d.close()
 

@@ -5,7 +5,7 @@
 A labeling tool for **correcting, on your own PC**, the stitched images and crack masks produced by the AI server.
 Edit crack masks, mark repair areas (OBB) and check the scale (px/cm), then upload the results back to the server (EC2).
 
-Workflow: **Log in → Fetch data → Label → Upload to EC2**
+Workflow: **Log in → Fetch a new job → Label → Upload to EC2**
 
 ---
 
@@ -59,7 +59,7 @@ On the first screen, enter your **ID / password** and the **server** (`BASE URL`
 
 After logging in, the jobs screen opens: **Local jobs** lists the jobs already on this PC, newest first. "Log out" returns to the first screen.
 
-- **A new job**: "Fetch a new job" → pick the job and, if needed, the photo range with `fromNum` / `toNum` (0 = from the start / to the end) → "Fetch (download)". The labeling window opens once the photos are in.
+- **A new job**: "Fetch a new job" → pick the "Job ID"; photos are "All" by default, or choose "Range" for a photo-number range (e.g. 10 ~ 50) → "Fetch". The labeling window opens once the photos are in.
 - **A job you already have**: pick it in the list and click "Open" (or double-click). Uploads go to the server the job came from; with the Key empty, work is saved on this PC only.
 - The list opens most recently modified first. Click a column header (job, inspection name, photos, last modified) to sort by it; click again to reverse.
 - Fetching a job that is already on this PC asks "Open" or "Fetch again". Fetching again keeps your labeling and upload records. A same-numbered job fetched from another server can't be opened here.

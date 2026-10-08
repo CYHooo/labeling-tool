@@ -1,12 +1,13 @@
-"""Data fetch screen (shown after login): pick a session from the dropdown
-(populated via list_sessions), set the optional num zone, then fetch + download
-+ prebuild. Mirrors the old ConnectDialog online path."""
+"""Fetch a new job (shown after sign-in): pick a job (by job ID) from the
+dropdown (populated via list_sessions), all photos or one photo-number
+range, then fetch + download + prebuild."""
 
 from __future__ import annotations
 
 from PyQt5.QtWidgets import (
     QDialog, QFormLayout, QPushButton, QHBoxLayout, QVBoxLayout,
     QLabel, QProgressBar, QMessageBox, QSpinBox, QComboBox, QApplication,
+    QRadioButton,
 )
 
 from labeling_tool.core.i18n import tr
@@ -44,10 +45,13 @@ def filter_photos_by_range(photos: list[dict], from_num: int,
     return out
 
 
+_MAX_PHOTO_NUM = 10_000_000      # range limit when the job's photo count is unknown
+
+
 class FetchDialog(QDialog):
     def __init__(self, base: str, key: str, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(tr("fetch_title"))
+        self.setWindowTitle(tr("login_new_job"))
         self.resize(520, 300)
         self.base = base
         self.key = key
@@ -59,13 +63,46 @@ class FetchDialog(QDialog):
         # manifest so the local job list can show it later
         self._session_names: dict[int, str] = {}
 
+        # sessionId -> photoCount from the server list: the range defaults
+        # to the whole job and cannot go past its last photo
+        self._session_counts: dict[int, int] = {}
+
         self.cb_session = QComboBox()
-        self.sp_from = QSpinBox(); self.sp_from.setRange(0, 10_000_000)
-        self.sp_to = QSpinBox(); self.sp_to.setRange(0, 10_000_000)
+        self.cb_session.currentIndexChanged.connect(self._fit_range_to_job)
+
+        # Photos: all (default) or one photo-number range. "All" is sent as
+        # the open range 0..0 (see filter_photos_by_range).
+        self.rb_all = QRadioButton(tr("fetch_photos_all"))
+        self.rb_range = QRadioButton(tr("fetch_photos_range"))
+        self.rb_all.setChecked(True)
+        self.sp_from = QSpinBox(); self.sp_from.setRange(1, _MAX_PHOTO_NUM)
+        # 0 = to the last photo, shown as 「끝」: the default when the job's
+        # photo count is unknown (typed job ID), so a range never silently
+        # shrinks to one photo. No cap at the count either: photo numbers
+        # can have gaps (a deleted photo), so the last one may exceed it.
+        self.sp_to = QSpinBox(); self.sp_to.setRange(0, _MAX_PHOTO_NUM)
+        self.sp_to.setSpecialValueText(tr("fetch_range_end"))
+        self.sp_to.setValue(0)
+        for sp in (self.sp_from, self.sp_to):
+            sp.setMinimumWidth(80)
+        range_row = QHBoxLayout()
+        range_row.setContentsMargins(22, 0, 0, 0)      # under the radio's text
+        range_row.addWidget(QLabel(tr("fetch_photo_number")))
+        range_row.addWidget(self.sp_from)
+        range_row.addWidget(QLabel("~"))
+        range_row.addWidget(self.sp_to)
+        range_row.addStretch(1)
+        photos = QVBoxLayout()
+        photos.setSpacing(4)
+        photos.addWidget(self.rb_all)
+        photos.addWidget(self.rb_range)
+        photos.addLayout(range_row)
+        self.rb_range.toggled.connect(self._on_range_toggled)
+        self._on_range_toggled(False)
+
         form = QFormLayout()
-        form.addRow("sessionId", self.cb_session)
-        form.addRow(tr("fetch_from_label"), self.sp_from)
-        form.addRow(tr("fetch_to_label"), self.sp_to)
+        form.addRow(tr("fetch_job_label"), self.cb_session)
+        form.addRow(tr("fetch_photos_label"), photos)
 
         self.progress = QProgressBar(); self.progress.setVisible(False)
         self.lbl_status = QLabel("")
@@ -106,21 +143,51 @@ class FetchDialog(QDialog):
             QMessageBox.warning(
                 self, tr("fetch_sessions_failed_title"),
                 tr("fetch_sessions_failed_msg", error=e))
-            self.cb_session.setEditable(True)
+            self._manual_job_entry()
             return
         if not sessions:
-            self.cb_session.setEditable(True)
+            self._manual_job_entry()
             return
         for s in sessions:
             sid = s["sessionId"]
             name = s.get("inspectionName")
             if name:
                 self._session_names[int(sid)] = name
+            if s.get("photoCount"):
+                self._session_counts[int(sid)] = int(s["photoCount"])
             label = (tr("fetch_session_item", sid=sid) if not name
                      else tr("fetch_session_item_named", sid=sid, name=name))
             if s.get("photoCount") is not None:
                 label += "  " + tr("fetch_photo_count", count=s["photoCount"])
             self.cb_session.addItem(label, sid)
+
+    def _manual_job_entry(self) -> None:
+        """No job list from the server: type the job ID instead."""
+        self.cb_session.setEditable(True)
+        # Enter fetches (default button); it must not also add the typed
+        # text as a list item.
+        self.cb_session.setInsertPolicy(QComboBox.NoInsert)
+        self.cb_session.lineEdit().setPlaceholderText(tr("fetch_job_placeholder"))
+
+    # ---- photo range ----
+    def _on_range_toggled(self, on: bool) -> None:
+        self.sp_from.setEnabled(on)
+        self.sp_to.setEnabled(on)
+
+    def _fit_range_to_job(self, *_):
+        """Default range = the selected job's photos (1 ~ count). With an
+        unknown count (a typed job ID) the user's range is left alone."""
+        count = self._session_counts.get(self._selected_sid() or -1)
+        if count:
+            self.sp_from.setValue(1)
+            self.sp_to.setValue(count)
+
+    def _requested_range(self) -> tuple[int, int]:
+        """(from, to) photo numbers to fetch; 0 is an open end, so (0, 0)
+        = all photos and (5, 0) = from photo 5 to the last."""
+        if not self.rb_range.isChecked():
+            return 0, 0
+        return self.sp_from.value(), self.sp_to.value()
 
     def _selected_sid(self) -> int | None:
         data = self.cb_session.currentData()
@@ -141,8 +208,11 @@ class FetchDialog(QDialog):
             QMessageBox.warning(self, tr("fetch_input_required_title"),
                                 tr("fetch_input_required_msg"))
             return
-        from_num = self.sp_from.value()
-        to_num = self.sp_to.value()
+        from_num, to_num = self._requested_range()
+        if to_num and from_num > to_num:            # to 0 = to the last photo
+            QMessageBox.warning(self, tr("fetch_range_title"),
+                                tr("fetch_range_reversed_msg"))
+            return
 
         ws = Workspace.default(session_id=sid)
         previous = None
