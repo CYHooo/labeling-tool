@@ -3,8 +3,8 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QShortcut
+from PyQt5.QtCore import QEvent, QObject, Qt
+from PyQt5.QtWidgets import QShortcut, QAbstractSpinBox
 from PyQt5.QtGui import QKeySequence
 
 if TYPE_CHECKING:
@@ -16,6 +16,7 @@ def register_shortcuts(window: "MainWindow") -> None:
     QShortcut(QKeySequence("A"), window, window.go_prev)
     QShortcut(QKeySequence("D"), window, window.go_next)
     QShortcut(QKeySequence("S"), window, window._on_brush_save)
+    QShortcut(QKeySequence("Ctrl+S"), window, window._on_brush_save)
     QShortcut(QKeySequence("B"), window,
               lambda: window._toggle_mode_shortcut(window._btn_brush_toggle))
     QShortcut(QKeySequence("["), window, lambda: window._nudge_brush_size(-2))
@@ -30,3 +31,28 @@ def register_shortcuts(window: "MainWindow") -> None:
     QShortcut(QKeySequence(Qt.Key_Enter), window, window._on_bbox_commit)
     QShortcut(QKeySequence(Qt.Key_Escape), window, window._on_escape)
     QShortcut(QKeySequence(Qt.Key_Delete), window, window._on_bbox_delete)
+
+
+class _LetterShortcutsPassThrough(QObject):
+    """Lets a number box hand letter keys to the window's single-key
+    shortcuts (A / D / S / B / X ..., and [ / ] for the brush size). A focused QSpinBox otherwise claims
+    every printable key -- and with an input method (pinyin, hangul) turns
+    it into composition -- so after adjusting the brush size the shortcuts
+    seemed gone. Digits, arrows and editing keys still reach the box."""
+
+    def eventFilter(self, obj, event):
+        if (event.type() == QEvent.ShortcutOverride
+                and (Qt.Key_A <= event.key() <= Qt.Key_Z
+                     or event.key() in (Qt.Key_BracketLeft, Qt.Key_BracketRight))
+                and not event.modifiers() & ~Qt.ShiftModifier):
+            event.ignore()               # not ours: let the shortcut fire
+            return True
+        return False
+
+
+def keep_shortcuts_through(box: QAbstractSpinBox) -> None:
+    """Number entry only: no input method, and letters go to shortcuts."""
+    keeper = _LetterShortcutsPassThrough(box)
+    for widget in (box, box.lineEdit()):
+        widget.setAttribute(Qt.WA_InputMethodEnabled, False)
+        widget.installEventFilter(keeper)

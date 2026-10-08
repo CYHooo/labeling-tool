@@ -50,7 +50,7 @@ STRINGS = {
         "修补区域 点击=加点 · Enter=提交 · Esc=取消 · Del=删除\n"
         "测量   点已知长度参照物的两端(默认 marker 边 7cm)\n"
         "视图   Ctrl+拖拽=平移 · 滚轮=缩放\n"
-        "导航   A / D=上/下一张 · S=保存 · 切换时自动保存",
+        "导航   A / D=上/下一张 · S / Ctrl+S=保存 · 切换时自动保存",
     "ready":              "就绪",
     "loaded_n_images":    "共加载 {n} 张图片",
     "warn_select_first":  "请先选择 Origin 和 Detected 文件夹",

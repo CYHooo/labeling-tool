@@ -515,3 +515,78 @@ def test_help_dialog_opens_the_log_folder(tmp_path, monkeypatch):
         win._help_dialog.close()
     finally:
         win.close()
+
+
+# ---------------------------------------------------------------- shortcuts
+def _focus_brush_size(win):
+    win._tool_picker.setCurrentIndex(BRUSH)
+    win.activateWindow()
+    win._spn_brush_size.setFocus()
+    QApplication.processEvents()
+    assert QApplication.focusWidget() in (win._spn_brush_size, win._spn_brush_size.lineEdit())
+
+
+def test_shortcuts_still_work_after_adjusting_the_brush_size(tmp_path, monkeypatch):
+    # The size box swallowed letters (and sent them to a pinyin/hangul input
+    # method), so after touching it A / D / S did nothing.
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    win = _make_window(tmp_path, monkeypatch)
+    saves = []
+    monkeypatch.setattr(win, "_save_all_artifacts", lambda *a, **k: saves.append(k))
+    try:
+        _focus_brush_size(win)
+        target = QApplication.focusWidget()
+        QTest.keyClick(target, Qt.Key_D)
+        assert win.current_idx == 1
+        QTest.keyClick(target, Qt.Key_A)
+        assert win.current_idx == 0
+        QTest.keyClick(target, Qt.Key_S)
+        assert saves                                            # S saved
+    finally:
+        win.close()
+
+
+def test_the_brush_size_box_still_takes_digits(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        _focus_brush_size(win)
+        win._spn_brush_size.lineEdit().selectAll()
+        QTest.keyClicks(QApplication.focusWidget(), "25")
+        QTest.keyClick(QApplication.focusWidget(), Qt.Key_Return)
+        assert win._spn_brush_size.value() == 25
+        assert not win._spn_brush_size.lineEdit().testAttribute(Qt.WA_InputMethodEnabled)
+        assert not win._spn_brush_size.testAttribute(Qt.WA_InputMethodEnabled)
+    finally:
+        win.close()
+
+
+def test_ctrl_s_saves_too(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    win = _make_window(tmp_path, monkeypatch)
+    saves = []
+    monkeypatch.setattr(win, "_save_all_artifacts", lambda *a, **k: saves.append(k))
+    try:
+        win.activateWindow()
+        win.canvas.setFocus()
+        QTest.keyClick(win.canvas, Qt.Key_S, Qt.ControlModifier)
+        assert saves
+        assert "Ctrl+S" in win.btn_save.toolTip()
+    finally:
+        win.close()
+
+
+def test_bracket_keys_resize_the_brush_from_the_size_box(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        _focus_brush_size(win)
+        before = win._spn_brush_size.value()
+        QTest.keyClick(QApplication.focusWidget(), Qt.Key_BracketRight)
+        assert win._spn_brush_size.value() == before + 2
+    finally:
+        win.close()

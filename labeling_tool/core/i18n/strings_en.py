@@ -50,7 +50,7 @@ STRINGS = {
         "Repair  click add point · Enter commit · Esc cancel · Del delete\n"
         "Measure click the two ends of a known-length reference\n"
         "View    Ctrl+drag pan · wheel zoom\n"
-        "Nav     A / D prev/next · S save · auto-save on switch",
+        "Nav     A / D prev/next · S / Ctrl+S save · auto-save on switch",
     "ready":              "Ready",
     "loaded_n_images":    "Loaded {n} images",
     "warn_select_first":  "Please select Origin and Detected folders first",

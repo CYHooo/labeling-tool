@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import (
 )
 
 from labeling_tool.ui import icons
+from labeling_tool.core.window.shortcuts import keep_shortcuts_through
 from labeling_tool.core.constants import BRUSH_DEFAULT_SIZE, BRUSH_MAX_SIZE
 
 if TYPE_CHECKING:
@@ -429,6 +430,7 @@ def _build_brush_options(window: "MainWindow", lay: QVBoxLayout) -> None:
     window._spn_brush_size.setRange(1, BRUSH_MAX_SIZE)
     window._spn_brush_size.setValue(BRUSH_DEFAULT_SIZE)
     window._spn_brush_size.setFixedWidth(60)
+    keep_shortcuts_through(window._spn_brush_size)
     window._sld_brush_size.valueChanged.connect(window._spn_brush_size.setValue)
     window._spn_brush_size.valueChanged.connect(window._sld_brush_size.setValue)
     window._spn_brush_size.valueChanged.connect(window._on_brush_size_changed)

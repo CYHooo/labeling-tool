@@ -55,7 +55,7 @@ STRINGS = {
         "보수 구역  클릭=점추가 · Enter=확정 · Esc=취소 · Del=삭제\n"
         "측정    알려진 길이 기준의 양 끝을 클릭 (기본 마커변 7cm)\n"
         "화면    Ctrl+드래그=이동 · 휠=확대/축소\n"
-        "탐색    A / D=이전/다음 · S=저장 · 전환 시 자동저장",
+        "탐색    A / D=이전/다음 · S / Ctrl+S=저장 · 전환 시 자동저장",
     "ready":              "준비 완료",
     "loaded_n_images":    "이미지 {n}장 로드됨",
     "warn_select_first":  "먼저 Origin과 Detected 폴더를 선택하세요",
