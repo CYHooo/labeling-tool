@@ -896,18 +896,15 @@ class MainWindow(QMainWindow):
         return self.scale_tracker.update_for_image(origin)
 
     def _refresh_scale_label(self):
-        # Internal canonical scale is px/cm (from ArUco). The right-side
-        # label shows mm/px = 10 / (px/cm).
+        # Internal canonical scale is px/cm. The label shows mm/px = 10 / (px/cm),
+        # marked only when it was measured by hand (it then overrides the
+        # server's value); where an automatic value came from is not shown.
         if self.current_scale is None or self.current_scale <= 0:
-            txt = self.tr_("lbl_scale_template",
-                           scale="--",
-                           source=self.tr_("scale_source_none"))
+            txt = self.tr_("lbl_scale", scale="--")
         else:
-            mm_per_px = 10.0 / self.current_scale
-            src_key = f"scale_source_{self.current_scale_source}"
-            txt = self.tr_("lbl_scale_template",
-                           scale=f"{mm_per_px:.4f}",
-                           source=self.tr_(src_key))
+            key = ("lbl_scale_manual" if self.current_scale_source == "manual"
+                   else "lbl_scale")
+            txt = self.tr_(key, scale=f"{10.0 / self.current_scale:.4f}")
         self._lbl_scale.setText(txt)
 
     def _update_status_for_current(self):
