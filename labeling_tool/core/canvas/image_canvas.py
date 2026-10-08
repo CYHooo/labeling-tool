@@ -12,6 +12,7 @@ from labeling_tool.core.canvas.viewport import Viewport
 from labeling_tool.core.canvas.overlay_painter import paint_mask_overlay
 from labeling_tool.core.bbox import BBoxInteraction, paint_bboxes
 from labeling_tool.core.canvas.stroke_thinning import thin_stroke_into
+from labeling_tool.core.canvas.mask_history import MaskHistory
 from labeling_tool.core.sam.predictor import crop_window, SAM_CROP_PX
 
 
@@ -42,6 +43,7 @@ class ImageCanvas(QWidget):
     mask_edited = pyqtSignal()
     bbox_edited = pyqtSignal()
     measure_completed = pyqtSignal(float)   # pixel distance of the 2-point line
+    history_changed = pyqtSignal()          # undo / redo availability changed
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -54,6 +56,9 @@ class ImageCanvas(QWidget):
 
         self.brush_mask_crack: np.ndarray | None = None
         self.brush_mask_spalling: np.ndarray | None = None
+        # Undo / redo of mask edits on the current image (cleared on switch).
+        self._history = MaskHistory()
+        self._edit_before: dict | None = None
 
         self.current_category: str = DEFAULT_CATEGORY
         self.brush_mode: bool = False
@@ -144,6 +149,7 @@ class ImageCanvas(QWidget):
         self._highlight_halo = None
         self.repair15_contours = None
         self._clear_sam_state()
+        self._reset_history()
         self._touch_mask()
         self.update()
 
@@ -155,8 +161,63 @@ class ImageCanvas(QWidget):
         self._pixmap = None
         self.brush_mask_crack = None
         self.brush_mask_spalling = None
+        self._reset_history()
         self._touch_mask()
         self.update()
+
+    # ------------------------------------------------------------------
+    # Undo / redo of mask edits
+    # ------------------------------------------------------------------
+    def _masks(self) -> dict:
+        return {"crack": self.brush_mask_crack, "spalling": self.brush_mask_spalling}
+
+    def _snapshot(self) -> dict:
+        return {k: (m.copy() if m is not None else None) for k, m in self._masks().items()}
+
+    def _begin_mask_edit(self) -> None:
+        """Remember the masks before an edit (stroke, SAM commit)."""
+        self._edit_before = self._snapshot()
+
+    def _end_mask_edit(self) -> None:
+        """Record what the edit changed (only the changed rectangle)."""
+        before, self._edit_before = self._edit_before, None
+        if before is not None and self._history.record(before, self._masks()):
+            self.history_changed.emit()
+
+    def record_external_change(self, before: dict) -> None:
+        """Record a change made outside the canvas (reset to the loaded mask)
+        from `before` (see snapshot()) to the current masks."""
+        if self._history.record(before, self._masks()):
+            self.history_changed.emit()
+
+    def snapshot(self) -> dict:
+        return self._snapshot()
+
+    def _reset_history(self) -> None:
+        self._edit_before = None
+        self._history.clear()
+        self.history_changed.emit()
+
+    def can_undo(self) -> bool:
+        return self._history.can_undo()
+
+    def can_redo(self) -> bool:
+        return self._history.can_redo()
+
+    def undo(self) -> bool:
+        return self._step(self._history.undo)
+
+    def redo(self) -> bool:
+        return self._step(self._history.redo)
+
+    def _step(self, apply) -> bool:
+        if self._brushing or not apply(self._masks()):
+            return False
+        self._touch_mask()
+        self.mask_edited.emit()
+        self.history_changed.emit()
+        self.update()
+        return True
 
     # Public API for bbox
     def set_bbox_padding_px(self, px: float) -> None:
@@ -315,7 +376,9 @@ class ImageCanvas(QWidget):
         """OR the preview into the spalling layer; returns True if anything written."""
         if self._sam_preview is None or self.brush_mask_spalling is None:
             return False
+        self._begin_mask_edit()
         self.brush_mask_spalling[self._sam_preview > 0] = 255
+        self._end_mask_edit()
         self._clear_sam_state()
         self._touch_mask()
         self.mask_edited.emit()
@@ -623,6 +686,7 @@ class ImageCanvas(QWidget):
                 self._brush_erase = True
             else:
                 return
+            self._begin_mask_edit()
             self._brush_paint_at((ix, iy), (ix, iy))
             self._brush_last_pt = (int(ix), int(iy))
             self.mask_edited.emit()
@@ -694,6 +758,7 @@ class ImageCanvas(QWidget):
                     self._touch_mask()
                     self.mask_edited.emit()
                 self._crack_stroke = None
+            self._end_mask_edit()
             self.update()
 
     def leaveEvent(self, event):

@@ -22,7 +22,7 @@ VIEW, BRUSH, SAM, BBOX = range(4)
 
 
 def _make_window(tmp_path, monkeypatch, *, inspection_name: str | None = "교량 정기점검",
-                 sam_available=True, second_photo_scale=2.0):
+                 sam_available=True, second_photo_scale=2.0, synced=()):
     monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: None)
     monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
     monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path / "settings")
@@ -37,7 +37,8 @@ def _make_window(tmp_path, monkeypatch, *, inspection_name: str | None = "교량
         cv2.imwrite(str(ws.origin_dir / name), np.zeros((8, 8, 3), np.uint8))
         manifest.add(PhotoEntry(filename=name, timestamp=num, photo_id=num,
                                 report_photo_num=num,
-                                px_per_cm=2.0 if num == 1 else second_photo_scale))
+                                px_per_cm=2.0 if num == 1 else second_photo_scale,
+                                synced=name in synced))
     win = ViewerMainWindow(ws, manifest, None)
     win.resize(1400, 900)
     win.show()
@@ -113,7 +114,8 @@ def test_the_header_columns_line_up_with_the_rows(tmp_path, monkeypatch):
         def in_viewport(x):                  # header x -> list viewport x
             return header.mapTo(win, QPoint(x, 0)).x() - viewport.mapTo(win, QPoint(0, 0)).x()
 
-        text_left = delegate.text_left(win.file_list)
+        text_left = delegate.text_left(win.file_list) + delegate.mark_width   # after ✓ / ●
+        assert delegate.mark_width > 0
         assert in_viewport(number_x) == text_left
         assert in_viewport(file_x) == text_left + delegate.primary_column_width() + ui_builder._PART_GAP
         # the id column is at least as wide as its header, so titles never overlap
@@ -654,3 +656,178 @@ def test_scale_row_fits_on_one_line_in_every_language(tmp_path, monkeypatch):
         win.close()
 
 
+
+
+
+# ---------------------------------------------------------------- undo / redo
+def _stroke(win):
+    """One real left-drag brush stroke across the middle of the canvas."""
+    from PyQt5.QtCore import QPoint, Qt
+    from PyQt5.QtTest import QTest
+    win._tool_picker.setCurrentIndex(BRUSH)
+    QApplication.processEvents()
+    c = win.canvas
+    mid = QPoint(c.width() // 2, c.height() // 2)
+    QTest.mousePress(c, Qt.LeftButton, Qt.NoModifier, mid)
+    QTest.mouseMove(c, mid + QPoint(5, 0))
+    QTest.mouseRelease(c, Qt.LeftButton, Qt.NoModifier, mid + QPoint(5, 0))
+    QApplication.processEvents()
+
+
+def _ctrl(win, key, shift=False):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    mods = Qt.ControlModifier | (Qt.ShiftModifier if shift else Qt.NoModifier)
+    win.activateWindow()
+    QTest.keyClick(win.canvas, key, mods)
+    QApplication.processEvents()
+
+
+def test_ctrl_z_undoes_a_brush_stroke_and_ctrl_y_redoes_it(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        c = win.canvas
+        blank = c.brush_mask_crack.copy()
+        assert not win._btn_undo.isEnabled() and not win._btn_redo.isEnabled()
+        _stroke(win)
+        drawn = c.brush_mask_crack.copy()
+        assert (drawn != blank).any()
+        assert win._btn_undo.isEnabled()
+        _ctrl(win, Qt.Key_Z)
+        assert (c.brush_mask_crack == blank).all()
+        assert win._btn_redo.isEnabled()
+        _ctrl(win, Qt.Key_Y)
+        assert (c.brush_mask_crack == drawn).all()
+        _ctrl(win, Qt.Key_Z)
+        _ctrl(win, Qt.Key_Z, shift=True)                      # Ctrl+Shift+Z redoes too
+        assert (c.brush_mask_crack == drawn).all()
+    finally:
+        win.close()
+
+
+def test_undo_buttons_sit_on_their_own_row_in_the_brush_options(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._tool_picker.setCurrentIndex(BRUSH)
+        QApplication.processEvents()
+        assert win._btn_undo.isVisible() and win._btn_redo.isVisible()
+        assert win._btn_undo.text() == i18n.tr("btn_undo")
+        assert "Ctrl+Z" in win._btn_undo.toolTip() and "Ctrl+Y" in win._btn_redo.toolTip()
+        y = lambda b: b.mapTo(win, b.rect().topLeft()).y()
+        assert y(win._btn_undo) == y(win._btn_redo) > y(win._btn_brush_reset)
+        _stroke(win)
+        win._btn_undo.click()
+        assert not win._btn_undo.isEnabled() and win._btn_redo.isEnabled()
+    finally:
+        win.close()
+
+
+def test_a_sam_commit_can_be_undone(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        c = win.canvas
+        blank = c.brush_mask_spalling.copy()
+        c._sam_preview = np.full_like(blank, 0)
+        c._sam_preview[2:5, 2:5] = 255
+        assert c.commit_sam()
+        assert (c.brush_mask_spalling != blank).any()
+        _ctrl(win, Qt.Key_Z)
+        assert (c.brush_mask_spalling == blank).all()
+    finally:
+        win.close()
+
+
+def test_reset_to_loaded_mask_can_be_undone(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        c = win.canvas
+        _stroke(win)
+        drawn = c.brush_mask_crack.copy()
+        win._btn_brush_reset.click()
+        assert not c.brush_mask_crack.any()
+        _ctrl(win, Qt.Key_Z)
+        assert (c.brush_mask_crack == drawn).all()
+        assert win._edited.get(win.image_files[win.current_idx])   # needs saving again
+    finally:
+        win.close()
+
+
+def test_switching_photos_clears_the_history(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        _stroke(win)
+        assert win._btn_undo.isEnabled()
+        win.go_next()
+        assert not win._btn_undo.isEnabled() and not win._btn_redo.isEnabled()
+    finally:
+        win.close()
+
+
+def test_undo_marks_the_photo_edited(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        _stroke(win)
+        name = win.image_files[win.current_idx]
+        win._save_all_artifacts(silent=True)
+        win._edited.pop(name, None)
+        _ctrl(win, Qt.Key_Z)
+        assert win._edited.get(name)
+    finally:
+        win.close()
+
+
+# ---------------------------------------------------------------- upload marks
+def _mark(win, row):
+    return win.file_list.item(row).data(ui_builder.MARK_ROLE)
+
+
+def test_uploaded_photos_are_marked(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch, synced=(_FILES[0],))
+    try:
+        assert _mark(win, 0) == "uploaded"
+        assert _mark(win, 1) is None
+    finally:
+        win.close()
+
+
+def test_an_edited_photo_is_pending_until_uploaded(tmp_path, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        _stroke(win)
+        win._save_all_artifacts(silent=True)
+        win._refresh_list_colors()
+        assert _mark(win, 0) == "pending"
+        win._finish_upload({"timestamps": [1], "failed": [], "uploaded": 1,
+                            "anomalies": [], "verify_failures": [], "batch_id": "b"})
+        assert _mark(win, 0) == "uploaded"
+    finally:
+        win.close()
+
+
+def test_editing_an_uploaded_photo_again_makes_it_pending(tmp_path, monkeypatch):
+    # The manifest kept "synced" after a later edit, so a re-edited photo
+    # would have shown as uploaded.
+    from labeling_tool.session.manifest import Manifest
+    win = _make_window(tmp_path, monkeypatch, synced=(_FILES[0],))
+    try:
+        _stroke(win)
+        win._save_all_artifacts(silent=True)
+        win._refresh_list_colors()
+        assert _mark(win, 0) == "pending"
+        saved = Manifest.load(win._ws.manifest_path)
+        assert not saved.get(_FILES[0]).synced
+    finally:
+        win.close()
+
+
+def test_the_list_header_explains_the_marks(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        assert win._list_header.toolTip() == i18n.tr("list_marks_tip")
+    finally:
+        win.close()

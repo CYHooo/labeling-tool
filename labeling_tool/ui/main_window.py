@@ -49,6 +49,10 @@ class ViewerMainWindow(CoreMainWindow):
 
         self._add_upload_button()
         self._init_sam()
+        # upload marks (✓ / ●) in their own column before the id
+        self.file_list.itemDelegate().mark_width = 20
+        self._fit_list_columns()
+        self._refresh_list_colors()
 
     def _init_sam(self):
         """Load the MobileSAM predictor and wire it to the canvas; if it's
@@ -70,6 +74,29 @@ class ViewerMainWindow(CoreMainWindow):
     def _job_info(self) -> tuple[str, str]:
         return (str(self._ws.session_id),
                 (self._manifest.inspection_name if self._manifest else None) or "—")
+
+    def _list_item_mark(self, filename: str) -> str | None:
+        """✓ uploaded and unchanged since; ● changed and not (re)uploaded."""
+        entry = (self._manifest.photos.get(filename)
+                 if self._manifest is not None else None)
+        if entry is None:
+            return None
+        if self._edited.get(filename) or (
+                not entry.synced and self._has_labeling_file(filename)):
+            return "pending"
+        return "uploaded" if entry.synced else None
+
+    def _on_photo_saved(self, filename: str) -> None:
+        """A re-edited photo needs uploading again: drop its synced flag (it
+        used to stay set, so the photo looked uploaded)."""
+        entry = (self._manifest.photos.get(filename)
+                 if self._manifest is not None else None)
+        if entry is not None and entry.synced:
+            entry.synced = False
+            try:
+                self._manifest.save(self._ws.manifest_path)
+            except OSError as exc:                       # never raise in a slot
+                self.status.showMessage(str(exc))
 
     def _list_item_parts(self, filename: str) -> tuple[str, str]:
         """"<job id>-<photo number>" then the file name; a file the manifest
@@ -217,6 +244,7 @@ class ViewerMainWindow(CoreMainWindow):
                      if self._manifest.get(fn).timestamp in synced_ts]
             self._manifest.mark_synced(files, batch_id=result.get("batch_id", ""))
             self._manifest.save(self._ws.manifest_path)
+            self._refresh_list_colors()
 
         verify_failures = result.get("verify_failures") or []
         report = result.get("verify_report")

@@ -17,6 +17,9 @@ def register_shortcuts(window: "MainWindow") -> None:
     QShortcut(QKeySequence("D"), window, window.go_next)
     QShortcut(QKeySequence("S"), window, window._on_brush_save)
     QShortcut(QKeySequence("Ctrl+S"), window, window._on_brush_save)
+    QShortcut(QKeySequence("Ctrl+Z"), window, window._on_undo)
+    QShortcut(QKeySequence("Ctrl+Y"), window, window._on_redo)
+    QShortcut(QKeySequence("Ctrl+Shift+Z"), window, window._on_redo)
     QShortcut(QKeySequence("B"), window,
               lambda: window._toggle_mode_shortcut(window._btn_brush_toggle))
     QShortcut(QKeySequence("["), window, lambda: window._nudge_brush_size(-2))

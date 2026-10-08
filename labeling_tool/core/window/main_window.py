@@ -27,7 +27,8 @@ from labeling_tool.session import mask_store
 from labeling_tool.core.result import export_result
 from labeling_tool.core.window.styles import STYLESHEET
 from labeling_tool.core.window.ui_builder import (
-    SECONDARY_TEXT_ROLE, TwoPartItemDelegate, build_help_dialog, build_side_panel,
+    MARK_ROLE, SECONDARY_TEXT_ROLE, TwoPartItemDelegate, build_help_dialog,
+    build_side_panel,
 )
 from labeling_tool.core.window.shortcuts import register_shortcuts
 
@@ -164,6 +165,8 @@ class MainWindow(QMainWindow):
         self._lbl_brush_size.setText(self.tr_("lbl_brush_size"))
         self._chk_fine_annotation.setText(self.tr_("btn_fine_annotation"))
         self._btn_brush_reset.setText(self.tr_("btn_brush_reset"))
+        self._btn_undo.setText(self.tr_("btn_undo"))
+        self._btn_redo.setText(self.tr_("btn_redo"))
         self._btn_sam_commit.setText(self.tr_("btn_sam_commit"))
         self._btn_sam_cancel.setText(self.tr_("btn_sam_cancel"))
         self._btn_sam_undo.setText(self.tr_("btn_sam_undo"))
@@ -210,6 +213,7 @@ class MainWindow(QMainWindow):
     def _refresh_list_header(self):
         self._list_header.set_labels(self.tr_("list_col_number"),
                                      self.tr_("list_col_file"))
+        self._list_header.setToolTip(self.tr_("list_marks_tip"))
         self._fit_list_columns()
 
     def _fit_list_columns(self):
@@ -227,7 +231,8 @@ class MainWindow(QMainWindow):
 
     def _refresh_nav_tooltips(self):
         for btn, key in ((self.btn_prev, "A"), (self.btn_next, "D"),
-                         (self.btn_save, "S / Ctrl+S")):
+                         (self.btn_save, "S / Ctrl+S"), (self._btn_undo, "Ctrl+Z"),
+                         (self._btn_redo, "Ctrl+Y / Ctrl+Shift+Z")):
             btn.setToolTip(self.tr_("tip_shortcut", shortcut=key))
 
     def _open_log_folder(self):
@@ -298,6 +303,13 @@ class MainWindow(QMainWindow):
         """B / X: toggle a tool's mode, unless the tool is unavailable."""
         if btn.isEnabled():
             btn.toggle()
+
+    def _on_photo_saved(self, filename: str) -> None:
+        """A changed photo was written to disk. Overridable."""
+
+    def _list_item_mark(self, filename: str) -> str | None:
+        """Upload mark of a row ("uploaded" / "pending" / None). Overridable."""
+        return None
 
     def _list_item_parts(self, filename: str) -> tuple[str, str]:
         """(main text, dim second part) of the image-list row for filename."""
@@ -403,10 +415,25 @@ class MainWindow(QMainWindow):
             self.status.showMessage(self.tr_("brush_no_image"))
             return
         filename = self.image_files[self.current_idx]
+        before = self.canvas.snapshot()
         self._show_image(self.current_idx, force_reload=True)
+        self.canvas.record_external_change(before)      # Ctrl+Z brings the edits back
         self._edited.pop(filename, None)
         self._refresh_list_colors()
         self.status.showMessage(self.tr_("brush_reset"))
+
+    # ------------------------------------------------------------------
+    # Undo / redo (mask edits on the current image)
+    # ------------------------------------------------------------------
+    def _on_undo(self):
+        self.canvas.undo()
+
+    def _on_redo(self):
+        self.canvas.redo()
+
+    def _refresh_undo_buttons(self):
+        self._btn_undo.setEnabled(self.canvas.can_undo())
+        self._btn_redo.setEnabled(self.canvas.can_redo())
 
     def _save_all_artifacts(self, silent: bool = False,
                             only_if_edited: bool = False,
@@ -497,6 +524,8 @@ class MainWindow(QMainWindow):
                 )
 
         # ----- 4. Bookkeeping -----
+        if mask_dirty or bbox_dirty:
+            self._on_photo_saved(filename)
         self._edited.pop(filename, None)
         self._bbox_edited.pop(filename, None)
         self._refresh_list_colors()
@@ -683,6 +712,7 @@ class MainWindow(QMainWindow):
         self.canvas.measure_completed.connect(self._on_measure_completed)
 
         side_panel = build_side_panel(self)
+        self.canvas.history_changed.connect(self._refresh_undo_buttons)
         self._refresh_nav_tooltips()
         self._refresh_tools()
 
@@ -941,6 +971,7 @@ class MainWindow(QMainWindow):
             item = self.file_list.item(i)
             if item is None:
                 continue
+            item.setData(MARK_ROLE, self._list_item_mark(fname))
             if self._edited.get(fname):
                 item.setForeground(QColor(240, 220, 80))   # yellow
             elif self._has_labeling_file(fname):
