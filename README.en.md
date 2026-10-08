@@ -59,7 +59,7 @@ On the first screen, enter your **ID / password** and the **server** (`BASE URL`
 
 After logging in, the jobs screen opens: **Local jobs** lists the jobs already on this PC, newest first. "Log out" returns to the first screen.
 
-- **A new job**: "Fetch a new job" → pick the "Job ID"; photos are "All" by default, or choose "Range" for a photo-number range (e.g. 10 ~ 50) → "Fetch". The labeling window opens once the photos are in.
+- **A new job**: "Fetch a new job" → pick the "Job ID"; photos are "All" by default, or choose "Range" for a photo-number range (e.g. 10 ~ 50) → "Fetch". The labeling window opens once the photos are in. After a "Range" fetch it lists just those photos; "Show all" above the list shows every photo of the job on this PC (upload covers the listed photos).
 - **A job you already have**: pick it in the list and click "Open" (or double-click). Uploads go to the server the job came from; with the Key empty, work is saved on this PC only.
 - The list opens most recently modified first. Click a column header (job, inspection name, photos, last modified) to sort by it; click again to reverse.
 - Fetching a job that is already on this PC asks "Open" or "Fetch again". Fetching again keeps your labeling and upload records. A same-numbered job fetched from another server can't be opened here.

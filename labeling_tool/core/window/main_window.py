@@ -208,7 +208,11 @@ class MainWindow(QMainWindow):
         job_id, inspection = self._job_info()
         self._lbl_job_info.set_full_text(self.tr_(
             "job_info_line", job=job_id, name=inspection,
-            count=self.tr_("photo_count", n=len(self.image_files))))
+            count=self._photo_count_text()))
+
+    def _photo_count_text(self) -> str:
+        """Photo count in the job line. Overridable."""
+        return self.tr_("photo_count", n=len(self.image_files))
 
     def _refresh_list_header(self):
         self._list_header.set_labels(self.tr_("list_col_number"),

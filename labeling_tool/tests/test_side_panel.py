@@ -22,7 +22,8 @@ VIEW, BRUSH, SAM, BBOX = range(4)
 
 
 def _make_window(tmp_path, monkeypatch, *, inspection_name: str | None = "교량 정기점검",
-                 sam_available=True, second_photo_scale=2.0, synced=()):
+                 sam_available=True, second_photo_scale=2.0, synced=(), files=_FILES,
+                 focus=None):
     monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: None)
     monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
     monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path / "settings")
@@ -33,13 +34,13 @@ def _make_window(tmp_path, monkeypatch, *, inspection_name: str | None = "교량
     ws = Workspace(root=tmp_path, session_id=45)
     ws.origin_dir.mkdir(parents=True)
     manifest = Manifest(session_id=45, base="", inspection_name=inspection_name)
-    for num, name in enumerate(_FILES, start=1):
+    for num, name in enumerate(files, start=1):
         cv2.imwrite(str(ws.origin_dir / name), np.zeros((8, 8, 3), np.uint8))
         manifest.add(PhotoEntry(filename=name, timestamp=num, photo_id=num,
                                 report_photo_num=num,
                                 px_per_cm=2.0 if num == 1 else second_photo_scale,
                                 synced=name in synced))
-    win = ViewerMainWindow(ws, manifest, None)
+    win = ViewerMainWindow(ws, manifest, None, focus=focus)
     win.resize(1400, 900)
     win.show()
     QApplication.processEvents()
@@ -940,4 +941,135 @@ def test_tool_how_to_lines_are_never_clipped(tmp_path, monkeypatch):
                         assert lbl.height() >= lbl.heightForWidth(lbl.width()), (code, idx, lbl.text())
     finally:
         i18n.set_language("ko")
+        win.close()
+
+
+
+# ---------------------------------------------------------------- range view
+_SIX = tuple(f"stitched_{n:03d}.jpg" for n in range(1, 7))
+
+
+def _range_window(tmp_path, monkeypatch):
+    from labeling_tool.session.focus import PhotoFocus
+    return _make_window(tmp_path, monkeypatch, files=_SIX,
+                        focus=PhotoFocus(2, 4, _SIX[1:4]))
+
+
+def _rows(win):
+    return [win.file_list.item(i).toolTip() for i in range(win.file_list.count())]
+
+
+def test_a_range_fetch_shows_only_those_photos(tmp_path, monkeypatch):
+    win = _range_window(tmp_path, monkeypatch)
+    try:
+        assert _rows(win) == list(_SIX[1:4])
+        assert win._range_bar.isVisible()
+        assert win._lbl_range.text() == i18n.tr("list_range_label", a=2, b=4, n=3)
+        assert win._btn_range_toggle.text() == i18n.tr("btn_show_all")
+        assert win._lbl_job_info.full_text().endswith(i18n.tr("photo_count_part", shown=3, total=6))
+    finally:
+        win.close()
+
+
+def test_show_all_and_back_keeps_the_current_photo(tmp_path, monkeypatch):
+    win = _range_window(tmp_path, monkeypatch)
+    try:
+        win.file_list.setCurrentRow(1)                         # stitched_003
+        current = win.image_files[win.current_idx]
+        win._btn_range_toggle.click()
+        assert _rows(win) == list(_SIX)
+        assert win.image_files[win.current_idx] == current
+        assert win._btn_range_toggle.text() == i18n.tr("btn_show_range")
+        win._btn_range_toggle.click()
+        assert _rows(win) == list(_SIX[1:4])
+        assert win.image_files[win.current_idx] == current
+    finally:
+        win.close()
+
+
+def test_an_unsaved_edit_is_saved_before_switching_the_view(tmp_path, monkeypatch):
+    win = _range_window(tmp_path, monkeypatch)
+    try:
+        _stroke(win)
+        name = win.image_files[win.current_idx]
+        win._btn_range_toggle.click()
+        assert win._has_labeling_file(name)
+    finally:
+        win.close()
+
+
+def test_upload_covers_only_the_photos_shown(tmp_path, monkeypatch):
+    from labeling_tool.session import mask_store
+    win = _range_window(tmp_path, monkeypatch)
+    try:
+        win.output_dir.mkdir(parents=True, exist_ok=True)
+        for name in (_SIX[0], _SIX[2]):                       # one outside, one inside
+            (win.output_dir / mask_store.mask_name(name)).write_bytes(b"x")
+        assert win._edited_filenames() == [_SIX[2]]
+        win._btn_range_toggle.click()                          # 전체 보기
+        assert win._edited_filenames() == [_SIX[0], _SIX[2]]
+    finally:
+        win.close()
+
+
+def test_without_a_range_there_is_no_range_bar(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        assert not win._range_bar.isVisible()
+        assert win._lbl_job_info.full_text().endswith(i18n.tr("photo_count", n=2))
+    finally:
+        win.close()
+
+
+def test_range_view_never_makes_the_panel_scroll_in_a_900px_window(tmp_path, monkeypatch):
+    win = _range_window(tmp_path, monkeypatch)
+    try:
+        win.resize(1400, 900)
+        scroll = win.findChild(QScrollArea)
+        for code in ("ko", "en", "zh"):
+            i18n.set_language(code)
+            for idx in (VIEW, BRUSH, SAM, BBOX):
+                win._tool_picker.setCurrentIndex(idx)
+                for _ in range(6):
+                    QApplication.processEvents()
+                assert not scroll.verticalScrollBar().isVisible(), (code, idx)
+    finally:
+        i18n.set_language("ko")
+        win.close()
+
+
+def test_a_range_with_nothing_on_disk_opens_normally(tmp_path, monkeypatch):
+    from labeling_tool.session.focus import PhotoFocus
+    warned = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(a))
+    win = _make_window(tmp_path, monkeypatch, files=_SIX,
+                       focus=PhotoFocus(7, 8, ("missing_7.jpg", "missing_8.jpg")))
+    try:
+        assert _rows(win) == list(_SIX)
+        assert not win._range_bar.isVisible() and warned == []
+    finally:
+        win.close()
+
+
+def test_a_range_covering_every_local_photo_needs_no_bar(tmp_path, monkeypatch):
+    from labeling_tool.session.focus import PhotoFocus
+    win = _make_window(tmp_path, monkeypatch, files=_SIX, focus=PhotoFocus(1, 0, _SIX))
+    try:
+        assert _rows(win) == list(_SIX)
+        assert not win._range_bar.isVisible()
+        assert win._lbl_job_info.full_text().endswith(i18n.tr("photo_count", n=6))
+    finally:
+        win.close()
+
+
+def test_switching_the_view_does_not_load_the_first_photo_on_the_way(tmp_path, monkeypatch):
+    win = _range_window(tmp_path, monkeypatch)
+    try:
+        win.file_list.setCurrentRow(2)                         # stitched_004
+        shown = []
+        orig = win._show_image
+        monkeypatch.setattr(win, "_show_image", lambda i, *a, **k: (shown.append(win.image_files[i]), orig(i, *a, **k))[1])
+        win._btn_range_toggle.click()
+        assert shown == [_SIX[3]]
+    finally:
         win.close()

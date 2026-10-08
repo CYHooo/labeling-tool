@@ -19,6 +19,7 @@ from labeling_tool.ui.dialog_helpers import save_config
 from labeling_tool.session.workspace import Workspace
 from labeling_tool.session.manifest import Manifest, PhotoEntry
 from labeling_tool.session import naming
+from labeling_tool.session.focus import PhotoFocus
 from labeling_tool.logging_setup import attach_session_log, vlog
 
 
@@ -58,6 +59,8 @@ class FetchDialog(QDialog):
         self.client = ViewerApiClient(base_url=base, api_key=key)
         self.workspace: Workspace | None = None
         self.manifest: Manifest | None = None
+        # set after a range fetch: the window opens on just those photos
+        self.focus: PhotoFocus | None = None
         self._sessions_loaded = False
         # sessionId -> inspectionName from the server list, saved into the
         # manifest so the local job list can show it later
@@ -302,6 +305,10 @@ class FetchDialog(QDialog):
                 tr("fetch_partial_failed_msg", count=len(failures)))
         self.workspace = ws
         self.manifest = manifest
+        if (from_num, to_num) != (0, 0):
+            self.focus = PhotoFocus(from_num, to_num, tuple(
+                naming.stitched_filename(int(p["timestamp"])) for p in sorted(
+                    photos, key=lambda p: int(p.get("reportPhotoNum", 0)))))
         self.accept()
 
     def _ask_existing(self, sid: int) -> str | None:
