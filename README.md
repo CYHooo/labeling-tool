@@ -90,7 +90,7 @@ sudo dpkg -i lm-labeling-tool_<버전>_amd64.deb
 | 작업 로그 | 작업 폴더의 `vapi.log` | 작업 폴더의 `vapi.log` |
 | 프로그램 로그 | `~/.local/share/lm-labeling-tool/logs/app.log` | `<설치 폴더>\logs\app.log` |
 
-프로그램 로그(`app.log`)에는 시작 정보, 로그인, 업데이트, 예기치 않은 오류와 모든 작업 로그가 함께 기록되며, 1 MB마다 교체되어 최근 5개까지 보관됩니다. 문제가 생기면 라벨링 화면의 「?」 → 「로그 폴더 열기」로 폴더를 열어 `app.log` 를 전달해 주세요. 비밀번호와 API Key 는 기록되지 않습니다.
+Windows 의 `<설치 폴더>` 는 기본적으로 `%LOCALAPPDATA%\Programs\LM_LabelingTool` 입니다. 프로그램 로그(`app.log`)에는 시작 정보, 로그인, 업데이트, 예기치 않은 오류와 모든 작업 로그가 함께 기록되며, 1 MB마다 교체되어 최근 5개까지 보관됩니다. 문제가 생기면 라벨링 화면의 「?」 → 「로그 폴더 열기」로 폴더를 열어 `app.log` 를 전달해 주세요. 비밀번호와 API Key 는 기록되지 않습니다.
 
 ## 언어 설정
 

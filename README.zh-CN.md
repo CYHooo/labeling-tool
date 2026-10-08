@@ -90,7 +90,7 @@ sudo dpkg -i lm-labeling-tool_<版本>_amd64.deb
 | 任务日志 | 任务文件夹中的 `vapi.log` | 任务文件夹中的 `vapi.log` |
 | 程序日志 | `~/.local/share/lm-labeling-tool/logs/app.log` | `<安装目录>\logs\app.log` |
 
-程序日志（`app.log`）记录启动信息、登录、更新、意外错误以及所有任务日志，每 1 MB 轮换一次，保留最近 5 个。遇到问题时，在标注界面点「?」→「打开日志文件夹」，把 `app.log` 发给开发人员。密码和 API Key 不会被记录。
+Windows 的 `<安装目录>` 默认是 `%LOCALAPPDATA%\Programs\LM_LabelingTool`。程序日志（`app.log`）记录启动信息、登录、更新、意外错误以及所有任务日志，每 1 MB 轮换一次，保留最近 5 个。遇到问题时，在标注界面点「?」→「打开日志文件夹」，把 `app.log` 发给开发人员。密码和 API Key 不会被记录。
 
 ## 语言设置
 

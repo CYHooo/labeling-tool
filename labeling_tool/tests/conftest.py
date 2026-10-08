@@ -33,6 +33,12 @@ def app_log_starts(monkeypatch):
     handler) that outlive the test. Record the call instead; a test that
     needs to know whether logging started reads this list."""
     import labeling_tool.app as app_module
-    calls = []
+    calls = _LogStarts()
+    calls.real = app_module._start_app_logging
     monkeypatch.setattr(app_module, "_start_app_logging", lambda: calls.append(True))
     return calls
+
+
+class _LogStarts(list):
+    """Recorded _start_app_logging calls; .real is the unstubbed function."""
+    real = None

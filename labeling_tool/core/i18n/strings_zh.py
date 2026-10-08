@@ -38,6 +38,7 @@ STRINGS = {
     "tool_sam_hint":      "左键=加入、右键=排除；Esc 撤回上一点；确认后写入剥落",
     "tool_bbox_hint":     "单击加点，Enter 确认，Esc 取消，Del 删除",
     "btn_open_logs":      "打开日志文件夹",
+    "log_folder_path":    "日志文件夹：{path}",
     "group_list":         "图片列表",
     "group_hint":         "帮助 / 用法",
     "btn_prev":           "上一张",

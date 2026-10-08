@@ -43,6 +43,7 @@ STRINGS = {
     "tool_sam_hint":      "좌클릭으로 포함, 우클릭으로 제외합니다. Esc 는 마지막 포인트를 취소하고, 확정하면 박리로 기록됩니다.",
     "tool_bbox_hint":     "클릭으로 점을 추가하고 Enter 로 확정합니다. Esc 는 취소, Del 은 삭제입니다.",
     "btn_open_logs":      "로그 폴더 열기",
+    "log_folder_path":    "로그 폴더: {path}",
     "group_list":         "이미지 목록",
     "group_hint":         "도움말 / 사용법",
     "btn_prev":           "이전 사진",

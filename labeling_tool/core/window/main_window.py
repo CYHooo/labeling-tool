@@ -239,7 +239,9 @@ class MainWindow(QMainWindow):
         except OSError as exc:              # never let a slot raise
             self.status.showMessage(str(exc))
             return
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder))):
+            # no file manager to hand it to: at least say where it is
+            self.status.showMessage(self.tr_("log_folder_path", path=str(folder)))
 
     def _show_help(self):
         if getattr(self, "_help_dialog", None) is None:

@@ -8,7 +8,8 @@ vapi.log -- <session_dir>/vapi.log: timestamped request + download +
             prepare-phase entries of the open job, so its data flow and where
             time is spent (client crack metrics vs. network) can be diagnosed.
 
-Never log a password or an API key.
+Never log a password or an API key; presigned URL query strings are
+redacted by the formatters (see redact()).
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from __future__ import annotations
 import logging
 import os
 import platform
+import re
 import sys
 import threading
 from logging.handlers import RotatingFileHandler
@@ -55,6 +57,36 @@ def log_dir() -> Path:
     return app_paths.user_data_home() / "logs"
 
 
+_PRESIGNED_QUERY = re.compile(r"(https?://[^\s?'\"]+)\?[^\s'\"]*(?:X-Amz-|Signature=)[^\s'\"]*")
+
+
+def redact(text: str) -> str:
+    """Drop the query string of a presigned URL: its signature and access
+    key id are credentials, and app.log is the file users are asked to send."""
+    return _PRESIGNED_QUERY.sub(r"\1?<redacted>", text)
+
+
+class _RedactingFormatter(logging.Formatter):
+    def format(self, record):
+        return redact(super().format(record))
+
+
+class _SafeRotatingFileHandler(RotatingFileHandler):
+    """Rotation that survives a locked app.log. On Windows a second running
+    instance (or the old one during an update restart) keeps the file open,
+    the rename fails, and the stock handler retried on every record and
+    lost them all. Here a failed rotation just keeps appending to the same
+    file for the rest of this run."""
+
+    def doRollover(self):
+        try:
+            super().doRollover()
+        except OSError:
+            self.maxBytes = 0                # no more rotation in this run
+            if self.stream is None:
+                self.stream = self._open()
+
+
 def setup_app_log(directory: Path | None = None) -> Path | None:
     """Attach the rotating app.log handler (once). None when the folder
     cannot be written: the app runs on without a log rather than not at all."""
@@ -68,13 +100,13 @@ def setup_app_log(directory: Path | None = None) -> Path | None:
     path = directory / APP_LOG_NAME
     try:
         directory.mkdir(parents=True, exist_ok=True)
-        fh = RotatingFileHandler(path, maxBytes=APP_LOG_MAX_BYTES,
-                                 backupCount=APP_LOG_BACKUPS, encoding="utf-8")
+        fh = _SafeRotatingFileHandler(path, maxBytes=APP_LOG_MAX_BYTES,
+                                      backupCount=APP_LOG_BACKUPS, encoding="utf-8")
     except OSError as exc:
         print(f"app log disabled: {exc}", file=sys.stderr)
         return None
     fh._app_handler = True               # tag so a second setup replaces it
-    fh.setFormatter(logging.Formatter(
+    fh.setFormatter(_RedactingFormatter(
         "%(asctime)s.%(msecs)03d %(levelname)-7s [%(name)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S"))
     log.addHandler(fh)
@@ -106,10 +138,15 @@ def install_exception_hooks(abort_in_qt: bool = True) -> None:
         for h in alog().handlers:
             h.flush()
         sys.__excepthook__(exc_type, exc, tb)
-        if abort_in_qt:
-            from PyQt5.QtCore import QCoreApplication, qFatal
-            if QCoreApplication.instance() is not None:
-                qFatal(f"uncaught {exc_type.__name__}: {exc}")
+        if abort_in_qt and _inside_qt_code():
+            try:
+                # ASCII only: PyQt5 encodes qFatal's text as ASCII, and a
+                # Korean message made the hook itself fail -- the app then
+                # ran on instead of aborting.
+                from PyQt5.QtCore import qFatal
+                qFatal("uncaught %s (details in app.log)" % exc_type.__name__)
+            finally:
+                os.abort()
 
     def _thread_hook(args):
         if args.exc_type is not SystemExit:
@@ -120,6 +157,20 @@ def install_exception_hooks(abort_in_qt: bool = True) -> None:
 
     sys.excepthook = _excepthook
     threading.excepthook = _thread_hook
+
+
+def _inside_qt_code() -> bool:
+    """True when an exception escaped from code Qt called: a slot while the
+    event loop runs, or a worker QThread. That is where PyQt5 aborted the
+    app before this hook existed; elsewhere (before the event loop starts)
+    Python's own handling -- exit code 1 -- still applies."""
+    from PyQt5.QtCore import QCoreApplication, QThread
+    app = QCoreApplication.instance()
+    if app is None:
+        return False
+    if QThread.currentThread() is not app.thread():
+        return True
+    return app.thread().loopLevel() > 0
 
 
 def install_qt_message_handler() -> None:
@@ -159,7 +210,7 @@ def attach_session_log(session_dir) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     fh = logging.FileHandler(path, encoding="utf-8")
     fh._session_handler = True          # tag so we can replace it later
-    fh.setFormatter(logging.Formatter(
+    fh.setFormatter(_RedactingFormatter(
         "%(asctime)s.%(msecs)03d %(levelname)-5s %(message)s",
         datefmt="%H:%M:%S"))
     log.addHandler(fh)
