@@ -510,11 +510,8 @@ def build_display_group(window: "MainWindow") -> QGroupBox:
     gd.addLayout(show_row)
 
     scale_row = QHBoxLayout()
-    window._lbl_scale = QLabel(
-        window.tr_("lbl_scale_template", scale="--",
-                   source=window.tr_("scale_source_none")))
+    window._lbl_scale = QLabel(window.tr_("lbl_scale", scale="--"))
     window._lbl_scale.setObjectName("scaleLabel")
-    window._lbl_scale.setWordWrap(True)
     window._btn_measure = QPushButton(window.tr_("btn_measure"))
     window._btn_measure.setIcon(icons.icon("ruler"))
     window._btn_measure.setObjectName("measureToggle")

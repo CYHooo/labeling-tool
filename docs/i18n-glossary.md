@@ -41,7 +41,7 @@
 | 概念 | 한국어 | 中文 | English | 说明 |
 |---|---|---|---|---|
 | scale（px/cm 换算） | **축척** | 比例尺 | Scale | 现为 `스케일`。`축척` 是测量/制图的标准词，更准确 |
-| manual measurement | **수동 측정** | 手动测量 | Manual measurement | 保留；英文按钮因面板宽度用短形式 `Measure` |
+| manual measurement | **수동 측정** | 手动测量 | Manual measurement | 保留；英文按钮因面板宽度用短形式 `Measure`。手动测得的축척数值以琥珀色显示，提示文字 `수동 측정값 (서버 값 대신 사용)` / 手动测量值（替代服务器的值） / Measured by hand (used instead of the server's value) |
 | bounding box / 补修区域 | **보수 구역** | 修补区域 | Repair area | 现状为 OBB/bbox 等技术词，对用户改用 `보수 구역` |
 | brush / eraser | **브러시** / **지우개** | 画笔 / 橡皮擦 | Brush / Eraser | |
 
