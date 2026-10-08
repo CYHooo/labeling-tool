@@ -81,7 +81,26 @@ STYLESHEET = """
             padding: 3px 6px;
             min-height: 22px;
         }
+        QComboBox:disabled, QSpinBox:disabled, QLineEdit:disabled {
+            color: #5a5f66;
+            background-color: #232830;
+            border-color: #2c313a;
+        }
         QCheckBox { color: #e0e0e0; spacing: 6px; padding: 2px 0; }
+        QRadioButton { color: #e0e0e0; spacing: 6px; padding: 2px 0; }
+        QRadioButton:disabled, QCheckBox:disabled { color: #5a5f66; }
+        QRadioButton::indicator {
+            width: 14px; height: 14px;
+            border: 1px solid #5a6270;
+            border-radius: 8px;
+            background-color: #2d333d;
+        }
+        QRadioButton::indicator:hover { border-color: #8a929e; }
+        QRadioButton::indicator:checked {
+            border: 1px solid #2d6cdf;
+            background-color: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+                stop:0 #ffffff, stop:0.38 #ffffff, stop:0.45 #2d6cdf, stop:1 #2d6cdf);
+        }
         QCheckBox::indicator {
             width: 16px; height: 16px;
             border: 1px solid #3a4048;

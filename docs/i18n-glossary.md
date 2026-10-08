@@ -24,6 +24,7 @@
 | session id | **작업 ID** | 任务 ID | Job ID | 列表里仍显示服务器返回的数字 |
 | inspection name | **점검명** | 检测名称 | Inspection name | `점검` 是设施点检的标准用词，保留 |
 | photo | **사진** | 照片 | Photo | |
+| photo range (fetch) | **사진**: **전체** / **범위 지정**, **사진 번호** `a ~ b` | 照片：全部 / 指定范围，照片编号 | Photos: All / Range, Photo number | 「새 작业 가져오기」界面；接口参数 `fromNum`/`toNum` 不出现在界面上 |
 | previous / next photo | **이전 사진** / **다음 사진** | 上一张 / 下一张 | Previous / Next | 标注窗口导航按钮；中/英为了面板宽度用短形式 |
 | edit tools | **편집 도구**: **보기** · **브러시** · **SAM** · **보수 구역** | 编辑工具：查看 · 画笔 · SAM · 修补区域 | Edit tools: View · Brush · SAM · Repair area | 2×2 工具按钮，选中的工具即编辑模式；`보기` = 不编辑。另一组 **표시 · 축척** / 显示 · 比例尺 / Display · Scale |
 | job info | **작업 정보** | 任务信息 | Job info | 标注窗口右侧顶部一行：`작업 {id} · {점검명} · {n}장`；图片列表表头 `번호` / `파일 이름`，列表项 `<작업 ID>-<사진 번호>` + 文件名 |
