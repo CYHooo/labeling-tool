@@ -155,3 +155,48 @@ def test_a_reopened_login_keeps_the_signed_in_user(monkeypatch):
     monkeypatch.setattr(app_module, "FetchDialog", _Fetch)
     assert app_module.main([]) == 0
     assert seen == [None, auth.User("admin")]
+
+
+
+def test_a_range_fetch_opens_the_window_on_those_photos(monkeypatch):
+    from labeling_tool import auth
+    from labeling_tool.session.focus import PhotoFocus
+    from labeling_tool.ui import login_dialog as ld
+    focus = PhotoFocus(5, 10, ("a.jpg",))
+    made = []
+
+    class _Login:
+        def __init__(self, *a, user=None, **k):
+            self.fewshotRequested = _FakeSignal()
+            self.user = auth.User("admin")
+            self.mode, self.base, self.key = ld.MODE_ONLINE, "https://a", "k"
+            self.workspace = self.manifest = None
+
+        def exec_(self):
+            return 1
+
+    class _Fetch:
+        def __init__(self, **k):
+            self.go_back = False
+            self.workspace = type("W", (), {"session_id": 1})()
+            self.manifest, self.focus = type("M", (), {"photos": {}})(), focus
+
+        def exec_(self):
+            return 1
+
+    class _Window:
+        def __init__(self, workspace, manifest, client, focus=None):
+            made.append(focus)
+
+        def show(self):
+            pass
+
+    monkeypatch.setattr(app_module, "QApplication", _FakeApp)
+    monkeypatch.setattr(app_module, "LoginDialog", _Login)
+    monkeypatch.setattr(app_module, "FetchDialog", _Fetch)
+    monkeypatch.setattr(app_module, "ViewerMainWindow", _Window)
+    monkeypatch.setattr(app_module, "ViewerApiClient", lambda **k: None)
+    monkeypatch.setattr(_FakeApp, "exec_", lambda self: 0, raising=False)
+    monkeypatch.setattr(update_ui, "prompt_pending_update", lambda: None)
+    app_module.main([])
+    assert made == [focus]

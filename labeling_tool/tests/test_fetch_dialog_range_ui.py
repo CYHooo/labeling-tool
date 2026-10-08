@@ -214,3 +214,45 @@ def test_a_typed_job_with_an_open_range_downloads_from_there_to_the_last(monkeyp
         assert d.manifest is not None and d.manifest.session_id == 49
     finally:
         d.close()
+
+
+def _fetch_with(monkeypatch, tmp_path, *, use_range, from_num=5, to_num=7):
+    from labeling_tool.session import workspace as ws_mod
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path / "settings")
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
+    monkeypatch.setattr(ws_mod, "DEFAULT_DATA_ROOT", tmp_path / "data")
+    monkeypatch.setattr(fd, "save_config", lambda *a: None)
+    monkeypatch.setattr(fd, "attach_session_log", lambda *a: None)
+    photos = [{"timestamp": 1000 + n, "photoId": n, "reportPhotoNum": n, "pxPerCm": 1.0}
+              for n in range(1, 11)]
+    monkeypatch.setattr(fd.FetchDialog, "_fetch_all_photos", staticmethod(lambda c, sid: photos))
+    monkeypatch.setattr(fd, "download_photos", lambda *a, **k: [])
+    i18n.set_language("ko")
+    d = fd.FetchDialog(base="https://x", key="k")
+    d.client.list_sessions = lambda: SESSIONS
+    d._load_sessions()
+    if use_range:
+        d.rb_range.setChecked(True)
+        d.sp_from.setValue(from_num)
+        d.sp_to.setValue(to_num)
+    d._on_fetch()
+    return d
+
+
+def test_a_range_fetch_tells_the_window_which_photos_it_brought(monkeypatch, tmp_path):
+    from labeling_tool.session import naming
+    d = _fetch_with(monkeypatch, tmp_path, use_range=True)
+    try:
+        f = d.focus
+        assert (f.from_num, f.to_num) == (5, 7)
+        assert list(f.filenames) == [naming.stitched_filename(1000 + n) for n in (5, 6, 7)]
+    finally:
+        d.close()
+
+
+def test_fetching_all_photos_has_no_focus(monkeypatch, tmp_path):
+    d = _fetch_with(monkeypatch, tmp_path, use_range=False)
+    try:
+        assert d.focus is None and d.manifest is not None
+    finally:
+        d.close()

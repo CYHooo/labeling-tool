@@ -192,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
     start_periodic_checks()
 
     base = key = ""
-    workspace = manifest = None
+    workspace = manifest = focus = None
     # Signed in once per run: a reopened dialog (back from the fetch screen,
     # a failed few-shot load) starts on its jobs page until the user logs out.
     user = None
@@ -240,6 +240,7 @@ def main(argv: list[str] | None = None) -> int:
             wait_for_checks()
             return 0
         workspace, manifest = fetch.workspace, fetch.manifest
+        focus = getattr(fetch, "focus", None)     # a range fetch: open on those photos
         break
 
     client = None
@@ -248,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
 
     alog().info("labeling window: job %s (%d photos, %s)", workspace.session_id,
                 len(manifest.photos), "online" if client is not None else "offline")
-    win = ViewerMainWindow(workspace, manifest, client)
+    win = ViewerMainWindow(workspace, manifest, client, focus=focus)
     win.show()
     code = app.exec_()
     alog().info("labeling window closed")

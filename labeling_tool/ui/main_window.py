@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 
 from PyQt5.QtWidgets import (
-    QPushButton, QMessageBox, QProgressBar,
+    QPushButton, QMessageBox, QProgressBar, QWidget, QHBoxLayout, QLabel,
 )
 
 from labeling_tool.ui import icons
@@ -18,6 +18,7 @@ from labeling_tool.core.bbox import load_scale_info
 from labeling_tool.annotation_payload import upload_scale_source
 from labeling_tool.session import mask_store
 from labeling_tool.session.workspace import Workspace
+from labeling_tool.session.focus import PhotoFocus
 from labeling_tool.session.manifest import Manifest
 from labeling_tool.api.client import ViewerApiClient
 from labeling_tool.ui.upload_worker import UploadWorker
@@ -25,10 +26,13 @@ from labeling_tool.ui.upload_worker import UploadWorker
 
 class ViewerMainWindow(CoreMainWindow):
     def __init__(self, workspace: Workspace, manifest: Manifest,
-                 client: ViewerApiClient | None):
+                 client: ViewerApiClient | None, focus: PhotoFocus | None = None):
         self._ws = workspace
         self._manifest = manifest
         self._client = client
+        # After a range fetch: list just those photos until "show all".
+        self._focus = focus
+        self._show_all = focus is None
         super().__init__()
 
         # Saving should be fast: only the editable mask + bbox JSON are needed.
@@ -45,7 +49,12 @@ class ViewerMainWindow(CoreMainWindow):
         self.result_dir = workspace.result_dir.resolve()
         self.highlight_dir = workspace.highlight_dir.resolve()
         self.repair15_dir = workspace.repair15_dir.resolve()
+        self._add_range_bar()
         self._reload_data()
+        if self._focus is not None and not self.image_files:
+            self._show_all = True          # nothing of the range on disk: show all
+            self._reload_data()
+        self._refresh_range_bar()
 
         self._add_upload_button()
         self._init_sam()
@@ -69,6 +78,68 @@ class ViewerMainWindow(CoreMainWindow):
             btn.setEnabled(False)
             self._tool_picker.setToolToolTip(2, self.tr_("sam_unavailable"))
         self._refresh_tools()
+
+    # ------------------------------------------------------------ range view
+    def _add_range_bar(self):
+        """"Photos 5 ~ 10 (6)  [Show all]" above the list after a range fetch."""
+        self._range_bar = QWidget()
+        row = QHBoxLayout(self._range_bar)
+        row.setContentsMargins(0, 0, 0, 6)
+        self._lbl_range = QLabel()
+        self._lbl_range.setObjectName("rangeLabel")
+        self._btn_range_toggle = QPushButton()
+        self._btn_range_toggle.setAutoDefault(False)
+        self._btn_range_toggle.clicked.connect(self._toggle_range_view)
+        row.addWidget(self._lbl_range, 1)
+        row.addWidget(self._btn_range_toggle)
+        self._grp_list.layout().insertWidget(0, self._range_bar)
+        self._range_bar.setVisible(self._focus is not None)
+
+    def _refresh_range_bar(self):
+        if self._focus is None:
+            return
+        f = self._focus
+        end = str(f.to_num) if f.to_num else self.tr_("fetch_range_end")
+        self._lbl_range.setText(self.tr_("list_range_label", a=f.from_num, b=end,
+                                         n=len(self._range_files())))
+        self._btn_range_toggle.setText(
+            self.tr_("btn_show_range" if self._show_all else "btn_show_all"))
+
+    def _all_local_files(self) -> list[str]:
+        """Every photo of the job on this PC (the folders may not be set yet)."""
+        if self.origin_dir is None or not self.origin_dir.exists():
+            return []
+        return super()._build_image_list()
+
+    def _range_files(self) -> list[str]:
+        on_disk = set(self._all_local_files())
+        return [fn for fn in self._focus.filenames if fn in on_disk]
+
+    def _build_image_list(self) -> list[str]:
+        files = self._all_local_files()
+        if self._focus is None or self._show_all:
+            return files
+        wanted = set(self._focus.filenames)
+        return [fn for fn in files if fn in wanted]
+
+    def _toggle_range_view(self):
+        """Switch between the fetched range and every photo of the job,
+        saving the current photo first and staying on it if listed."""
+        self._save_all_artifacts(silent=True, only_if_edited=True)
+        current = (self.image_files[self.current_idx]
+                   if 0 <= self.current_idx < len(self.image_files) else None)
+        self._show_all = not self._show_all
+        self._reload_data()
+        if current in self.image_files:
+            self._show_image(self.image_files.index(current))
+        self._refresh_range_bar()
+        self._refresh_job_info()
+
+    def _photo_count_text(self) -> str:
+        if self._focus is None or self._show_all:
+            return super()._photo_count_text()
+        return self.tr_("photo_count_part", shown=len(self.image_files),
+                        total=len(self._all_local_files()))
 
     # ------------------------------------------------------------ job info
     def _job_info(self) -> tuple[str, str]:
@@ -119,8 +190,10 @@ class ViewerMainWindow(CoreMainWindow):
     def retranslate(self) -> None:
         """Re-apply this subclass's own translated text (the core window's
         _retranslate_ui handles everything it owns; this covers the upload
-        button added on top of it)."""
+        button and the range bar added on top of it)."""
         self.btn_upload.setText(self.tr_("vmw_btn_upload"))
+        if hasattr(self, "_range_bar"):
+            self._refresh_range_bar()
 
     def _retranslate_ui(self):
         # CoreMainWindow already owns the languageChanged connection and
@@ -159,10 +232,12 @@ class ViewerMainWindow(CoreMainWindow):
         return super()._resolve_scale(filename, origin)
 
     def _edited_filenames(self) -> list[str]:
-        """Photos with a saved edited mask in Labeling/ this session."""
+        """Photos with a saved edited mask in Labeling/ -- of those listed
+        (a range view uploads only its photos; "show all" uploads all)."""
+        listed = set(self.image_files)
         out = []
         for fn in self._manifest.filenames_in_order():
-            if (self.output_dir / mask_store.mask_name(fn)).exists():
+            if fn in listed and (self.output_dir / mask_store.mask_name(fn)).exists():
                 out.append(fn)
         return out
 
