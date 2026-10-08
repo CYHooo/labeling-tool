@@ -153,6 +153,8 @@ STRINGS = {
     "fetch_photos_all":                "All",
     "fetch_photos_range":              "Range",
     "fetch_photo_number":              "Photo number",
+    "fetch_range_end":                 "End",
+    "fetch_range_title":               "Check the range",
     "fetch_range_reversed_msg":        "The start number is greater than the end number.",
     "fetch_back":                      "Job list",
     "fetch_btn":                       "Fetch",

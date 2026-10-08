@@ -50,8 +50,9 @@ def test_the_range_follows_the_selected_job(dlg):
     dlg.rb_range.setChecked(True)
     dlg.cb_session.setCurrentIndex(1)                              # job 50, 7 photos
     assert (dlg.sp_from.value(), dlg.sp_to.value()) == (1, 7)
-    assert dlg.sp_to.maximum() == 7 and dlg.sp_from.maximum() == 7
     assert dlg.sp_from.minimum() == 1
+    # not capped at the count: photo numbers can have gaps (a deleted photo)
+    assert dlg.sp_to.maximum() > 7
 
 
 def test_a_reversed_range_is_refused_before_fetching(dlg, monkeypatch):
@@ -66,6 +67,47 @@ def test_a_reversed_range_is_refused_before_fetching(dlg, monkeypatch):
     dlg.sp_to.setValue(10)
     dlg._on_fetch()
     assert shown == [i18n.tr("fetch_range_reversed_msg")]
+
+
+def test_unknown_photo_count_defaults_the_range_to_the_end(monkeypatch, tmp_path):
+    # Typing a job ID by hand (job list unavailable) and pressing Enter
+    # reset the range to 1 ~ 1 and fetched a single photo without a word.
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path / "settings")
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
+    i18n.set_language("ko")
+    d = fd.FetchDialog(base="https://x", key="k")
+
+    def down():
+        raise OSError("offline")
+
+    d.client.list_sessions = down
+    d._load_sessions()
+    fetched = []
+    monkeypatch.setattr(d, "_on_fetch", lambda: fetched.append(d._requested_range()))
+    try:
+        d.rb_range.setChecked(True)
+        d.sp_from.setValue(5)
+        d.show()
+        d.cb_session.setFocus()
+        from PyQt5.QtCore import Qt
+        from PyQt5.QtTest import QTest
+        QTest.keyClicks(d.cb_session.lineEdit(), "49")
+        QTest.keyClick(d.cb_session.lineEdit(), Qt.Key_Return)
+        assert d.cb_session.count() == 0                 # Enter did not add an item
+        assert d._requested_range() == (5, 0)            # 5 ~ end
+        assert d.sp_to.text() == i18n.tr("fetch_range_end")
+    finally:
+        d.close()
+
+
+def test_reversed_range_message_has_its_own_title(dlg, monkeypatch):
+    titles = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: titles.append(a[1]))
+    dlg.rb_range.setChecked(True)
+    dlg.sp_from.setValue(30)
+    dlg.sp_to.setValue(10)
+    dlg._on_fetch()
+    assert titles == [i18n.tr("fetch_range_title")]
 
 
 @pytest.mark.parametrize("lang", ["ko", "zh", "en"])
@@ -113,22 +155,25 @@ def test_manual_entry_when_the_job_list_fails(monkeypatch, tmp_path):
         d.close()
 
 
-def test_disabled_range_and_radio_labels_look_the_part(dlg):
+def test_disabled_range_and_checked_radio_look_the_part(dlg):
     # With the app's dark stylesheet, a disabled range looked editable and
-    # the radio labels were dim like disabled text.
+    # the radio indicators were hard to read. Sample backgrounds, not text,
+    # so the test does not depend on fonts.
     from labeling_tool.core.window.styles import STYLESHEET
     dlg.setStyleSheet(STYLESHEET)
     dlg.resize(520, 300)
     dlg.show()
     QApplication.processEvents()
 
-    def text_colour_count(widget):
+    def background(widget):
         img = widget.grab().toImage()
-        return sum(1 for x in range(img.width()) for y in range(img.height())
-                   if min(img.pixelColor(x, y).getRgb()[:3]) > 200)   # bright text pixels
+        return img.pixelColor(img.width() // 2, 3).name()       # inside the border
 
-    disabled_bright = text_colour_count(dlg.sp_to)
+    disabled = background(dlg.sp_from)
     dlg.rb_range.setChecked(True)
     QApplication.processEvents()
-    assert text_colour_count(dlg.sp_to) > disabled_bright           # dim when disabled
-    assert text_colour_count(dlg.rb_all) > 0                         # label is bright
+    assert background(dlg.sp_from) != disabled
+
+    img = dlg.rb_range.grab().toImage()
+    blue = [img.pixelColor(x, y) for x in range(min(24, img.width())) for y in range(img.height())]
+    assert any(c.blue() > 180 and c.red() < 90 for c in blue)       # the checked dot ring

@@ -76,7 +76,13 @@ class FetchDialog(QDialog):
         self.rb_range = QRadioButton(tr("fetch_photos_range"))
         self.rb_all.setChecked(True)
         self.sp_from = QSpinBox(); self.sp_from.setRange(1, _MAX_PHOTO_NUM)
-        self.sp_to = QSpinBox(); self.sp_to.setRange(1, _MAX_PHOTO_NUM)
+        # 0 = to the last photo, shown as 「끝」: the default when the job's
+        # photo count is unknown (typed job ID), so a range never silently
+        # shrinks to one photo. No cap at the count either: photo numbers
+        # can have gaps (a deleted photo), so the last one may exceed it.
+        self.sp_to = QSpinBox(); self.sp_to.setRange(0, _MAX_PHOTO_NUM)
+        self.sp_to.setSpecialValueText(tr("fetch_range_end"))
+        self.sp_to.setValue(0)
         for sp in (self.sp_from, self.sp_to):
             sp.setMinimumWidth(80)
         range_row = QHBoxLayout()
@@ -158,6 +164,9 @@ class FetchDialog(QDialog):
     def _manual_job_entry(self) -> None:
         """No job list from the server: type the job ID instead."""
         self.cb_session.setEditable(True)
+        # Enter fetches (default button); it must not also add the typed
+        # text as a list item.
+        self.cb_session.setInsertPolicy(QComboBox.NoInsert)
         self.cb_session.lineEdit().setPlaceholderText(tr("fetch_job_placeholder"))
 
     # ---- photo range ----
@@ -166,16 +175,16 @@ class FetchDialog(QDialog):
         self.sp_to.setEnabled(on)
 
     def _fit_range_to_job(self, *_):
-        """Range limits and default = the selected job's photos (1..count)."""
+        """Default range = the selected job's photos (1 ~ count). With an
+        unknown count (a typed job ID) the user's range is left alone."""
         count = self._session_counts.get(self._selected_sid() or -1)
-        top = count if count else _MAX_PHOTO_NUM
-        for sp in (self.sp_from, self.sp_to):
-            sp.setMaximum(top)
-        self.sp_from.setValue(1)
-        self.sp_to.setValue(count if count else 1)
+        if count:
+            self.sp_from.setValue(1)
+            self.sp_to.setValue(count)
 
     def _requested_range(self) -> tuple[int, int]:
-        """(from, to) photo numbers to fetch; (0, 0) = all photos."""
+        """(from, to) photo numbers to fetch; 0 is an open end, so (0, 0)
+        = all photos and (5, 0) = from photo 5 to the last."""
         if not self.rb_range.isChecked():
             return 0, 0
         return self.sp_from.value(), self.sp_to.value()
@@ -200,8 +209,8 @@ class FetchDialog(QDialog):
                                 tr("fetch_input_required_msg"))
             return
         from_num, to_num = self._requested_range()
-        if from_num > to_num:
-            QMessageBox.warning(self, tr("fetch_input_required_title"),
+        if to_num and from_num > to_num:            # to 0 = to the last photo
+            QMessageBox.warning(self, tr("fetch_range_title"),
                                 tr("fetch_range_reversed_msg"))
             return
 

@@ -153,6 +153,8 @@ STRINGS = {
     "fetch_photos_all":                "全部",
     "fetch_photos_range":              "指定范围",
     "fetch_photo_number":              "照片编号",
+    "fetch_range_end":                 "最后",
+    "fetch_range_title":               "检查范围",
     "fetch_range_reversed_msg":        "起始编号大于结束编号",
     "fetch_back":                      "任务列表",
     "fetch_btn":                       "获取",

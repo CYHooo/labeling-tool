@@ -158,6 +158,8 @@ STRINGS = {
     "fetch_photos_all":                "전체",
     "fetch_photos_range":              "범위 지정",
     "fetch_photo_number":              "사진 번호",
+    "fetch_range_end":                 "끝",
+    "fetch_range_title":               "범위 확인",
     "fetch_range_reversed_msg":        "시작 번호가 끝 번호보다 큽니다.",
     "fetch_back":                      "작업 목록",
     "fetch_btn":                       "가져오기",
