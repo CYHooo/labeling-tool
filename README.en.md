@@ -82,6 +82,16 @@ Your work is saved automatically when you move to another image; "Save" (S) save
 
 "Upload to EC2" uploads **only the photos you edited**, together with the mask, highlight and 15 cm boundary. After uploading, the app reads the server back to confirm every photo arrived and lists any that did not. Details are written to `vapi.log` in the job folder.
 
+### Where data and logs are
+
+| Item | Linux | Windows |
+|---|---|---|
+| Jobs (photos, labeling results) | `~/.local/share/lm-labeling-tool/data/session_<job ID>/` | `<install folder>\data\session_<job ID>\` |
+| Job log | `vapi.log` in the job folder | `vapi.log` in the job folder |
+| App log | `~/.local/share/lm-labeling-tool/logs/app.log` | `<install folder>\logs\app.log` |
+
+On Windows, `<install folder>` defaults to `%LOCALAPPDATA%\Programs\LM_LabelingTool`. The app log (`app.log`) records startup, sign-in, updates, unexpected errors and every job log line; it rotates at 1 MB and keeps the last five files. When something goes wrong, open the folder from "?" → "Open log folder" on the labeling screen and send `app.log`. Passwords and API keys are never logged.
+
 ## Language
 
 Change the display language (한국어 / 中文 / English) with "Language:" at the bottom of the login screen or under "Settings" in the labeling window. Your choice is saved.

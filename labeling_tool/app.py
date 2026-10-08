@@ -24,7 +24,7 @@ from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QApplication
 
 from labeling_tool.core.i18n import tr
-from labeling_tool.logging_setup import vlog
+from labeling_tool.logging_setup import alog, vlog
 from labeling_tool.ui.login_dialog import LoginDialog, MODE_FEWSHOT
 from labeling_tool.ui.fetch_dialog import FetchDialog
 from labeling_tool.ui.main_window import ViewerMainWindow
@@ -106,10 +106,28 @@ def apply_desktop_identity(app, platform: str = sys.platform) -> None:
         app.setDesktopFileName(DESKTOP_ID)
 
 
+def _start_app_logging() -> None:
+    """app.log for this run: hooks for uncaught errors and Qt warnings, and a
+    first line naming the build. Never fatal (see setup_app_log)."""
+    from labeling_tool import logging_setup
+    from labeling_tool.core import i18n
+    from labeling_tool.update.version import read_build_info
+    logging_setup.setup_app_log()
+    logging_setup.install_exception_hooks()
+    logging_setup.install_qt_message_handler()
+    logging_setup.log_startup(read_build_info(), i18n.current_language())
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     from labeling_tool.core import app_paths
     from labeling_tool.update import patch
+    headless = "--apply-update" in argv or any(a.startswith("--selftest") for a in argv)
+    if not headless:
+        # Not for --apply-update: it runs as root (pkexec), and a root-owned
+        # app.log would lock the user's own app out of its log. The
+        # unprivileged app logs the outcome instead.
+        _start_app_logging()
     if app_paths.is_frozen():
         # A swap interrupted by a crash or power cut is undone before the
         # app does anything else. On Linux the app runs unprivileged and
@@ -228,9 +246,12 @@ def main(argv: list[str] | None = None) -> int:
     if base and key:
         client = ViewerApiClient(base_url=base, api_key=key)
 
+    alog().info("labeling window: job %s (%d photos, %s)", workspace.session_id,
+                len(manifest.photos), "online" if client is not None else "offline")
     win = ViewerMainWindow(workspace, manifest, client)
     win.show()
     code = app.exec_()
+    alog().info("labeling window closed")
     prompt_pending_update()
     return code
 

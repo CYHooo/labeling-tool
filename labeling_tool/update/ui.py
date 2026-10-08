@@ -442,12 +442,14 @@ def apply_and_restart(parent, info, zip_path: Path) -> bool:
             vlog().exception("update apply failed")
             outcome, detail = installer.InstallOutcome.FAILED, str(exc)
         if outcome is installer.InstallOutcome.CANCELLED:
+            vlog().info("update apply cancelled at the password prompt")
             return False  # the user dismissed the password dialog
         if outcome is not installer.InstallOutcome.OK:
             vlog().info("update apply failed: %s", detail)
             QMessageBox.warning(parent, tr("update_failed_title"),
                                 tr("update_apply_failed_msg", exc=detail))
             return False
+    vlog().info("update %s applied; restarting", info.version)
     try:
         subprocess.Popen([str(exe)], **installer.launch_and_exit_args())
     except OSError:
@@ -545,6 +547,12 @@ def check_for_updates(parent, *, force: bool = False, home: Path | None = None):
         # box is fine; a dangling pointer is not.
         box_parent = _live(parent)
         state.mark_checked(home)
+        if isinstance(found, Exception):
+            vlog().info("update check failed: %s: %s", type(found).__name__, found)
+        elif found is None:
+            vlog().info("update check: up to date (%s)", info.version)
+        else:
+            vlog().info("update check: %s -> %s (%s)", info.version, found.version, found.kind)
         if isinstance(found, Exception):
             # Silent by default (offline/rate-limited networks are routine);
             # a forced check must not lie by reporting "up to date" instead.

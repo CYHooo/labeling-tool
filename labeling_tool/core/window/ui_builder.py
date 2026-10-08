@@ -576,4 +576,12 @@ def build_help_dialog(window: "MainWindow") -> QDialog:
     window._lbl_hint.setObjectName("hintText")
     window._lbl_hint.setWordWrap(True)
     lay.addWidget(window._lbl_hint)
+    row = QHBoxLayout()
+    row.addStretch()
+    window._btn_open_logs = QPushButton(window.tr_("btn_open_logs"))
+    window._btn_open_logs.setIcon(icons.icon("folder-open"))
+    window._btn_open_logs.setAutoDefault(False)
+    window._btn_open_logs.clicked.connect(window._open_log_folder)
+    row.addWidget(window._btn_open_logs)
+    lay.addLayout(row)
     return dlg

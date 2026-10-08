@@ -82,6 +82,16 @@ sudo dpkg -i lm-labeling-tool_<버전>_amd64.deb
 
 「EC2 업로드」를 누르면 **수정한 사진만** 마스크 · 하이라이트 · 15cm 경계를 함께 업로드합니다. 업로드 후 서버에 반영되었는지 다시 확인하며, 실패한 사진은 번호와 함께 알려 줍니다. 자세한 기록은 작업 폴더의 `vapi.log` 에 남습니다.
 
+### 데이터와 로그 위치
+
+| 항목 | Linux | Windows |
+|---|---|---|
+| 작업 (사진 · 라벨링 결과) | `~/.local/share/lm-labeling-tool/data/session_<작업 ID>/` | `<설치 폴더>\data\session_<작업 ID>\` |
+| 작업 로그 | 작업 폴더의 `vapi.log` | 작업 폴더의 `vapi.log` |
+| 프로그램 로그 | `~/.local/share/lm-labeling-tool/logs/app.log` | `<설치 폴더>\logs\app.log` |
+
+Windows 의 `<설치 폴더>` 는 기본적으로 `%LOCALAPPDATA%\Programs\LM_LabelingTool` 입니다. 프로그램 로그(`app.log`)에는 시작 정보, 로그인, 업데이트, 예기치 않은 오류와 모든 작업 로그가 함께 기록되며, 1 MB마다 교체되어 최근 5개까지 보관됩니다. 문제가 생기면 라벨링 화면의 「?」 → 「로그 폴더 열기」로 폴더를 열어 `app.log` 를 전달해 주세요. 비밀번호와 API Key 는 기록되지 않습니다.
+
 ## 언어 설정
 
 화면 언어(한국어 / 中文 / English)는 로그인 화면 아래쪽 또는 라벨링 화면의 「설정」에 있는 「언어:」에서 바꿉니다. 선택한 언어는 저장됩니다.

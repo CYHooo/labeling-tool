@@ -73,7 +73,9 @@ def test_gitattributes_pins_line_endings():
 def test_sh_launcher_runs_from_another_directory(tmp_path):
     # The login dialog blocks, so give it a moment, then stop it: still running
     # (timeout) means the package resolved and the GUI started.
-    env = dict(os.environ, QT_QPA_PLATFORM="offscreen")
+    # keep the launched app's app.log out of the repo
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen",
+               LM_LABELING_LOG_DIR=str(tmp_path / "logs"))
     with pytest.raises(subprocess.TimeoutExpired):
         subprocess.run([str(ROOT / "run.sh")], cwd=tmp_path, env=env,
                        capture_output=True, text=True, timeout=8)
