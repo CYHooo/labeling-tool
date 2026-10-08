@@ -1,7 +1,8 @@
-"""Labeling window side panel, layout A: one-line job info with a help
-button, image list with a header, one navigation row with a single save,
-tools on tabs where the selected tab IS the editing mode, and the upload
-button pinned to the bottom."""
+"""Labeling window side panel: one-line job info with a help button, image
+list with a header, one navigation row with a single save, a 2x2 tool
+picker where the selected tool IS the editing mode (its how-to and options
+below it), a display/scale group, and the upload button pinned to the
+bottom."""
 import cv2
 import numpy as np
 from PyQt5.QtWidgets import (
@@ -141,7 +142,7 @@ def test_one_navigation_row_with_a_single_save(tmp_path, monkeypatch):
         win.close()
 
 
-# ---------------------------------------------------------------- tool tabs
+# ---------------------------------------------------------------- tool modes
 def test_tools_are_view_brush_sam_and_repair_area(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch)
     try:
@@ -273,7 +274,7 @@ def test_panel_text_follows_the_language(tmp_path, monkeypatch):
 
 def test_panel_content_fits_the_panel_width_in_every_language(tmp_path, monkeypatch):
     # Nothing may be clipped at the panel's narrowest width (horizontal
-    # scrolling is off), on any tab.
+    # scrolling is off), with any tool selected.
     win = _make_window(tmp_path, monkeypatch)
     try:
         scroll = win.findChild(QScrollArea)
@@ -308,7 +309,8 @@ def test_the_image_list_takes_the_spare_height(tmp_path, monkeypatch):
 
 
 def test_moving_to_a_photo_without_scale_leaves_repair_area_mode_safely(tmp_path, monkeypatch):
-    # Disabling the current tab made Qt jump to a neighbouring tab, and that
+    # (Regression from the tab version.) Disabling the current tab made Qt
+    # jump to a neighbouring tab, and that
     # switched the user into SAM (or brush) mode without a word.
     for sam in (True, False):
         win = _make_window(tmp_path / str(sam), monkeypatch, sam_available=sam,
@@ -457,3 +459,39 @@ def test_no_tool_makes_the_panel_scroll_in_a_900px_window(tmp_path, monkeypatch)
     finally:
         i18n.set_language("ko")
         win.close()
+
+
+def test_a_disabled_tool_cannot_be_picked_and_reclicking_emits_nothing():
+    picker = ui_builder.ToolPicker()
+    for _ in range(4):
+        picker.add_tool("x", QLabel("page"))
+    emitted = []
+    picker.currentChanged.connect(emitted.append)
+    picker.setToolEnabled(SAM, False)
+    picker.setCurrentIndex(SAM)
+    assert picker.currentIndex() == VIEW
+    picker.button(VIEW).click()                     # the current tool again
+    assert emitted == []
+    picker.button(BRUSH).click()
+    assert emitted == [BRUSH]
+
+
+def test_category_shortcuts_work_while_the_brush_page_is_hidden(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        assert not win._btn_cat_spalling.isVisible()                # 보기 selected
+        win.activateWindow()
+        QTest.keyClick(win, Qt.Key_2)
+        assert win.canvas.current_category == "spalling"
+        assert win._btn_cat_spalling.isChecked()
+    finally:
+        win.close()
+
+
+def test_the_sam_how_to_mentions_esc():
+    import importlib
+    for code in ("ko", "zh", "en"):
+        strings = importlib.import_module(f"labeling_tool.core.i18n.strings_{code}").STRINGS
+        assert "Esc" in strings["tool_sam_hint"], code

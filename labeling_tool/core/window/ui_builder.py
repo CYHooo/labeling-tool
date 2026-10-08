@@ -253,7 +253,7 @@ def build_list_group(window: "MainWindow") -> QGroupBox:
 
 def _build_mode_toggles(window: "MainWindow", parent: QWidget) -> None:
     """The brush / SAM / repair-area mode switches. Never shown: the tool
-    tabs drive them, and they stay the single record of the active mode
+    picker drives them, and they stay the single record of the active mode
     (their handlers keep the modes exclusive; B and X toggle them)."""
     window._btn_brush_toggle = QPushButton(window.tr_("btn_brush_on"), parent)
     window._btn_brush_toggle.setIcon(icons.icon("brush"))
@@ -353,6 +353,9 @@ class ToolPicker(QWidget):
         return self._buttons[idx].isEnabled()
 
     def setToolEnabled(self, idx: int, enabled: bool) -> None:
+        """Disabling the current tool does not move the selection: the
+        caller ends that tool's mode and re-selects (see
+        MainWindow._refresh_tools)."""
         self._buttons[idx].setEnabled(enabled)
 
     def toolToolTip(self, idx: int) -> str:
@@ -362,10 +365,11 @@ class ToolPicker(QWidget):
         self._buttons[idx].setToolTip(tip)
 
     def _on_clicked(self, idx: int) -> None:
+        # A user click always reports (the picker is only blocked while the
+        # window syncs it, which no click can interrupt).
         if idx != self._current:
             self._show(idx)
-            if not self.signalsBlocked():
-                self.currentChanged.emit(idx)
+            self.currentChanged.emit(idx)
 
     def _show(self, idx: int) -> None:
         self._current = idx

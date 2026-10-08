@@ -35,7 +35,7 @@ STRINGS = {
     "tool_bbox":          "修补区域",
     "tool_view_hint":     "只查看不编辑：Ctrl+拖动移动，滚轮缩放",
     "tool_brush_hint":    "左键拖动绘制，右键拖动擦除",
-    "tool_sam_hint":      "左键=加入、右键=排除；确认后写入剥落",
+    "tool_sam_hint":      "左键=加入、右键=排除；Esc 撤回上一点；确认后写入剥落",
     "tool_bbox_hint":     "单击加点，Enter 确认，Esc 取消，Del 删除",
     "group_list":         "图片列表",
     "group_hint":         "帮助 / 用法",

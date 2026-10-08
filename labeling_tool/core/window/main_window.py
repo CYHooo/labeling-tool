@@ -153,7 +153,7 @@ class MainWindow(QMainWindow):
             else self.tr_("btn_measure"))
         self._refresh_scale_label()
 
-        # hidden mode switches (the tabs show the mode)
+        # hidden mode switches (the tool picker shows the mode)
         self._btn_brush_toggle.setText(
             self.tr_("btn_brush_off") if self.canvas.brush_mode
             else self.tr_("btn_brush_on"))

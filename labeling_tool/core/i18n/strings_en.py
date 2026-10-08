@@ -35,7 +35,7 @@ STRINGS = {
     "tool_bbox":          "Repair area",
     "tool_view_hint":     "View only, no editing. Ctrl+drag to pan, wheel to zoom.",
     "tool_brush_hint":    "Left-drag to draw, right-drag to erase.",
-    "tool_sam_hint":      "Left-click includes, right-click excludes. Confirm records it as spalling.",
+    "tool_sam_hint":      "Left-click includes, right-click excludes, Esc undoes the last point. Confirm records it as spalling.",
     "tool_bbox_hint":     "Click to add points, Enter to confirm, Esc to cancel, Del to delete.",
     "group_list":         "Image List",
     "group_hint":         "Help / Usage",
