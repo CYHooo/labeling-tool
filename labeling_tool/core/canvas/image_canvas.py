@@ -367,13 +367,13 @@ class ImageCanvas(QWidget):
         with the accumulated (finalized-but-uncommitted) regions into the preview."""
         current = None
         if self._sam_points and self._sam_crop is not None:
-            self._sam_encode_crop()
             x0, y0, x1, y1 = self._sam_crop
             cw, ch = x1 - x0, y1 - y0
             crop_pts = [(int(np.clip(px - x0, 0, cw - 1)),
                          int(np.clip(py - y0, 0, ch - 1)))
                         for (px, py) in self._sam_points]
             try:
+                self._sam_encode_crop()
                 mask_crop = self._sam_predictor.predict(crop_pts, self._sam_labels)
                 if mask_crop.shape[:2] != (ch, cw):     # defensive: never desync sizes
                     mask_crop = cv2.resize(mask_crop, (cw, ch),

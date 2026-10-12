@@ -1206,3 +1206,19 @@ def test_tool_pages_are_never_squeezed_in_a_900px_window(tmp_path, monkeypatch):
     finally:
         i18n.set_language("ko")
         win.close()
+
+
+def test_ctrl_z_with_nothing_left_keeps_the_sam_redo_steps(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        c = win.canvas
+        _sam_with_points(win, (2, 2, 1), (5, 5, 0))
+        both = list(c._sam_points)
+        _ctrl(win, Qt.Key_Z); _ctrl(win, Qt.Key_Z)
+        _ctrl(win, Qt.Key_Z)                                  # no mask edit to undo either
+        assert c.can_redo_sam_point()
+        _ctrl(win, Qt.Key_Z, shift=True); _ctrl(win, Qt.Key_Z, shift=True)   # Ctrl+Shift+Z
+        assert c._sam_points == both
+    finally:
+        win.close()

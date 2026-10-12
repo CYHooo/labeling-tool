@@ -445,8 +445,10 @@ class MainWindow(QMainWindow):
             if c.can_undo_sam_point():
                 self._on_sam_undo()
                 return
-            # no points left: point redo steps would now redo out of order
-            c.cancel_sam()
+            # no points left: once a mask edit is undone, point redo steps
+            # would redo out of order (keep them when nothing is undone)
+            if c.can_undo():
+                c.cancel_sam()
         if c.bbox_mode and c.bbox_interaction.undo_click():
             c.update()
             return

@@ -343,3 +343,30 @@ def test_point_steps_report_through_history_changed():
     seen.clear(); c.undo_sam_point(); assert seen
     seen.clear(); c.redo_sam_point(); assert seen
     seen.clear(); c.cancel_sam(); assert seen
+
+
+def test_image_switch_and_leaving_sam_drop_the_point_steps():
+    c = _canvas()
+    c.set_sam_predictor(_FakePredictor())
+    c.set_sam_mode(True)
+    c.mousePressEvent(_LeftClick(15, 15))
+    c.mousePressEvent(_LeftClick(16, 16))
+    c.undo_sam_point()
+    c.set_image(np.full((80, 120, 3), 70, np.uint8), None, None)
+    assert not c.can_undo_sam_point() and not c.can_redo_sam_point()
+    c.mousePressEvent(_LeftClick(15, 15))
+    c.set_sam_mode(False)
+    assert not c.can_undo_sam_point() and not c.can_redo_sam_point()
+
+
+def test_a_failed_encode_on_undo_is_logged_not_raised(monkeypatch):
+    c, img, pred = _gradient_canvas(monkeypatch)
+    c._sam_add_point(30, 30, 1)
+    c._sam_add_point(150, 150, 1)              # predictor now holds B's crop
+
+    def broken(bgr):
+        raise RuntimeError("encoder down")
+    pred.set_image = broken
+    assert c.undo_sam_point() is True          # back into A: encode fails, no raise
+    assert c._sam_points == [(30, 30)]
+    assert c.can_redo_sam_point()
