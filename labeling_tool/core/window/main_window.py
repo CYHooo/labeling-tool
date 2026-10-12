@@ -236,7 +236,9 @@ class MainWindow(QMainWindow):
     def _refresh_nav_tooltips(self):
         for btn, key in ((self.btn_prev, "A"), (self.btn_next, "D"),
                          (self.btn_save, "S / Ctrl+S"), (self._btn_undo, "Ctrl+Z"),
-                         (self._btn_redo, "Ctrl+Y / Ctrl+Shift+Z")):
+                         (self._btn_redo, "Ctrl+Y / Ctrl+Shift+Z"),
+                         (self._btn_sam_commit, "Enter"), (self._btn_sam_cancel, "Esc"),
+                         (self._btn_sam_undo, "Ctrl+Z")):
             btn.setToolTip(self.tr_("tip_shortcut", shortcut=key))
 
     def _open_log_folder(self):
@@ -435,11 +437,29 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Undo / redo (mask edits on the current image)
     # ------------------------------------------------------------------
+    # Ctrl+Z / Ctrl+Y mean the same in every tool: unconfirmed SAM or
+    # repair-area points are taken back first, then mask edits.
     def _on_undo(self):
-        self.canvas.undo()
+        c = self.canvas
+        if c.sam_mode:
+            if c.can_undo_sam_point():
+                self._on_sam_undo()
+                return
+            # no points left: once a mask edit is undone, point redo steps
+            # would redo out of order (keep them when nothing is undone)
+            if c.can_undo():
+                c.cancel_sam()
+        if c.bbox_mode and c.bbox_interaction.undo_click():
+            c.update()
+            return
+        c.undo()
 
     def _on_redo(self):
-        self.canvas.redo()
+        c = self.canvas
+        if c.sam_mode and c.redo_sam_point():
+            self.status.showMessage(self.tr_("sam_redone"))
+            return
+        c.redo()
 
     def _refresh_undo_buttons(self):
         self._btn_undo.setEnabled(self.canvas.can_undo())
@@ -695,14 +715,23 @@ class MainWindow(QMainWindow):
             self.status.showMessage(self.tr_("sam_undone"))
 
     def _on_escape(self):
-        """Esc dispatcher: undo a SAM point in SAM mode, else cancel a bbox.
+        """Esc drops everything not yet confirmed: all SAM points, or the
+        repair-area points / selection.
 
-        Esc is a single global shortcut (shortcuts.py); routing it by mode here
-        avoids two conflicting Esc bindings (which fire ambiguously / not at all)."""
+        Esc and Enter are single global shortcuts (shortcuts.py); routing them
+        by mode here avoids conflicting bindings (which fire ambiguously / not
+        at all)."""
         if self.canvas.sam_mode:
-            self._on_sam_undo()
+            self._on_sam_cancel()
         else:
             self._on_bbox_cancel()
+
+    def _on_confirm(self):
+        """Enter confirms: the SAM selection, or the repair-area points."""
+        if self.canvas.sam_mode:
+            self._on_sam_commit()
+        else:
+            self._on_bbox_commit()
 
     # ------------------------------------------------------------------
     # UI construction

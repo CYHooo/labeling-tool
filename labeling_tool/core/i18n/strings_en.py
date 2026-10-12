@@ -35,8 +35,8 @@ STRINGS = {
     "tool_bbox":          "Repair area",
     "tool_view_hint":     "View only, no editing. Ctrl+drag to pan, wheel to zoom.",
     "tool_brush_hint":    "Left-drag to draw, right-drag to erase.",
-    "tool_sam_hint":      "Left-click includes, right-click excludes, Esc undoes the last point. Confirm records it as spalling.",
-    "tool_bbox_hint":     "Click to add points, Enter to confirm, Esc to cancel, Del to delete.",
+    "tool_sam_hint":      "Left-click includes, right-click excludes. Enter confirms it as spalling; Ctrl+Z undoes the last point, Esc clears all.",
+    "tool_bbox_hint":     "Click to add points, Enter to confirm. Ctrl+Z undoes the last point, Esc cancels, Del deletes.",
     "btn_open_logs":      "Open log folder",
     "log_folder_path":    "Log folder: {path}",
     "btn_undo":           "Undo",
@@ -54,7 +54,9 @@ STRINGS = {
     "hint_text":
         "Brush   L-drag paint · R-drag erase · 1/2 crack/spalling\n"
         "        B toggle · [ / ] size · R=crack G=spalling\n"
-        "Repair  click add point · Enter commit · Esc cancel · Del delete\n"
+        "SAM     L-click include · R-click exclude · Enter confirm · Esc clear all\n"
+        "Repair  click add point · Enter confirm · Esc cancel · Del delete\n"
+        "Common  Ctrl+Z undo (unconfirmed points first) · Ctrl+Y redo\n"
         "Measure click the two ends of a known-length reference\n"
         "View    Ctrl+drag pan · wheel zoom\n"
         "Nav     A / D prev/next · S / Ctrl+S save · auto-save on switch",
@@ -89,7 +91,8 @@ STRINGS = {
     "btn_sam_cancel":  "Cancel",
     "btn_sam_undo":    "Undo point",
     "sam_undone":      "Last SAM point undone.",
-    "sam_hint":        "Left-click = include, right-click = exclude; Esc undoes the last point; Confirm writes the region to spalling.",
+    "sam_redone":      "SAM point restored.",
+    "sam_hint":        "Left-click = include, right-click = exclude; Enter confirms (writes spalling); Ctrl+Z undoes the last point; Esc clears all.",
     "sam_committed":   "SAM region written to spalling.",
     "sam_unavailable": "SAM unavailable (onnxruntime or models/sam/*.onnx missing).",
 

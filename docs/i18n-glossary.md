@@ -46,7 +46,8 @@
 | manual measurement | **수동 측정** | 手动测量 | Manual measurement | 保留；英文按钮因面板宽度用短形式 `Measure`。手动测得的축척数值以琥珀色显示，提示文字 `수동 측정값 (서버 값 대신 사용)` / 手动测量值（替代服务器的值） / Measured by hand (used instead of the server's value) |
 | bounding box / 补修区域 | **보수 구역** | 修补区域 | Repair area | 现状为 OBB/bbox 等技术词，对用户改用 `보수 구역` |
 | brush / eraser | **브러시** / **지우개** | 画笔 / 橡皮擦 | Brush / Eraser | |
-| undo / redo | **실행 취소** / **다시 실행** | 撤销 / 重做 | Undo / Redo | 掩码编辑（画笔、SAM 确认、복원）；Ctrl+Z / Ctrl+Y |
+| undo / redo | **실행 취소** / **다시 실행** | 撤销 / 重做 | Undo / Redo | 掩码编辑（画笔、SAM 确认、복원）；Ctrl+Z / Ctrl+Y。所有工具含义相同：SAM / 보수 구역 先撤销未确认的点（SAM 포인트 / 점），再撤销掩码编辑 |
+| confirm / clear all | **확정** (Enter) / **전체 취소** (Esc) | 确认 / 全部取消 | Confirm / Clear all | Enter 在 SAM 与 보수 구역 都是确认；Esc 丢弃全部未确认的点 |
 
 ## 4. 程序与更新
 

@@ -12,7 +12,9 @@ if TYPE_CHECKING:
 
 
 def register_shortcuts(window: "MainWindow") -> None:
-    """Wire up A/D/S/B/[ /]/1/2 global shortcuts on the main window."""
+    """Wire up the global shortcuts on the main window. Ctrl+Z / Ctrl+Y,
+    Enter and Esc mean the same in every tool (undo / redo, confirm, drop
+    what is not confirmed); main_window routes them by mode."""
     QShortcut(QKeySequence("A"), window, window.go_prev)
     QShortcut(QKeySequence("D"), window, window.go_next)
     QShortcut(QKeySequence("S"), window, window._on_brush_save)
@@ -30,8 +32,8 @@ def register_shortcuts(window: "MainWindow") -> None:
               lambda: window._select_category_btn(1))
     QShortcut(QKeySequence("X"), window,
               lambda: window._toggle_mode_shortcut(window._btn_bbox_toggle))
-    QShortcut(QKeySequence(Qt.Key_Return), window, window._on_bbox_commit)
-    QShortcut(QKeySequence(Qt.Key_Enter), window, window._on_bbox_commit)
+    QShortcut(QKeySequence(Qt.Key_Return), window, window._on_confirm)
+    QShortcut(QKeySequence(Qt.Key_Enter), window, window._on_confirm)
     QShortcut(QKeySequence(Qt.Key_Escape), window, window._on_escape)
     QShortcut(QKeySequence(Qt.Key_Delete), window, window._on_bbox_delete)
 

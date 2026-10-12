@@ -6,7 +6,7 @@ bottom."""
 import cv2
 import numpy as np
 from PyQt5.QtWidgets import (
-    QApplication, QCheckBox, QDialog, QLabel, QMessageBox, QPushButton, QScrollArea,
+    QApplication, QCheckBox, QDialog, QLabel, QMessageBox, QPushButton, QScrollArea, QWidget,
 )
 
 from labeling_tool.core import i18n
@@ -493,11 +493,13 @@ def test_category_shortcuts_work_while_the_brush_page_is_hidden(tmp_path, monkey
         win.close()
 
 
-def test_the_sam_how_to_mentions_esc():
+def test_the_sam_and_repair_area_how_tos_name_the_shared_keys():
     import importlib
     for code in ("ko", "zh", "en"):
         strings = importlib.import_module(f"labeling_tool.core.i18n.strings_{code}").STRINGS
-        assert "Esc" in strings["tool_sam_hint"], code
+        for key in ("tool_sam_hint", "sam_hint", "tool_bbox_hint"):
+            for shortcut in ("Ctrl+Z", "Enter", "Esc"):
+                assert shortcut in strings[key], (code, key, shortcut)
 
 
 def test_help_dialog_opens_the_log_folder(tmp_path, monkeypatch):
@@ -1071,5 +1073,152 @@ def test_switching_the_view_does_not_load_the_first_photo_on_the_way(tmp_path, m
         monkeypatch.setattr(win, "_show_image", lambda i, *a, **k: (shown.append(win.image_files[i]), orig(i, *a, **k))[1])
         win._btn_range_toggle.click()
         assert shown == [_SIX[3]]
+    finally:
+        win.close()
+
+
+# ---------------------------------------------------------------- one key, one meaning
+class _BlockPredictor:
+    """Marks a fixed block of whatever crop it is given."""
+    def set_image(self, bgr):
+        self._hw = bgr.shape[:2]
+
+    def predict(self, points, labels):
+        m = np.zeros(self._hw, np.uint8)
+        m[1:4, 1:4] = 255
+        return m
+
+
+def _key(win, key):
+    from PyQt5.QtTest import QTest
+    win.activateWindow()
+    QTest.keyClick(win.canvas, key)
+    QApplication.processEvents()
+
+
+def _sam_with_points(win, *points):
+    win._tool_picker.setCurrentIndex(SAM)
+    QApplication.processEvents()
+    win.canvas.set_sam_predictor(_BlockPredictor())
+    for x, y, label in points:
+        win.canvas._sam_add_point(x, y, label)
+
+
+def test_ctrl_z_in_sam_drops_the_last_point_before_touching_the_mask(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        c = win.canvas
+        _stroke(win)
+        drawn = c.brush_mask_crack.copy()
+        _sam_with_points(win, (2, 2, 1), (5, 5, 0))
+        _ctrl(win, Qt.Key_Z)
+        assert c._sam_points == [(2, 2)]
+        assert (c.brush_mask_crack == drawn).all()           # the stroke is untouched
+        _ctrl(win, Qt.Key_Y)
+        assert c._sam_points == [(2, 2), (5, 5)]
+        _ctrl(win, Qt.Key_Z); _ctrl(win, Qt.Key_Z)
+        assert c._sam_points == [] and not c.has_sam_preview()
+        _ctrl(win, Qt.Key_Z)                                  # no points left: undo the stroke
+        assert not c.brush_mask_crack.any()
+        _ctrl(win, Qt.Key_Y)                                  # redo follows the same order back
+        assert (c.brush_mask_crack == drawn).all()
+        assert c._sam_points == []
+    finally:
+        win.close()
+
+
+def test_enter_confirms_sam_into_spalling(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        c = win.canvas
+        _sam_with_points(win, (2, 2, 1))
+        _key(win, Qt.Key_Return)
+        assert c.brush_mask_spalling.any() and not c.has_sam_preview()
+        _ctrl(win, Qt.Key_Z)                                  # the confirm is one undo step
+        assert not c.brush_mask_spalling.any()
+        _sam_with_points(win, (2, 2, 1))
+        _key(win, Qt.Key_Enter)                               # keypad Enter too
+        assert c.brush_mask_spalling.any()
+    finally:
+        win.close()
+
+
+def test_esc_in_sam_clears_every_point(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        c = win.canvas
+        _sam_with_points(win, (2, 2, 1), (5, 5, 0))
+        _key(win, Qt.Key_Escape)
+        assert c._sam_points == [] and not c.has_sam_preview()
+        assert not c.brush_mask_spalling.any()
+        _ctrl(win, Qt.Key_Y)                                  # a cancel is not undone point by point
+        assert c._sam_points == []
+    finally:
+        win.close()
+
+
+def test_ctrl_z_in_repair_area_drops_the_last_point(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        c = win.canvas
+        _stroke(win)
+        drawn = c.brush_mask_crack.copy()
+        win._tool_picker.setCurrentIndex(BBOX)
+        QApplication.processEvents()
+        c.bbox_interaction.on_left_press(1, 1)
+        c.bbox_interaction.on_left_press(6, 6)
+        _ctrl(win, Qt.Key_Z)
+        assert c.bbox_interaction.in_progress_clicks == [(1.0, 1.0)]
+        assert (c.brush_mask_crack == drawn).all()
+        _key(win, Qt.Key_Escape)
+        assert c.bbox_interaction.in_progress_clicks == []
+    finally:
+        win.close()
+
+
+def test_tool_pages_are_never_squeezed_in_a_900px_window(tmp_path, monkeypatch):
+    # A how-to line can be tall enough by itself and still be painted over:
+    # when the panel runs out of height the page is laid out below its
+    # minimum and the buttons under the text overlap it.
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win.resize(1400, 900)
+        for code in ("ko", "zh", "en"):
+            i18n.set_language(code)
+            for idx in (VIEW, BRUSH, SAM, BBOX):
+                win._tool_picker.setCurrentIndex(idx)
+                for _ in range(10):                  # let the size requests settle
+                    QApplication.processEvents()
+                page = win._tool_picker.current_page()
+                assert page.height() >= page.minimumSizeHint().height(), (code, idx)
+                widgets = [w for w in page.findChildren(QWidget)
+                           if w.isVisible() and w.parentWidget() is page]
+                for a in widgets:
+                    ra = a.geometry()
+                    for b in widgets:
+                        if a is not b and ra.intersects(b.geometry()):
+                            raise AssertionError((code, idx, a.objectName() or a.text(),
+                                                  b.objectName() or getattr(b, "text", str)()))
+    finally:
+        i18n.set_language("ko")
+        win.close()
+
+
+def test_ctrl_z_with_nothing_left_keeps_the_sam_redo_steps(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        c = win.canvas
+        _sam_with_points(win, (2, 2, 1), (5, 5, 0))
+        both = list(c._sam_points)
+        _ctrl(win, Qt.Key_Z); _ctrl(win, Qt.Key_Z)
+        _ctrl(win, Qt.Key_Z)                                  # no mask edit to undo either
+        assert c.can_redo_sam_point()
+        _ctrl(win, Qt.Key_Z, shift=True); _ctrl(win, Qt.Key_Z, shift=True)   # Ctrl+Shift+Z
+        assert c._sam_points == both
     finally:
         win.close()
