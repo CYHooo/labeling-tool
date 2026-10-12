@@ -331,6 +331,8 @@ class ImageCanvas(QWidget):
         if self._sam_crop is None or self._sam_crop == self._sam_encoded_crop:
             return
         x0, y0, x1, y1 = self._sam_crop
+        # a failed encode may leave the predictor half-updated: re-encode next time
+        self._sam_encoded_crop = None
         # native-resolution crop -> SAM sees full detail at the click
         self._sam_predictor.set_image(self._origin_bgr[y0:y1, x0:x1])
         self._sam_encoded_crop = self._sam_crop
