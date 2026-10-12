@@ -113,10 +113,15 @@ class ImageCanvas(QWidget):
         self._sam_points: list[tuple[int, int]] = []
         self._sam_labels: list[int] = []
         self._sam_preview: np.ndarray | None = None
-        self._sam_image_set: bool = False           # encoder run for current image
         self._sam_crop: tuple[int, int, int, int] | None = None
+        self._sam_encoded_crop: tuple[int, int, int, int] | None = None  # predictor holds it
         self._sam_accum: np.ndarray | None = None    # finalized-not-committed regions
         self._sam_current: np.ndarray | None = None  # current region's own mask
+        # Unconfirmed point steps, so Ctrl+Z / Ctrl+Y walk SAM clicks like any
+        # other edit. Each entry is the state before (undo) / after (redo) one
+        # click: (points, labels, crop, accum); the masks are re-predicted.
+        self._sam_undo: list[tuple] = []
+        self._sam_redo: list[tuple] = []
 
     # ------------------------------------------------------------------
     # Public API
@@ -273,13 +278,18 @@ class ImageCanvas(QWidget):
         self.update()
 
     def _clear_sam_state(self) -> None:
+        had_steps = bool(self._sam_undo or self._sam_redo)
         self._sam_points = []
         self._sam_labels = []
         self._sam_preview = None
-        self._sam_image_set = False
         self._sam_crop = None
+        self._sam_encoded_crop = None
         self._sam_accum = None
         self._sam_current = None
+        self._sam_undo = []
+        self._sam_redo = []
+        if had_steps:
+            self.history_changed.emit()
 
     def has_sam_preview(self) -> bool:
         return self._sam_preview is not None
@@ -291,19 +301,39 @@ class ImageCanvas(QWidget):
         # the current region into the accumulated preview (keeping earlier
         # regions so multiple blocks can be selected together) and re-crop around
         # the new click. Points inside, and negative refinements, stay in-crop.
-        if (self._sam_image_set and self._sam_crop is not None and int(label) == 1
+        self._sam_undo.append(self._sam_step_state())
+        self._sam_redo = []
+        if (self._sam_crop is not None and int(label) == 1
                 and not self._point_in_crop(int(ix), int(iy))):
             self._finalize_current_region()
-        if not self._sam_image_set:
+        if self._sam_crop is None:
             h, w = self._origin_bgr.shape[:2]
             self._sam_crop = crop_window(h, w, int(ix), int(iy), SAM_CROP_PX)
-            x0, y0, x1, y1 = self._sam_crop
-            # native-resolution crop -> SAM sees full detail at the click
-            self._sam_predictor.set_image(self._origin_bgr[y0:y1, x0:x1])
-            self._sam_image_set = True
         self._sam_points.append((int(ix), int(iy)))
         self._sam_labels.append(int(label))
         self._sam_recompute()
+        self.history_changed.emit()
+
+    def _sam_step_state(self) -> tuple:
+        # accum is never written in place, so keeping a reference is safe
+        return (tuple(self._sam_points), tuple(self._sam_labels),
+                self._sam_crop, self._sam_accum)
+
+    def _sam_restore(self, state: tuple) -> None:
+        points, labels, self._sam_crop, self._sam_accum = state
+        self._sam_points = list(points)
+        self._sam_labels = list(labels)
+        self._sam_recompute()
+
+    def _sam_encode_crop(self) -> None:
+        """Make sure the predictor holds the current crop; an undo/redo can
+        move back into a region whose crop is no longer the encoded one."""
+        if self._sam_crop is None or self._sam_crop == self._sam_encoded_crop:
+            return
+        x0, y0, x1, y1 = self._sam_crop
+        # native-resolution crop -> SAM sees full detail at the click
+        self._sam_predictor.set_image(self._origin_bgr[y0:y1, x0:x1])
+        self._sam_encoded_crop = self._sam_crop
 
     def _point_in_crop(self, ix: int, iy: int) -> bool:
         if self._sam_crop is None:
@@ -314,14 +344,10 @@ class ImageCanvas(QWidget):
     def _finalize_current_region(self) -> None:
         """Fold the current region's mask into the accumulated preview and reset
         the current-region state (earlier regions are kept for multi-block select)."""
-        if self._sam_current is not None:
-            if self._sam_accum is None:
-                self._sam_accum = self._sam_current.copy()
-            else:
-                self._sam_accum[self._sam_current > 0] = 255
+        # a new array, never in place: undo steps hold the old accum
+        self._sam_accum = self._combine_preview(self._sam_accum, self._sam_current)
         self._sam_points = []
         self._sam_labels = []
-        self._sam_image_set = False
         self._sam_crop = None
         self._sam_current = None
 
@@ -341,6 +367,7 @@ class ImageCanvas(QWidget):
         with the accumulated (finalized-but-uncommitted) regions into the preview."""
         current = None
         if self._sam_points and self._sam_crop is not None:
+            self._sam_encode_crop()
             x0, y0, x1, y1 = self._sam_crop
             cw, ch = x1 - x0, y1 - y0
             crop_pts = [(int(np.clip(px - x0, 0, cw - 1)),
@@ -362,14 +389,29 @@ class ImageCanvas(QWidget):
         self._sam_preview = self._combine_preview(self._sam_accum, current)
         self.update()
 
+    def can_undo_sam_point(self) -> bool:
+        return bool(self._sam_undo)
+
+    def can_redo_sam_point(self) -> bool:
+        return bool(self._sam_redo)
+
     def undo_sam_point(self) -> bool:
-        """Drop the last clicked point and re-predict; returns True if a point
-        was removed. Recovers from a click that selected too much."""
-        if not self._sam_points:
+        """Take back the last unconfirmed click (stepping into the previous
+        region if that click started a new one); returns True if one was."""
+        if not self._sam_undo:
             return False
-        self._sam_points.pop()
-        self._sam_labels.pop()
-        self._sam_recompute()
+        self._sam_redo.append(self._sam_step_state())
+        self._sam_restore(self._sam_undo.pop())
+        self.history_changed.emit()
+        return True
+
+    def redo_sam_point(self) -> bool:
+        """Put back the click undo_sam_point took; returns True if one was."""
+        if not self._sam_redo:
+            return False
+        self._sam_undo.append(self._sam_step_state())
+        self._sam_restore(self._sam_redo.pop())
+        self.history_changed.emit()
         return True
 
     def commit_sam(self) -> bool:

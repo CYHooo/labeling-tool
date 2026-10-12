@@ -35,8 +35,8 @@ STRINGS = {
     "tool_bbox":          "修补区域",
     "tool_view_hint":     "只查看不编辑：Ctrl+拖动移动，滚轮缩放",
     "tool_brush_hint":    "左键拖动绘制，右键拖动擦除",
-    "tool_sam_hint":      "左键=加入、右键=排除；Esc 撤回上一点；确认后写入剥落",
-    "tool_bbox_hint":     "单击加点，Enter 确认，Esc 取消，Del 删除",
+    "tool_sam_hint":      "左键=加入、右键=排除；Enter 确认并写入剥落；Ctrl+Z 撤回上一点，Esc 全部取消",
+    "tool_bbox_hint":     "单击加点，Enter 确认；Ctrl+Z 撤回上一点，Esc 取消，Del 删除",
     "btn_open_logs":      "打开日志文件夹",
     "log_folder_path":    "日志文件夹：{path}",
     "btn_undo":           "撤销",
@@ -54,7 +54,9 @@ STRINGS = {
     "hint_text":
         "画笔   左键拖拽=绘制 · 右键拖拽=擦除 · 1/2=裂缝/剥落\n"
         "       B=切换 · [ / ]=笔大小 · R通道=裂缝 G通道=剥落\n"
-        "修补区域 点击=加点 · Enter=提交 · Esc=取消 · Del=删除\n"
+        "SAM    左键=加入 · 右键=排除 · Enter=确认 · Esc=全部取消\n"
+        "修补区域 点击=加点 · Enter=确认 · Esc=取消 · Del=删除\n"
+        "通用   Ctrl+Z=撤销（先撤未确认的点）· Ctrl+Y=重做\n"
         "测量   点已知长度参照物的两端(默认 marker 边 7cm)\n"
         "视图   Ctrl+拖拽=平移 · 滚轮=缩放\n"
         "导航   A / D=上/下一张 · S / Ctrl+S=保存 · 切换时自动保存",
@@ -89,7 +91,8 @@ STRINGS = {
     "btn_sam_cancel":  "取消",
     "btn_sam_undo":    "撤回点",
     "sam_undone":      "已撤回上一个 SAM 点。",
-    "sam_hint":        "左键=加入、右键=排除;Esc 撤回上一点;确认将区域写入剥落层。",
+    "sam_redone":      "已恢复 SAM 点。",
+    "sam_hint":        "左键=加入、右键=排除;Enter 确认(写入剥落层);Ctrl+Z 撤回上一点;Esc 全部取消。",
     "sam_committed":   "SAM 区域已写入剥落层。",
     "sam_unavailable": "SAM 不可用(缺 onnxruntime 或 models/sam/*.onnx)。",
 

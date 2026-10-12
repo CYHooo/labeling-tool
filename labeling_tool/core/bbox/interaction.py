@@ -134,6 +134,13 @@ class BBoxInteraction:
         self.selected_idx = len(self.boxes) - 1
         return True
 
+    def undo_click(self) -> bool:
+        """Ctrl+Z: drop the last unconfirmed point. Returns True if one was."""
+        if not self.in_progress_clicks:
+            return False
+        self.in_progress_clicks.pop()
+        return True
+
     def cancel(self) -> bool:
         """Esc: cancel in-progress points OR deselect. Returns True if something changed."""
         if self.in_progress_clicks:

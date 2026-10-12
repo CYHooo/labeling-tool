@@ -98,7 +98,7 @@ def test_image_switch_clears_sam_state():
     c.mousePressEvent(_LeftClick(15, 15))
     c.set_image(np.full((80, 120, 3), 70, np.uint8), None, None)
     assert not c.has_sam_preview()
-    assert c._sam_points == [] and c._sam_image_set is False
+    assert c._sam_points == [] and c._sam_encoded_crop is None   # re-encode on the new image
 
 
 def test_sam_noop_without_predictor():
@@ -235,3 +235,111 @@ def test_sam_click_inside_crop_refines(monkeypatch):
     c._sam_add_point(110, 110, 0)              # inside -> refine, same crop
     assert c._sam_crop == (68, 68, 132, 132)
     assert c._sam_points == [(100, 100), (110, 110)]
+
+
+# ---------------------------------------------------------------- point undo / redo
+class _RecordingPredictor(_FakePredictor):
+    """Also remembers the pixels it was last encoded with."""
+    def set_image(self, bgr):
+        super().set_image(bgr)
+        self.last_image = bgr.copy()
+
+
+def _gradient_canvas(monkeypatch, side=200):
+    import labeling_tool.core.canvas.image_canvas as IC
+    monkeypatch.setattr(IC, "SAM_CROP_PX", 64)
+    c = ImageCanvas(); c.resize(side, side)
+    img = np.zeros((side, side, 3), np.uint8)
+    img[:, :, 0] = np.arange(side, dtype=np.uint8)[None, :]      # every crop differs
+    img[:, :, 1] = np.arange(side, dtype=np.uint8)[:, None]
+    c.set_image(img, None, None)
+    pred = _RecordingPredictor()
+    c.set_sam_predictor(pred)
+    c.set_sam_mode(True)
+    return c, img, pred
+
+
+def test_redo_puts_an_undone_point_back():
+    c = _canvas()
+    c.set_sam_predictor(_FakePredictor())
+    c.set_sam_mode(True)
+    c.mousePressEvent(_LeftClick(15, 15))
+    c.mousePressEvent(_RightClick(40, 40))
+    both = list(c._sam_points)
+    assert not c.can_redo_sam_point()
+    assert c.undo_sam_point() is True
+    assert c.can_redo_sam_point()
+    assert c.redo_sam_point() is True
+    assert c._sam_points == both and c._sam_labels == [1, 0]
+    assert c.has_sam_preview()
+    assert c.redo_sam_point() is False             # nothing more to redo
+
+
+def test_a_new_point_drops_the_redo_steps():
+    c = _canvas()
+    c.set_sam_predictor(_FakePredictor())
+    c.set_sam_mode(True)
+    c.mousePressEvent(_LeftClick(15, 15))
+    first = list(c._sam_points)
+    c.mousePressEvent(_RightClick(40, 40))
+    c.undo_sam_point()
+    c.mousePressEvent(_LeftClick(20, 20))
+    assert not c.can_redo_sam_point()
+    assert len(c._sam_points) == 2 and c._sam_points[0] == first[0]
+    assert c._sam_labels == [1, 1]
+
+
+def test_cancel_and_commit_drop_every_point_step():
+    c = _canvas()
+    c.set_sam_predictor(_FakePredictor())
+    c.set_sam_mode(True)
+    c.mousePressEvent(_LeftClick(15, 15))
+    c.mousePressEvent(_LeftClick(16, 16))
+    c.undo_sam_point()
+    c.cancel_sam()
+    assert not c.can_undo_sam_point() and not c.can_redo_sam_point()
+    assert not c.has_sam_preview()
+    c.mousePressEvent(_LeftClick(15, 15))
+    assert c.commit_sam()
+    assert not c.can_undo_sam_point() and not c.can_redo_sam_point()
+
+
+def test_undo_steps_back_into_the_previous_region(monkeypatch):
+    """Undoing the first point of region B makes region A the current region
+    again, so the next click inside A refines A -- with A's pixels encoded."""
+    c, img, pred = _gradient_canvas(monkeypatch)
+    c._sam_add_point(30, 30, 1)                # region A, crop (0,0,64,64)
+    c._sam_add_point(150, 150, 1)              # region B, A folded into the preview
+    assert c.undo_sam_point() is True
+    assert c._sam_points == [(30, 30)] and c._sam_crop == (0, 0, 64, 64)
+    assert c._sam_preview[15, 20] == 255 and c._sam_preview[133, 138] == 0
+    c._sam_add_point(40, 40, 0)                # inside A: refine A
+    assert c._sam_points == [(30, 30), (40, 40)]
+    assert (pred.last_image == img[0:64, 0:64]).all()   # re-encoded for A, not B
+    assert c.undo_sam_point() and c.undo_sam_point()
+    assert not c.can_undo_sam_point() and not c.has_sam_preview()
+
+
+def test_redo_steps_forward_into_the_next_region(monkeypatch):
+    c, img, pred = _gradient_canvas(monkeypatch)
+    c._sam_add_point(30, 30, 1)
+    c._sam_add_point(150, 150, 1)
+    c.undo_sam_point()
+    assert c.redo_sam_point() is True
+    assert c._sam_points == [(150, 150)] and c._sam_crop == (118, 118, 182, 182)
+    assert c._sam_preview[15, 20] == 255 and c._sam_preview[133, 138] == 255
+    c._sam_add_point(160, 160, 0)              # refine B with B's pixels encoded
+    assert (pred.last_image == img[118:182, 118:182]).all()
+
+
+def test_point_steps_report_through_history_changed():
+    c = _canvas()
+    c.set_sam_predictor(_FakePredictor())
+    c.set_sam_mode(True)
+    seen = []
+    c.history_changed.connect(lambda: seen.append(1))
+    c.mousePressEvent(_LeftClick(15, 15))
+    assert seen
+    seen.clear(); c.undo_sam_point(); assert seen
+    seen.clear(); c.redo_sam_point(); assert seen
+    seen.clear(); c.cancel_sam(); assert seen

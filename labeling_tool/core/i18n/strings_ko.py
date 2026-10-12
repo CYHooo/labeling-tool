@@ -40,8 +40,8 @@ STRINGS = {
     "tool_bbox":          "보수 구역",
     "tool_view_hint":     "편집하지 않고 봅니다. Ctrl+드래그로 이동하고 휠로 확대/축소합니다.",
     "tool_brush_hint":    "왼쪽 드래그로 그리고, 오른쪽 드래그로 지웁니다.",
-    "tool_sam_hint":      "좌클릭으로 포함, 우클릭으로 제외합니다. Esc 는 마지막 포인트를 취소하고, 확정하면 박리로 기록됩니다.",
-    "tool_bbox_hint":     "클릭으로 점을 추가하고 Enter 로 확정합니다. Esc 는 취소, Del 은 삭제입니다.",
+    "tool_sam_hint":      "좌클릭으로 포함, 우클릭으로 제외합니다. Enter 로 확정하면 박리로 기록됩니다. Ctrl+Z 는 마지막 포인트 취소, Esc 는 전체 취소입니다.",
+    "tool_bbox_hint":     "클릭으로 점을 추가하고 Enter 로 확정합니다. Ctrl+Z 는 마지막 점 취소, Esc 는 취소, Del 은 삭제입니다.",
     "btn_open_logs":      "로그 폴더 열기",
     "log_folder_path":    "로그 폴더: {path}",
     "btn_undo":           "실행 취소",
@@ -59,7 +59,9 @@ STRINGS = {
     "hint_text":
         "브러시  왼쪽=그리기 · 오른쪽=지우기 · 1/2=균열/박리\n"
         "        B=토글 · [ / ]=크기 · R=균열 G=박리\n"
+        "SAM     좌클릭=포함 · 우클릭=제외 · Enter=확정 · Esc=전체 취소\n"
         "보수 구역  클릭=점추가 · Enter=확정 · Esc=취소 · Del=삭제\n"
+        "공통    Ctrl+Z=실행 취소 (확정 전 점부터) · Ctrl+Y=다시 실행\n"
         "측정    알려진 길이 기준의 양 끝을 클릭 (기본 마커변 7cm)\n"
         "화면    Ctrl+드래그=이동 · 휠=확대/축소\n"
         "탐색    A / D=이전/다음 · S / Ctrl+S=저장 · 전환 시 자동저장",
@@ -94,7 +96,8 @@ STRINGS = {
     "btn_sam_cancel":  "취소",
     "btn_sam_undo":    "포인트 취소",
     "sam_undone":      "마지막 SAM 포인트를 취소했습니다.",
-    "sam_hint":        "좌클릭=포함, 우클릭=제외; Esc 로 마지막 포인트 취소; 확정 시 영역을 박리로 기록합니다.",
+    "sam_redone":      "SAM 포인트를 다시 추가했습니다.",
+    "sam_hint":        "좌클릭=포함, 우클릭=제외; Enter=확정(박리로 기록); Ctrl+Z=마지막 포인트 취소; Esc=전체 취소",
     "sam_committed":   "SAM 영역을 박리에 기록했습니다.",
     "sam_unavailable": "SAM 사용 불가 (onnxruntime 또는 models/sam/*.onnx 없음).",
 
