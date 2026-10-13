@@ -70,9 +70,9 @@ SAM 点完不必再按 Enter（与 0.2.17「换照片时自动确认」的规则
 - `LabelClass(id, name, kind, color, builtin)`，`ClassRegistry`：按 id 排序的有序表；
   内置 1 균열、2 박리 永远存在（服务器不可达时也有）。内置类别的显示名走 i18n（`cat_crack` /
   `cat_spalling`），新类别显示用户输入的名称，不翻译。
-- 缓存：`user_data_home()/classes/<host>.json`（host 取自 BASE URL，不同服务器分开）；原子写入；
+- 缓存：`user_data_home()/label-classes/<host>.json`（host 取自 BASE URL，不同服务器分开）；原子写入；
   文件损坏时忽略缓存、只用内置类别，不覆盖原文件以外的数据。
-- 同步时机：标注窗口打开时（后台线程，先用缓存）、上传前（upload worker 内再同步一次）；失败或 404 用缓存。
+- 同步时机：标注窗口打开时（后台线程，先用缓存）、上传前（upload worker 内再同步一次）；连不上或出错时用缓存（404 除外，见下一行）。
   V5 返回 404 视为「服务器不支持」：只用内置类别，「+」禁用。
 - `ViewerApiClient` 增加 `list_classes()`、`add_class(name, color)`。
 - 颜色自动挑选：预置一组与红、绿、灰明显不同的调色板，挑第一个未被使用的；都用过时按色相均分生成。
