@@ -345,4 +345,10 @@ STRINGS = {
     "class_add_unavailable": "카테고리 추가는 서버 연결이 필요합니다.",
     "class_add_tip": "카테고리 추가",
     "class_add_unsupported": "서버가 카테고리 추가를 지원하지 않습니다 (서버 업데이트 필요).",
+    "class_add_title": "카테고리 추가",
+    "class_add_name": "이름",
+    "class_add_name_hint": "예: 백태, 누수",
+    "class_add_color": "색",
+    "class_add_failed": "카테고리를 추가하지 못했습니다.\n{error}",
+    "class_add_full": "카테고리를 더 추가할 수 없습니다 (최대 252개).",
 }

@@ -84,9 +84,59 @@ class ViewerMainWindow(CoreMainWindow):
         from PyQt5.QtCore import QThreadPool
         from labeling_tool.ui.class_sync_worker import ClassSyncRunnable, ClassSyncSignals
         self._class_sync_signals = ClassSyncSignals()
-        self._class_sync_signals.done.connect(self._apply_class_registry)
+        self._class_sync_signals.done.connect(self._on_class_sync_done)
         QThreadPool.globalInstance().start(
             ClassSyncRunnable(self._client, base, self._class_sync_signals))
+
+    def _can_add_class(self) -> tuple[bool, str]:
+        from labeling_tool.api.class_sync import SYNC_OK, SYNC_UNSUPPORTED
+        if self._client is None:
+            return False, self.tr_("class_add_unavailable")
+        if self._class_sync_status == SYNC_UNSUPPORTED:
+            return False, self.tr_("class_add_unsupported")
+        if self._class_sync_status != SYNC_OK:
+            return False, self.tr_("class_add_unavailable")
+        return True, self.tr_("class_add_tip")
+
+    def _ask_new_class(self) -> tuple[str, str] | None:
+        from labeling_tool.core.classes import pick_color
+        from labeling_tool.ui.add_class_dialog import AddClassDialog
+        dlg = AddClassDialog(pick_color(self.class_registry), self.tr_, self)
+        if dlg.exec_() != dlg.Accepted:
+            return None
+        return dlg.name(), dlg.color()
+
+    def _on_add_class(self) -> None:
+        import requests
+        from labeling_tool.api.class_sync import add_class_and_cache
+        from labeling_tool.api.errors import ViewerApiError
+        ok, _tip = self._can_add_class()
+        if not ok:
+            return
+        answer = self._ask_new_class()
+        if answer is None:
+            return
+        name, color = answer
+        try:
+            registry, cls = add_class_and_cache(
+                self._client, self._class_base_url(), self.class_registry, name, color)
+        except (ViewerApiError, requests.RequestException, ValueError) as e:
+            key = ("class_add_full" if getattr(e, "code", "") == "CLASS_LIMIT_EXCEEDED"
+                   else "class_add_failed")
+            QMessageBox.warning(self, self.tr_("class_add_title"),
+                                self.tr_(key, error=str(e)))
+            return
+        self._apply_class_registry(registry, self._class_sync_status)
+        self._set_current_class(cls.class_id)
+
+    def _on_class_sync_done(self, registry, status: str) -> None:
+        """Apply the server's list without dropping classes added since the
+        sync started (the result may arrive after a local add)."""
+        merged = registry
+        for cls in self.class_registry.user_classes():
+            if cls.class_id not in merged:
+                merged = merged.with_class(cls)
+        self._apply_class_registry(merged, status)
 
     def _init_sam(self):
         """Load the MobileSAM predictor and wire it to the canvas; if it's

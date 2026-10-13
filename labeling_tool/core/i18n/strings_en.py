@@ -346,4 +346,10 @@ STRINGS = {
     "class_add_unavailable": "Adding a category needs the server.",
     "class_add_tip": "Add a category",
     "class_add_unsupported": "The server cannot add categories yet (server update needed).",
+    "class_add_title": "Add a category",
+    "class_add_name": "Name",
+    "class_add_name_hint": "e.g. efflorescence, leak",
+    "class_add_color": "Colour",
+    "class_add_failed": "Could not add the category.\n{error}",
+    "class_add_full": "No more categories can be added (252 at most).",
 }

@@ -334,4 +334,10 @@ STRINGS = {
     "class_add_unavailable": "追加类别需要连接服务器。",
     "class_add_tip": "追加类别",
     "class_add_unsupported": "服务器不支持追加类别（需要升级服务器）。",
+    "class_add_title": "追加类别",
+    "class_add_name": "名称",
+    "class_add_name_hint": "例如：白华、渗水",
+    "class_add_color": "颜色",
+    "class_add_failed": "未能追加类别。\n{error}",
+    "class_add_full": "无法再追加类别（最多 252 个）。",
 }
