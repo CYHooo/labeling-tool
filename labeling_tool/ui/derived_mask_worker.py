@@ -31,7 +31,7 @@ class DerivedMaskRunnable(QRunnable):
 
     def run(self):
         try:
-            hi, r15 = generate_derived_masks(
+            hi, r15 = generate_derived_layers(
                 self._layers, self._px_per_cm,
                 self._highlight_path, self._repair15_path)
             self._signals.done.emit(self._token, hi, r15)
