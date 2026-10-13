@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import uuid
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QPushButton, QMessageBox, QProgressBar, QWidget, QHBoxLayout, QLabel,
+    QApplication, QPushButton, QMessageBox, QProgressBar, QWidget, QHBoxLayout, QLabel,
 )
 
 from labeling_tool.ui import icons
@@ -120,9 +121,16 @@ class ViewerMainWindow(CoreMainWindow):
         if answer is None:
             return
         name, color = answer
+        # The V6 call blocks the UI briefly: show that something is happening,
+        # and give the normal cursor back before any message box.
         try:
-            registry, cls = add_class_and_cache(
-                self._client, self._class_base_url(), self.class_registry, name, color)
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                registry, cls = add_class_and_cache(
+                    self._client, self._class_base_url(), self.class_registry,
+                    name, color)
+            finally:
+                QApplication.restoreOverrideCursor()
         except (ViewerApiError, requests.RequestException, ValueError) as e:
             key = ("class_add_full" if getattr(e, "code", "") == "CLASS_LIMIT_EXCEEDED"
                    else "class_add_failed")

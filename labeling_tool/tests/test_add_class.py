@@ -179,3 +179,28 @@ def test_offline_sync_keeps_the_cache_and_classes_added_this_session(tmp_path, m
         assert win.class_registry.ids() == [1, 2, 3, 4]
     finally:
         win.close()
+
+
+@pytest.mark.parametrize("error", [None, requests.ConnectionError("down")])
+def test_wait_cursor_only_during_the_request(tmp_path, monkeypatch, error):
+    from PyQt5.QtCore import Qt
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
+    win = _make_window(tmp_path, monkeypatch)
+    seen = []
+
+    class _Watching(_Client):
+        def add_class(self, name, color):
+            cur = QApplication.overrideCursor()
+            seen.append(cur.shape() if cur else None)
+            return super().add_class(name, color)
+
+    try:
+        _online(win, _Watching(added={"classId": 3, "name": "백태", "kind": "area",
+                                      "color": "#3C8CFF", "builtin": False},
+                               error=error))
+        monkeypatch.setattr(win, "_ask_new_class", lambda: ("백태", "#3C8CFF"))
+        win._on_add_class()
+        assert seen == [Qt.WaitCursor]
+        assert QApplication.overrideCursor() is None
+    finally:
+        win.close()
