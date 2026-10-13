@@ -337,6 +337,10 @@ class MainWindow(QMainWindow):
             self._btn_measure.setChecked(False)   # leave measure mode
         if checked and self.canvas.sam_mode:
             self._btn_sam_toggle.setChecked(False)
+        if not checked:
+            # The release may never reach the brush: close the open stroke
+            # so it is undoable and class switching is not locked.
+            self.canvas.finish_brush_stroke()
         self.canvas.brush_mode = bool(checked)
         self._btn_brush_toggle.setText(
             self.tr_("btn_brush_off") if checked else self.tr_("btn_brush_on"))

@@ -897,20 +897,27 @@ class ImageCanvas(QWidget):
 
         if (self.brush_mode and self._brushing
                 and event.button() == self._brush_button):
-            self._brushing = False
-            self._brush_last_pt = None
-            # Coarse-annotation: collapse the just-drawn crack stroke to a
-            # 1-px centerline (only this stroke; existing crack untouched).
-            # In fine-annotation mode this thinning is skipped, so the painted
-            # thickness — already in brush_mask_crack — is kept as-is.
-            if self._crack_stroke is not None:
-                if self.brush_mask_crack is not None and not self.fine_annotation:
-                    thin_stroke_into(self.brush_mask_crack, self._crack_stroke)
-                    self._touch_mask()
-                    self.mask_edited.emit()
-                self._crack_stroke = None
-            self._end_mask_edit()
-            self.update()
+            self.finish_brush_stroke()
+
+    def finish_brush_stroke(self) -> None:
+        """End the stroke in progress (mouse release, or the brush turned off
+        while the button is still held); no-op when none is open."""
+        if not self._brushing:
+            return
+        self._brushing = False
+        self._brush_last_pt = None
+        # Coarse-annotation: collapse the just-drawn crack stroke to a
+        # 1-px centerline (only this stroke; existing crack untouched).
+        # In fine-annotation mode this thinning is skipped, so the painted
+        # thickness — already in brush_mask_crack — is kept as-is.
+        if self._crack_stroke is not None:
+            if self.brush_mask_crack is not None and not self.fine_annotation:
+                thin_stroke_into(self.brush_mask_crack, self._crack_stroke)
+                self._touch_mask()
+                self.mask_edited.emit()
+            self._crack_stroke = None
+        self._end_mask_edit()
+        self.update()
 
     def leaveEvent(self, event):
         self._mouse_pos_widget = None

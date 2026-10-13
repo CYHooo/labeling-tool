@@ -558,6 +558,31 @@ def test_the_class_does_not_change_in_the_middle_of_a_brush_stroke(tmp_path, mon
         win.close()
 
 
+def test_leaving_the_brush_mid_stroke_ends_the_stroke(tmp_path, monkeypatch):
+    # The release may never reach the brush (tool switched by key while the
+    # button is held): the stroke must not stay open and lock the class.
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._tool_picker.setCurrentIndex(BRUSH)
+        QApplication.processEvents()
+        centre = win.canvas.rect().center()
+        QTest.mousePress(win.canvas, Qt.LeftButton, Qt.NoModifier, centre)
+        assert win.canvas._brushing
+        win._tool_picker.setCurrentIndex(VIEW)
+        QApplication.processEvents()
+        assert not win.canvas.brush_mode
+        QTest.mouseRelease(win.canvas, Qt.LeftButton, Qt.NoModifier, centre)
+        assert not win.canvas._brushing
+        assert win.canvas.can_undo()                 # the stroke was recorded
+        win.activateWindow()
+        QTest.keyClick(win, Qt.Key_2)
+        assert win.canvas.current_class_id == 2
+    finally:
+        win.close()
+
+
 def test_the_add_button_needs_the_server(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch)                     # client=None
     try:
