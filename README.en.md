@@ -73,7 +73,7 @@ The top of the right panel shows the job ID, inspection name and photo count; "?
 | **Brush** | Draw a crack roughly; when you release the mouse it becomes a 1 px centerline. Turn on "Fine (keep width)" to keep the drawn width. |
 | **Repair area** | Mark repair regions with rotatable rectangles (OBB). Overlaps are counted once. |
 | **Scale (px/cm)** | Uses the value the server computed. To correct it, use "Measure": click two points of a reference line and enter its real length. |
-| **SAM segment** | Left-click to include and right-click to exclude; the region is found automatically. "Confirm" records it as the chosen (area) category, Esc undoes the last point. |
+| **SAM segment** | Left-click to include and right-click to exclude; the region is found automatically. "Confirm" records it as the chosen (area) category; Enter also confirms. Ctrl+Z undoes the last point and Esc clears all unconfirmed points. Pressing S or moving to another photo confirms an unconfirmed selection automatically. |
 | **Highlight / 15cm zone** | Preview the highlight around cracks and the 15 cm boundary around repair areas. |
 
 Your work is saved automatically when you move to another image; "Save" (S) saves it on demand.
