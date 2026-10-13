@@ -532,6 +532,45 @@ def test_sam_cannot_use_the_crack_line(tmp_path, monkeypatch):
         win.close()
 
 
+def test_leaving_sam_gives_back_the_crack_line(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._set_current_class(1)
+        win._tool_picker.setCurrentIndex(SAM)
+        QApplication.processEvents()
+        assert win.canvas.current_class_id == 2                   # SAM chose 박리
+        win._tool_picker.setCurrentIndex(BRUSH)
+        QApplication.processEvents()
+        assert win.canvas.current_class_id == 1
+        assert win._class_picker_brush.current_class() == 1
+    finally:
+        win.close()
+
+
+def test_leaving_sam_keeps_a_category_picked_there(tmp_path, monkeypatch):
+    from labeling_tool.core import classes as C
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._apply_class_registry(
+            C.ClassRegistry([C.LabelClass(3, "백태", "area", "#3C8CFF")]), "ok")
+        win._set_current_class(1)
+        win._tool_picker.setCurrentIndex(SAM)
+        QApplication.processEvents()
+        win._set_current_class(3)                                 # the user's choice
+        win._tool_picker.setCurrentIndex(BRUSH)
+        QApplication.processEvents()
+        assert win.canvas.current_class_id == 3
+        # Spalling chosen before SAM stays spalling after it.
+        win._set_current_class(2)
+        win._tool_picker.setCurrentIndex(SAM)
+        QApplication.processEvents()
+        win._tool_picker.setCurrentIndex(VIEW)
+        QApplication.processEvents()
+        assert win.canvas.current_class_id == 2
+    finally:
+        win.close()
+
+
 def test_the_class_does_not_change_in_the_middle_of_a_brush_stroke(tmp_path, monkeypatch):
     # A layer created after the stroke's undo snapshot would make part of
     # the stroke impossible to undo, so a switch waits for the release.

@@ -70,6 +70,9 @@ class MainWindow(QMainWindow):
 
         self.class_registry = ClassRegistry()
         self._class_sync_status = "offline"
+        # SAM moved crack -> spalling when it was turned on; leaving SAM
+        # gives crack back unless the user picked another category there.
+        self._sam_took_crack = False
 
         self._build_ui()
         self.canvas.set_class_registry(self.class_registry)
@@ -773,6 +776,11 @@ class MainWindow(QMainWindow):
         self.canvas.set_sam_mode(bool(checked))
         if checked and not self.class_registry.is_area(self.canvas.current_class_id):
             self._set_current_class(SPALLING_ID)       # SAM selects areas only
+            self._sam_took_crack = self.canvas.current_class_id == SPALLING_ID
+        elif not checked:
+            took, self._sam_took_crack = self._sam_took_crack, False
+            if took and self.canvas.current_class_id == SPALLING_ID:
+                self._set_current_class(CRACK_ID)
         self._btn_sam_commit.setEnabled(bool(checked))
         self._btn_sam_cancel.setEnabled(bool(checked))
         self._btn_sam_undo.setEnabled(bool(checked))
