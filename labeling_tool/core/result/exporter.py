@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
+from labeling_tool.core.classes import ClassRegistry
 from labeling_tool.core.bbox.oriented_box import OrientedBox
 from labeling_tool.core.result.crack_metrics import (
     CrackMetrics, compute_crack_metrics, compute_spalling_area_mm2,
@@ -19,6 +20,8 @@ def export_result(
     spalling_mask: np.ndarray | None,
     boxes: list[OrientedBox],
     scale_px_per_cm: float | None,
+    extra_layers: dict | None = None,
+    registry=None,
 ) -> None:
     """
     Side effects: writes <out_dir>/<stem>.png + <out_dir>/<stem>.txt.
@@ -42,12 +45,21 @@ def export_result(
 
     spalling_area_mm2 = compute_spalling_area_mm2(spalling_mask, scale_px_per_cm)
 
+    registry = registry or ClassRegistry()
+    extra = {cid: m for cid, m in (extra_layers or {}).items()
+             if cid >= 3 and m is not None and m.any()}
+    extra_areas = {
+        (registry.get(cid).name if registry.get(cid) else f"#{cid}"):
+            compute_spalling_area_mm2(m, scale_px_per_cm)
+        for cid, m in sorted(extra.items())}
+
     write_text_report(
         out_dir / f"{stem}.txt",
         image_filename, scale_px_per_cm, metrics,
-        spalling_area_mm2, boxes,
+        spalling_area_mm2, boxes, extra_areas,
     )
     write_result_image(
         out_dir / f"{stem}.png",
         origin_bgr, crack_mask, spalling_mask, boxes,
+        extra_layers=extra, colors={cid: registry.rgb(cid) for cid in extra},
     )

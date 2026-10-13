@@ -2,6 +2,7 @@
 
 Layers (bottom -> top):
     1. Original BGR
+    1b. user-class pixels -> their class colour, opaque
     2. crack_mask>0 pixels  -> BGR(0,0,255) red, opaque
     3. spalling_mask>0 px   -> BGR(0,255,0) green, opaque
     4. bbox polygons        -> BGR(0,165,255) orange, ~20% opacity
@@ -26,9 +27,17 @@ def write_result_image(
     crack_mask: np.ndarray | None,
     spalling_mask: np.ndarray | None,
     boxes: list[OrientedBox],
+    extra_layers: dict | None = None,
+    colors: dict | None = None,
 ) -> None:
     """Composite layers and write a PNG file."""
     out = origin_bgr.copy()
+    for cid in sorted(extra_layers or {}):
+        layer = extra_layers[cid]
+        if layer is None:
+            continue
+        r, g, b = (colors or {}).get(cid, (150, 150, 150))
+        out[layer > 0] = (b, g, r)
     if crack_mask is not None:
         out[crack_mask > 0] = _CRACK_BGR
     if spalling_mask is not None:

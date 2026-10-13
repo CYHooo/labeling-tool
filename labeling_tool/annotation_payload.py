@@ -2,7 +2,7 @@
 
 Maps the labeling tool's internal artifacts (crack/spalling masks,
 OrientedBox repair areas, ArUco scale) onto the register-annotations schema documented in
-api-reference_v1.0.7 (로컬 포토뷰어 API).
+api-reference_v1.0.7 (로컬 포토뷰어 API); classAreas is the v1.0.16 proposal.
 """
 
 from __future__ import annotations
@@ -45,6 +45,7 @@ def build_annotation_item(
     crack_mask: np.ndarray | None,
     spalling_mask: np.ndarray | None,
     boxes: list[OrientedBox],
+    extra_layers: dict | None = None,
 ) -> dict:
     mm_per_px = 10.0 / px_per_cm
     px_per_mm = px_per_cm / 10.0
@@ -80,7 +81,7 @@ def build_annotation_item(
         "pxPerMm": float(px_per_mm),
     }
 
-    return {
+    item = {
         "timestamp": int(timestamp),
         "maskS3Key": mask_s3_key,
         "highlightS3Key": highlight_s3_key,
@@ -90,3 +91,14 @@ def build_annotation_item(
         "repairAreas": repair_areas,
         "crackMetrics": crack_metrics,
     }
+    class_areas = []
+    for cid in sorted(extra_layers or {}):
+        layer = extra_layers[cid]
+        count = int(np.count_nonzero(layer)) if layer is not None else 0
+        if cid >= 3 and count:
+            class_areas.append({"classId": int(cid),
+                                "areaMm2": float(count * mm_per_px ** 2),
+                                "pixelCount": count})
+    if class_areas:                      # v1.0.16; absent = same as before
+        item["classAreas"] = class_areas
+    return item
