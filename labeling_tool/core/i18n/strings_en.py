@@ -300,6 +300,8 @@ STRINGS = {
 
     # --- viewer main window (labeling_tool/ui/main_window.py) ---
     "vmw_btn_upload":                  "Upload to EC2",
+    "class_unknown_on_upload": "Classes unknown to the server ({ids}) stay in the mask; their areas were not sent.",
+    "class_unknown": "#{id}",
     "vmw_offline_title":               "Offline",
     "vmw_offline_msg":                 "Cannot upload: no API client.",
     "vmw_status_no_edits":

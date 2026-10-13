@@ -16,8 +16,9 @@ from labeling_tool.core.constants import (
     IMAGE_EXTENSIONS, MASK_NAME_SUFFIXES,
 )
 from labeling_tool.core.i18n import tr, language_manager
-from labeling_tool.core.mask_io import load_origin_and_masks
-from labeling_tool.core.mask_codec import encode_label_mask
+from labeling_tool.core.mask_io import load_origin_and_layers
+from labeling_tool.core.mask_codec import encode_layers
+from labeling_tool.core.classes import ClassRegistry, CRACK_ID, SPALLING_ID
 from labeling_tool.core.canvas import ImageCanvas
 from labeling_tool.core.bbox import (
     ScaleTracker, save_bboxes, load_bboxes, load_scale_info,
@@ -67,7 +68,11 @@ class MainWindow(QMainWindow):
         self.current_scale_source: str = "none"
         self._bbox_edited: dict[str, bool] = {}
 
+        self.class_registry = ClassRegistry()
+        self._class_sync_status = "offline"
+
         self._build_ui()
+        self.canvas.set_class_registry(self.class_registry)
         self.setWindowTitle(self.tr_("window_title"))
         self.setMinimumSize(820, 560)
         self._apply_initial_geometry()
@@ -492,28 +497,26 @@ class MainWindow(QMainWindow):
 
         import cv2 as _cv2
 
-        mc = self.canvas.brush_mask_crack
-        ms = self.canvas.brush_mask_spalling
+        layers = self.canvas.layers
 
-        # ----- 1. Mask (single-channel integer label: 0=bg, 1=crack, 2=spalling) -----
-        if mc is not None or ms is not None:
-            label = encode_label_mask(mc, ms)
+        # ----- 1. Mask (single-channel integer label: 0=bg, class ids above) -----
+        if layers:
+            label = encode_layers(layers)
             self.output_dir.mkdir(parents=True, exist_ok=True)
             mask_out = self._save_mask_path(filename)
             _cv2.imwrite(str(mask_out), label)
 
             # ----- 1b. Derived masks: highlight + (scale-dependent) repair15 --
-            crack_snap = mc.copy() if mc is not None else None
-            spall_snap = ms.copy() if ms is not None else None
+            snap = {c: m.copy() for c, m in layers.items()}
             scale = self.current_scale or 0.0
             if async_derived:
                 # Offer to re-fit bboxes from the new 15cm contour only when the
                 # mask actually changed and bboxes already exist.
                 if mask_dirty and self.canvas.bbox_interaction.boxes:
                     self._offer_refit_for = filename
-                self._dispatch_derived(filename, crack_snap, spall_snap, scale)
+                self._dispatch_derived(filename, snap, scale)
             else:
-                from labeling_tool.core.derived_masks import generate_derived_masks
+                from labeling_tool.core.derived_masks import generate_derived_layers
                 hi_path = (str(self.highlight_dir / mask_store.mask_name(filename))
                            if self.highlight_dir is not None else None)
                 r15_path = (str(self.repair15_dir / mask_store.mask_name(filename))
@@ -522,8 +525,7 @@ class MainWindow(QMainWindow):
                     self.highlight_dir.mkdir(parents=True, exist_ok=True)
                 if self.repair15_dir is not None:
                     self.repair15_dir.mkdir(parents=True, exist_ok=True)
-                hi, r15 = generate_derived_masks(
-                    crack_snap, spall_snap, scale, hi_path, r15_path)
+                hi, r15 = generate_derived_layers(snap, scale, hi_path, r15_path)
                 self.canvas.set_highlight(hi)
                 self.canvas.set_repair15(r15)
 
@@ -548,9 +550,12 @@ class MainWindow(QMainWindow):
             if origin is not None:
                 export_result(
                     self.result_dir, filename, origin,
-                    mc, ms,
+                    layers.get(CRACK_ID), layers.get(SPALLING_ID),
                     list(self.canvas.bbox_interaction.boxes),
                     self.current_scale,
+                    extra_layers={c: m for c, m in layers.items()
+                                  if c not in (CRACK_ID, SPALLING_ID)},
+                    registry=self.class_registry,
                 )
 
         # ----- 4. Bookkeeping -----
@@ -563,7 +568,22 @@ class MainWindow(QMainWindow):
             self.status.showMessage(self.tr_("brush_saved", p=str(self.output_dir)))
         return True
 
-    def _dispatch_derived(self, filename: str, crack, spall, scale: float) -> None:
+    # ------------------------------------------------------------------
+    # Damage classes
+    # ------------------------------------------------------------------
+    def _class_base_url(self) -> str:
+        return ""
+
+    def _apply_class_registry(self, registry: ClassRegistry, status: str) -> None:
+        self.class_registry = registry
+        self._class_sync_status = status
+        self.canvas.set_class_registry(registry)
+        self._refresh_class_pickers()
+
+    def _refresh_class_pickers(self) -> None:
+        """Rebuild the class pickers from class_registry (Task 8)."""
+
+    def _dispatch_derived(self, filename: str, layers: dict, scale: float) -> None:
         """Start the async highlight+repair15 generation for one image."""
         from PyQt5.QtCore import QThreadPool
         from labeling_tool.ui.derived_mask_worker import DerivedMaskRunnable
@@ -576,7 +596,7 @@ class MainWindow(QMainWindow):
         r15_path = (str(self.repair15_dir / mask_store.mask_name(filename))
                     if self.repair15_dir is not None else None)
         QThreadPool.globalInstance().start(DerivedMaskRunnable(
-            layers={1: crack, 2: spall}, px_per_cm=scale,
+            layers=layers, px_per_cm=scale,
             highlight_path=hi_path, repair15_path=r15_path,
             token=filename, signals=self._derived_signals))
 
@@ -858,8 +878,7 @@ class MainWindow(QMainWindow):
         print(f"[load] {filename} -> {source}: {mask_path}", file=_sys.stderr)
 
         try:
-            origin, crack_mask, spalling_mask = load_origin_and_masks(
-                origin_path, mask_path)
+            origin, layers = load_origin_and_layers(origin_path, mask_path)
         except FileNotFoundError as e:
             self.status.showMessage(self.tr_("status_error", error=str(e)))
             return
@@ -868,7 +887,7 @@ class MainWindow(QMainWindow):
         # A pending refit offer is only meaningful for an in-place save; drop it
         # on navigation so a deferred async result can't pop the dialog on return.
         self._offer_refit_for = None
-        self.canvas.set_image(origin, crack_mask, spalling_mask)
+        self.canvas.set_image_layers(origin, layers)
 
         # ----- derived-mask overlays (read saved files; else clear) -----
         import cv2 as _cv2_load
@@ -922,15 +941,11 @@ class MainWindow(QMainWindow):
         if self.canvas.repair15_contours:
             self._maybe_auto_bbox(filename)            # fit-if-empty (no dialog on load)
         elif self.current_scale and self.current_scale > 0:
-            mc = self.canvas.brush_mask_crack
-            ms = self.canvas.brush_mask_spalling
-            if mc is not None or ms is not None:
+            if self.canvas.layers:
                 # No Repair15 on disk yet -> generate it (and the contour) async;
                 # the callback fits bboxes when ready.
                 self._dispatch_derived(
-                    filename,
-                    mc.copy() if mc is not None else None,
-                    ms.copy() if ms is not None else None,
+                    filename, {c: m.copy() for c, m in self.canvas.layers.items()},
                     float(self.current_scale))
 
         # File list selection

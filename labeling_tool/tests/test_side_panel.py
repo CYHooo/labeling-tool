@@ -1338,3 +1338,70 @@ def test_repair_area_points_without_a_scale_are_dropped_with_a_message(tmp_path,
         assert win.status.currentMessage() == i18n.tr("bbox_auto_dropped")
     finally:
         win.close()
+
+
+# ---------------------------------------------------------------- user classes
+def _with_user_class_mask(tmp_path, monkeypatch, value=3):
+    """A window whose first photo already has class `value` pixels saved."""
+    win = _make_window(tmp_path, monkeypatch)
+    label = np.zeros((8, 8), np.uint8)
+    label[1:3, 1:3] = value
+    win.output_dir.mkdir(parents=True, exist_ok=True)
+    from labeling_tool.session import mask_store
+    cv2.imwrite(str(win.output_dir / mask_store.mask_name(_FILES[0])), label)
+    win._show_image(0, force_reload=True)
+    return win
+
+
+def test_a_saved_user_class_survives_load_and_save(tmp_path, monkeypatch):
+    from labeling_tool.session import mask_store
+    win = _with_user_class_mask(tmp_path, monkeypatch, value=3)
+    try:
+        assert sorted(win.canvas.layers) == [1, 2, 3]
+        win._edited[_FILES[0]] = True
+        assert win._save_all_artifacts(silent=True, async_derived=False)
+        back = cv2.imread(str(win.output_dir / mask_store.mask_name(_FILES[0])),
+                          cv2.IMREAD_UNCHANGED)
+        assert back[1, 1] == 3 and back[5, 5] == 0
+        hi = cv2.imread(str(win.highlight_dir / mask_store.mask_name(_FILES[0])),
+                        cv2.IMREAD_UNCHANGED)
+        assert hi[1, 1] == 3
+    finally:
+        win.close()
+
+
+def test_an_unknown_class_is_kept_through_a_save(tmp_path, monkeypatch):
+    from labeling_tool.session import mask_store
+    win = _with_user_class_mask(tmp_path, monkeypatch, value=9)
+    try:
+        assert 9 not in win.class_registry
+        win._edited[_FILES[0]] = True
+        assert win._save_all_artifacts(silent=True, async_derived=False)
+        back = cv2.imread(str(win.output_dir / mask_store.mask_name(_FILES[0])),
+                          cv2.IMREAD_UNCHANGED)
+        assert back[1, 1] == 9
+    finally:
+        win.close()
+
+
+def test_the_window_starts_from_the_cached_class_list(tmp_path, monkeypatch):
+    from labeling_tool.core import classes as C
+    C.save_cached("", C.ClassRegistry([C.LabelClass(3, "백태", "area", "#3C8CFF")]))
+    win = _make_window(tmp_path, monkeypatch)            # client=None -> offline
+    try:
+        assert win.class_registry.ids() == [1, 2, 3]
+        assert win._class_sync_status == "offline"
+        assert win.canvas.class_registry is win.class_registry
+    finally:
+        win.close()
+
+
+def test_unknown_classes_are_announced_after_an_upload(tmp_path, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._finish_upload({"failed": [], "uploaded": 1, "timestamps": [],
+                            "unknown_classes": [7, 9]})
+        assert "#7, #9" in win.status.currentMessage()
+    finally:
+        win.close()

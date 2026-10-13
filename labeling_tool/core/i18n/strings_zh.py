@@ -295,6 +295,8 @@ STRINGS = {
 
     # --- viewer main window (labeling_tool/ui/main_window.py) ---
     "vmw_btn_upload":                  "上传到 EC2",
+    "class_unknown_on_upload": "服务器上没有的类别（{ids}）只保留在掩码里，未上传面积。",
+    "class_unknown": "#{id}",
     "vmw_offline_title":               "离线",
     "vmw_offline_msg":                 "无法上传：没有 API 客户端。",
     "vmw_status_no_edits":             "没有可上传的编辑内容（未保存任何 mask）",

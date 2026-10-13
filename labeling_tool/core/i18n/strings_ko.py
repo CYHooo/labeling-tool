@@ -305,6 +305,8 @@ STRINGS = {
 
     # --- viewer main window (labeling_tool/ui/main_window.py) ---
     "vmw_btn_upload":                  "EC2 업로드",
+    "class_unknown_on_upload": "서버에 없는 카테고리({ids})는 마스크에만 남기고 면적은 보내지 않았습니다.",
+    "class_unknown": "#{id}",
     "vmw_offline_title":               "오프라인",
     "vmw_offline_msg":                 "API 클라이언트가 없어 업로드할 수 없습니다.",
     "vmw_status_no_edits":

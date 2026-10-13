@@ -62,10 +62,31 @@ class ViewerMainWindow(CoreMainWindow):
 
         self._add_upload_button()
         self._init_sam()
+        self._start_class_sync()
         # upload marks (✓ / ●) in their own column before the id
         self.file_list.itemDelegate().mark_width = 20
         self._fit_list_columns()
         self._refresh_list_colors()
+
+    def _class_base_url(self) -> str:
+        if self._client is not None:
+            return self._client.base_url
+        return getattr(self._manifest, "base", "") or ""
+
+    def _start_class_sync(self) -> None:
+        """Cached classes at once; the server's list when it answers."""
+        from labeling_tool.core.classes import load_cached
+        from labeling_tool.api.class_sync import SYNC_OFFLINE
+        base = self._class_base_url()
+        self._apply_class_registry(load_cached(base), SYNC_OFFLINE)
+        if self._client is None:
+            return
+        from PyQt5.QtCore import QThreadPool
+        from labeling_tool.ui.class_sync_worker import ClassSyncRunnable, ClassSyncSignals
+        self._class_sync_signals = ClassSyncSignals()
+        self._class_sync_signals.done.connect(self._apply_class_registry)
+        QThreadPool.globalInstance().start(
+            ClassSyncRunnable(self._client, base, self._class_sync_signals))
 
     def _init_sam(self):
         """Load the MobileSAM predictor and wire it to the canvas; if it's
@@ -313,7 +334,8 @@ class ViewerMainWindow(CoreMainWindow):
         worker = UploadWorker(
             self._client, session_id=self._ws.session_id, specs=specs,
             labeling_dir=str(self.output_dir),
-            edit_batch_id=str(uuid.uuid4()), parent=self)
+            edit_batch_id=str(uuid.uuid4()),
+            class_registry=self.class_registry, parent=self)
         self._upload_worker = worker      # keep a reference (avoid GC)
         worker.progress.connect(self._on_upload_progress)
         worker.done.connect(self._on_upload_done)
@@ -403,3 +425,7 @@ class ViewerMainWindow(CoreMainWindow):
                 self, self.tr_("vmw_done_title"),
                 self.tr_("vmw_done_msg", count=result["uploaded"],
                          report_line=report_line))
+        unknown = result.get("unknown_classes") or []
+        if unknown:
+            self.status.showMessage(self.tr_(
+                "class_unknown_on_upload", ids=", ".join(f"#{i}" for i in unknown)))
