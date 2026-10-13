@@ -103,3 +103,48 @@ def test_generate_skips_repair15_without_scale(tmp_path):
     hi, r15 = generate_derived_masks(crack, None, 0.0, str(hi_p), str(r15_p))
     assert hi_p.exists()
     assert r15 is None and not r15_p.exists()
+
+
+# ---------------------------------------------------------------- N classes
+from labeling_tool.core.derived_masks import (
+    build_highlight_layers, build_repair15_layers, generate_derived_layers,
+)
+
+
+def _blk(shape, y0, y1, x0, x1):
+    m = np.zeros(shape, np.uint8)
+    m[y0:y1, x0:x1] = 255
+    return m
+
+
+def test_highlight_keeps_user_class_values_and_crack_precedence():
+    shape = (80, 80)
+    layers = {1: _blk(shape, 40, 41, 0, 80), 2: np.zeros(shape, np.uint8),
+              5: _blk(shape, 10, 20, 10, 20)}
+    hi = build_highlight_layers(layers)
+    assert hi[15, 15] == 5
+    assert hi[40, 40] == 1
+    assert hi[15, 25] == 5                      # grown by the 10 px dilation
+    assert set(np.unique(hi)) <= {0, 1, 5}
+
+
+def test_repair15_covers_user_classes_too():
+    shape = (60, 60)
+    layers = {1: np.zeros(shape, np.uint8), 2: np.zeros(shape, np.uint8),
+              4: _blk(shape, 30, 31, 30, 31)}
+    r15 = build_repair15_layers(layers, px_per_cm=1.0)   # 15 px padding
+    assert r15[30, 30] == 255 and r15[30, 44] == 255 and r15[30, 47] == 0
+
+
+def test_generate_derived_layers_writes_both_files(tmp_path):
+    shape = (30, 30)
+    layers = {1: np.zeros(shape, np.uint8), 2: np.zeros(shape, np.uint8),
+              3: _blk(shape, 5, 10, 5, 10)}
+    hi, r15 = generate_derived_layers(layers, 1.0, tmp_path / "h.png", tmp_path / "r.png")
+    assert (cv2.imread(str(tmp_path / "h.png"), cv2.IMREAD_UNCHANGED) == hi).all()
+    assert r15 is not None and (tmp_path / "r.png").exists()
+
+
+def test_no_layers_is_an_error():
+    with pytest.raises(ValueError):
+        build_highlight_layers({1: None, 2: None})

@@ -1,7 +1,7 @@
 """Derived masks for the local Photo Viewer: 균열 하이라이트 + 15cm 경계.
 
 Pure functions (no Qt, no I/O). Generated at save time from the in-memory
-crack/spalling layers, written to HighLight/ and Repair15/, and uploaded
+class layers, written to HighLight/ and Repair15/, and uploaded
 to S3 as high_{ts}.png / 15_{ts}.png.
 """
 
@@ -10,7 +10,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from labeling_tool.core.constants import CLASS_LABELS
+from labeling_tool.core.classes import CRACK_ID, SPALLING_ID
 
 # Highlight: every class region grows by this many px so the defect reads
 # clearly on the web viewer. Ellipse kernel of radius 10 (21x21).
@@ -30,79 +30,77 @@ def _binary(layer: np.ndarray | None) -> np.ndarray | None:
     return (layer > 0).astype(np.uint8)
 
 
-def build_highlight(crack: np.ndarray | None,
-                    spalling: np.ndarray | None) -> np.ndarray:
-    """Dilate each class by 10px and re-encode to a single-channel 0/1/2 mask.
-
-    spalling (2) is written first, then crack (1) overwrites it -> crack
-    precedence on overlap. Raises ValueError when both layers are None.
-    """
-    cb = _binary(crack)
-    sb = _binary(spalling)
-    if cb is None and sb is None:
-        raise ValueError("build_highlight requires at least one of crack/spalling")
-
-    shape = cb.shape if cb is not None else sb.shape
-    out = np.zeros(shape, dtype=np.uint8)
-    kernel = _ellipse_kernel(_HIGHLIGHT_DILATE_PX)
-
-    if sb is not None:
-        grown = cv2.dilate(sb, kernel)
-        out[grown > 0] = CLASS_LABELS["spalling"]
-    if cb is not None:
-        grown = cv2.dilate(cb, kernel)
-        out[grown > 0] = CLASS_LABELS["crack"]   # crack precedence
+def _present(layers: dict) -> dict:
+    out = {cid: _binary(m) for cid, m in layers.items() if m is not None}
+    if not out:
+        raise ValueError("derived masks need at least one class layer")
     return out
 
 
-def build_repair15(crack: np.ndarray | None,
-                   spalling: np.ndarray | None,
-                   px_per_cm: float) -> np.ndarray:
-    """Foreground union expanded by round(15*px_per_cm) px, FILLED 0/255.
+def build_highlight_layers(layers: dict) -> np.ndarray:
+    """Dilate every class by 10 px and re-encode with the mask's own values
+    (area classes in id order, crack last -> crack precedence)."""
+    present = _present(layers)
+    shape = next(iter(present.values())).shape
+    out = np.zeros(shape, dtype=np.uint8)
+    kernel = _ellipse_kernel(_HIGHLIGHT_DILATE_PX)
+    for cid in sorted(c for c in present if c != CRACK_ID) + (
+            [CRACK_ID] if CRACK_ID in present else []):
+        if present[cid].any():
+            out[cv2.dilate(present[cid], kernel) > 0] = cid
+    return out
+
+
+def build_repair15_layers(layers: dict, px_per_cm: float) -> np.ndarray:
+    """Union of every class expanded by round(15*px_per_cm) px, FILLED 0/255.
 
     Uses a distance transform (O(N), Euclidean) instead of a giant dilation
-    kernel, so it stays fast even at large px/cm. Raises ValueError when both
-    layers are None.
-    """
-    cb = _binary(crack)
-    sb = _binary(spalling)
-    if cb is None and sb is None:
-        raise ValueError("build_repair15 requires at least one of crack/spalling")
-
-    shape = cb.shape if cb is not None else sb.shape
+    kernel, so it stays fast even at large px/cm."""
+    present = _present(layers)
+    shape = next(iter(present.values())).shape
     union = np.zeros(shape, dtype=np.uint8)
-    if cb is not None:
-        union |= cb
-    if sb is not None:
-        union |= sb
+    for m in present.values():
+        union |= m
     if int(union.max()) == 0:
         return np.zeros(shape, dtype=np.uint8)
-
     pad_px = int(round(_REPAIR15_CM * float(px_per_cm)))
-    # distance from each pixel to the nearest foreground pixel
     src = np.where(union > 0, np.uint8(0), np.uint8(255))
     dist = cv2.distanceTransform(src, cv2.DIST_L2, 5)
     return np.where(dist <= pad_px, np.uint8(255), np.uint8(0)).astype(np.uint8)
 
 
-def generate_derived_masks(crack: np.ndarray | None,
-                           spalling: np.ndarray | None,
-                           px_per_cm: float,
-                           highlight_path,
-                           repair15_path
-                           ) -> tuple[np.ndarray, np.ndarray | None]:
+def generate_derived_layers(layers: dict, px_per_cm: float,
+                            highlight_path, repair15_path
+                            ) -> tuple[np.ndarray, np.ndarray | None]:
     """Build the highlight (+ scale-dependent repair15) and write them to disk.
 
-    Returns (highlight, repair15_or_None). repair15 is built+written only when
-    px_per_cm is truthy. A None path skips the write but the array is still
-    returned (so the canvas can refresh). Callers ensure parent dirs exist.
-    """
-    highlight = build_highlight(crack, spalling)
+    repair15 is built+written only when px_per_cm is truthy. A None path skips
+    the write but the array is still returned. Callers ensure parent dirs."""
+    highlight = build_highlight_layers(layers)
     if highlight_path is not None:
         cv2.imwrite(str(highlight_path), highlight)
     repair15 = None
     if px_per_cm:
-        repair15 = build_repair15(crack, spalling, px_per_cm)
+        repair15 = build_repair15_layers(layers, px_per_cm)
         if repair15_path is not None:
             cv2.imwrite(str(repair15_path), repair15)
     return highlight, repair15
+
+
+# Two-layer forms kept for existing callers and tests.
+def build_highlight(crack, spalling) -> np.ndarray:
+    if crack is None and spalling is None:
+        raise ValueError("build_highlight requires at least one of crack/spalling")
+    return build_highlight_layers({CRACK_ID: crack, SPALLING_ID: spalling})
+
+
+def build_repair15(crack, spalling, px_per_cm: float) -> np.ndarray:
+    if crack is None and spalling is None:
+        raise ValueError("build_repair15 requires at least one of crack/spalling")
+    return build_repair15_layers({CRACK_ID: crack, SPALLING_ID: spalling}, px_per_cm)
+
+
+def generate_derived_masks(crack, spalling, px_per_cm: float,
+                           highlight_path, repair15_path):
+    return generate_derived_layers({CRACK_ID: crack, SPALLING_ID: spalling},
+                                   px_per_cm, highlight_path, repair15_path)

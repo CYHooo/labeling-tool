@@ -576,7 +576,7 @@ class MainWindow(QMainWindow):
         r15_path = (str(self.repair15_dir / mask_store.mask_name(filename))
                     if self.repair15_dir is not None else None)
         QThreadPool.globalInstance().start(DerivedMaskRunnable(
-            crack=crack, spalling=spall, px_per_cm=scale,
+            layers={1: crack, 2: spall}, px_per_cm=scale,
             highlight_path=hi_path, repair15_path=r15_path,
             token=filename, signals=self._derived_signals))
 
