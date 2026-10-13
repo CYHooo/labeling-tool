@@ -12,6 +12,8 @@ update-state.json
 dataset/
 checkpoint/
 annotation_tool/classes.json
+# labeling window: per-server cache of the damage classes (source runs)
+/label-classes/
 # generic safety net for stray image/session dumps at any depth
 **/data/session_*/
 

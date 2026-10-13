@@ -42,3 +42,11 @@ def app_log_starts(monkeypatch):
 class _LogStarts(list):
     """Recorded _start_app_logging calls; .real is the unstubbed function."""
     real = None
+
+
+@pytest.fixture(autouse=True)
+def _class_cache_in_tmp(tmp_path, monkeypatch):
+    """The class cache lives under user_data_home(), which is the repo root
+    in a source checkout: keep every test's cache in its own tmp dir."""
+    from labeling_tool.core import classes
+    monkeypatch.setattr(classes, "cache_dir", lambda: tmp_path / "label-classes")
