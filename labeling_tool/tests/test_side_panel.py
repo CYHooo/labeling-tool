@@ -1527,6 +1527,18 @@ def test_s_saves_an_unconfirmed_sam_selection(tmp_path, monkeypatch):
         win.close()
 
 
+def test_failed_save_does_not_claim_the_selection_was_saved(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        _sam_with_points(win, (2, 2, 1))
+        monkeypatch.setattr(win, "_save_all_artifacts", lambda **k: False)
+        win.status.clearMessage()
+        win._on_brush_save()
+        assert win.status.currentMessage() != i18n.tr("sam_auto_committed")
+    finally:
+        win.close()
+
+
 def test_ctrl_s_confirms_repair_area_points(tmp_path, monkeypatch):
     from PyQt5.QtCore import Qt
     win = _make_window(tmp_path, monkeypatch)

@@ -682,8 +682,9 @@ class MainWindow(QMainWindow):
         selection, repair-area points) is confirmed first, then saved."""
         notice = (self._confirm_pending_edits()
                   if 0 <= self.current_idx < len(self.image_files) else None)
-        self._save_all_artifacts(silent=False)
-        if notice:
+        ok = self._save_all_artifacts(silent=False)
+        # A failed save already said why; do not cover it with "recorded".
+        if notice and ok:
             self.status.showMessage(notice)
 
     def _on_mask_edited(self):
