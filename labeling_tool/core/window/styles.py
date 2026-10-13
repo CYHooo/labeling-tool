@@ -61,18 +61,6 @@ STYLESHEET = """
         }
         QPushButton#primaryAction:hover { background-color: #3b7be8; }
         QPushButton#primaryAction:pressed { background-color: #2257bd; }
-        QPushButton#catCrack:checked {
-            background-color: #c75450;
-            border-color: #c75450;
-            color: #ffffff;
-            font-weight: 600;
-        }
-        QPushButton#catSpalling:checked {
-            background-color: #3aa55a;
-            border-color: #3aa55a;
-            color: #ffffff;
-            font-weight: 600;
-        }
         QComboBox, QSpinBox, QLineEdit {
             background-color: #2d333d;
             color: #e0e0e0;

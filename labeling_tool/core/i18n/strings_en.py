@@ -35,7 +35,7 @@ STRINGS = {
     "tool_bbox":          "Repair area",
     "tool_view_hint":     "View only, no editing. Left-drag to pan, wheel to zoom.",
     "tool_brush_hint":    "Left-drag to draw, right-drag to erase.",
-    "tool_sam_hint":      "Left-click includes, right-click excludes. Enter confirms it as spalling; Ctrl+Z undoes the last point, Esc clears all.",
+    "tool_sam_hint":      "Left-click includes, right-click excludes. Enter confirms it as the chosen category; Ctrl+Z undoes the last point, Esc clears all.",
     "tool_bbox_hint":     "Click to add points, Enter to confirm. Ctrl+Z undoes the last point, Esc cancels, Del deletes.",
     "btn_open_logs":      "Open log folder",
     "log_folder_path":    "Log folder: {path}",
@@ -52,8 +52,8 @@ STRINGS = {
     "btn_next":           "Next",
     "btn_save":           "Save",
     "hint_text":
-        "Brush   L-drag paint · R-drag erase · 1/2 crack/spalling\n"
-        "        B toggle · [ / ] size · R=crack G=spalling\n"
+        "Brush   L-drag paint · R-drag erase · 1-9 category\n"
+        "        B toggle · [ / ] size\n"
         "SAM     L-click include · R-click exclude · Enter confirm · Esc clear all\n"
         "Repair  click add point · Enter confirm · Esc cancel · Del delete\n"
         "Common  Ctrl+Z undo (unconfirmed points first) · Ctrl+Y redo\n"
@@ -86,17 +86,17 @@ STRINGS = {
     "bbox_no_scale":         "No scale; cannot compute 15cm padding",
     "btn_show_highlight":    "Highlight",
     "btn_show_repair15":     "15cm boundary",
-    "btn_sam":         "SAM segment (spalling)",
+    "btn_sam":         "SAM select",
     "btn_sam_commit":  "Confirm",
     "btn_sam_cancel":  "Cancel",
     "btn_sam_undo":    "Undo point",
     "sam_undone":      "Last SAM point undone.",
     "sam_redone":      "SAM point restored.",
-    "sam_hint":        "Left-click = include, right-click = exclude; Enter confirms (writes spalling); Ctrl+Z undoes the last point; Esc clears all.",
-    "sam_auto_committed": "Unconfirmed SAM selection recorded as spalling.",
+    "sam_hint":        "Left-click = include, right-click = exclude; Enter confirms (writes the chosen category); Ctrl+Z undoes the last point; Esc clears all.",
+    "sam_auto_committed": "Unconfirmed SAM selection recorded as the chosen category.",
     "bbox_auto_committed": "Unconfirmed repair area confirmed.",
     "bbox_auto_dropped": "No scale: unconfirmed repair-area points dropped.",
-    "sam_committed":   "SAM region written to spalling.",
+    "sam_committed":   "SAM region recorded as the chosen category.",
     "sam_unavailable": "SAM unavailable (onnxruntime or models/sam/*.onnx missing).",
 
     # --- fetch/progress (shared, used across future screens too) ---
@@ -300,7 +300,7 @@ STRINGS = {
 
     # --- viewer main window (labeling_tool/ui/main_window.py) ---
     "vmw_btn_upload":                  "Upload to EC2",
-    "class_unknown_on_upload": "Classes unknown to the server ({ids}) stay in the mask; their areas were not sent.",
+    "class_unknown_on_upload": "Categories unknown to the server ({ids}) stay in the mask; their areas were not sent.",
     "class_unknown": "#{id}",
     "vmw_offline_title":               "Offline",
     "vmw_offline_msg":                 "Cannot upload: no API client.",
@@ -340,4 +340,10 @@ STRINGS = {
     "vmw_partial_msg_header":          "Server-verified photos: {count}\n\n",
     "vmw_partial_msg_footer":
         "\nDetailed log: {log_path}\n\nPlease upload again.",
+
+    # damage class picker (brush / SAM pages)
+    "lbl_class": "Category",
+    "class_add_unavailable": "Adding a category needs the server.",
+    "class_add_tip": "Add a category",
+    "class_add_unsupported": "The server cannot add categories yet (server update needed).",
 }

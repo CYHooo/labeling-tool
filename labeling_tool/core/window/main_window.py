@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QColor, QDesktopServices
 
 from labeling_tool.core.constants import (
-    CATEGORIES, DEFAULT_CATEGORY, OUTPUT_DIR_NAME,
+    OUTPUT_DIR_NAME,
     IMAGE_EXTENSIONS, MASK_NAME_SUFFIXES,
 )
 from labeling_tool.core.i18n import tr, language_manager
@@ -73,6 +73,7 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self.canvas.set_class_registry(self.class_registry)
+        self._refresh_class_pickers()
         self.setWindowTitle(self.tr_("window_title"))
         self.setMinimumSize(820, 560)
         self._apply_initial_geometry()
@@ -148,8 +149,7 @@ class MainWindow(QMainWindow):
         for title, title_key, hint, hint_key in self._tool_texts:
             title.setText(self.tr_(title_key))
             hint.setText(self.tr_(hint_key))
-        self._btn_cat_crack.setText(self.tr_("cat_crack"))
-        self._btn_cat_spalling.setText(self.tr_("cat_spalling"))
+        self._refresh_class_pickers()
 
         self._grp_display.setTitle(self.tr_("group_display"))
         self._chk_show_highlight.setText(self.tr_("btn_show_highlight"))
@@ -404,21 +404,6 @@ class MainWindow(QMainWindow):
         self.canvas.brush_size = int(value)
         self.canvas.update()
 
-    def _on_category_changed(self, index: int):
-        cat = CATEGORIES[index] if 0 <= index < len(CATEGORIES) else DEFAULT_CATEGORY
-        self.canvas.current_category = cat
-        self.canvas.update()
-        cat_key = "cat_crack" if cat == "crack" else "cat_spalling"
-        self.status.showMessage(
-            self.tr_("status_category_changed", cat=self.tr_(cat_key)))
-
-    def _select_category_btn(self, idx: int):
-        """Select a category from a keyboard shortcut (1=crack, 2=spalling)."""
-        btn = self._cat_group.button(idx)
-        if btn is not None and not btn.isChecked():
-            btn.setChecked(True)
-            self._on_category_changed(idx)
-
     def _nudge_brush_size(self, delta: int):
         """Bump brush size from the [/ ] shortcuts; spinbox clamps the range."""
         self._spn_brush_size.setValue(self._spn_brush_size.value() + delta)
@@ -581,7 +566,66 @@ class MainWindow(QMainWindow):
         self._refresh_class_pickers()
 
     def _refresh_class_pickers(self) -> None:
-        """Rebuild the class pickers from class_registry (Task 8)."""
+        """Rebuild both class pickers from class_registry (names follow the
+        language, so this also runs on retranslate)."""
+        if not hasattr(self, "_class_picker_brush"):
+            return                      # called while the panel is being built
+        reg = self.class_registry
+        cur = self.canvas.current_class_id
+        if cur not in reg:
+            cur = SPALLING_ID if self.canvas.sam_mode else CRACK_ID
+            self.canvas.current_class_id = cur
+        entries = [(c.class_id, reg.display_name(c.class_id, self.tr_), c.rgb)
+                   for c in reg.classes()]
+        # Ids found in a photo but unknown to the registry are not listed:
+        # they cannot be chosen and only show grey on the canvas.
+        ok, tip = self._can_add_class()
+        for picker, disabled in ((self._class_picker_brush, frozenset()),
+                                 (self._class_picker_sam, frozenset({CRACK_ID}))):
+            shown = cur if cur not in disabled else SPALLING_ID
+            picker.set_classes(entries, shown, disabled)
+            picker.set_add_enabled(ok, tip)
+            picker.retranslate(self.tr_("lbl_class"))
+
+    def _set_current_class(self, cid: int) -> None:
+        """Make `cid` the class the brush and SAM write (pickers, keys 1-9)."""
+        reg = self.class_registry
+        if cid not in reg:
+            return
+        if self.canvas._brushing:
+            # A layer created mid-stroke would come after the stroke's undo
+            # snapshot, leaving part of the stroke un-undoable: keep the
+            # class and put the pickers back on it.
+            self._show_current_class()
+            return
+        if self.canvas.sam_mode and not reg.is_area(cid):
+            cid = SPALLING_ID                      # SAM selects areas only
+        self.canvas.current_class_id = cid
+        self._show_current_class()
+        self.canvas.update()
+        self.status.showMessage(self.tr_(
+            "status_category_changed", cat=reg.display_name(cid, self.tr_)))
+
+    def _show_current_class(self) -> None:
+        """Point both pickers at the current class; the SAM picker cannot
+        show the crack line, so it shows spalling while crack is current."""
+        cid = self.canvas.current_class_id
+        self._class_picker_brush.set_current(cid)
+        self._class_picker_sam.set_current(
+            cid if self.class_registry.is_area(cid) else SPALLING_ID)
+
+    def _select_class_by_index(self, i: int) -> None:
+        """Number key i+1: the i-th class in list order; nothing if absent."""
+        classes = self.class_registry.classes()
+        if 0 <= i < len(classes):
+            self._set_current_class(classes[i].class_id)
+
+    def _can_add_class(self) -> tuple[bool, str]:
+        """Whether "+" works, and its tooltip. Adding needs the server."""
+        return False, self.tr_("class_add_unavailable")
+
+    def _on_add_class(self) -> None:
+        """Adding needs the server (the Viewer window implements it)."""
 
     def _dispatch_derived(self, filename: str, layers: dict, scale: float) -> None:
         """Start the async highlight+repair15 generation for one image."""
@@ -716,6 +760,8 @@ class MainWindow(QMainWindow):
             if self._btn_measure.isChecked():
                 self._btn_measure.setChecked(False)
         self.canvas.set_sam_mode(bool(checked))
+        if checked and not self.class_registry.is_area(self.canvas.current_class_id):
+            self._set_current_class(SPALLING_ID)       # SAM selects areas only
         self._btn_sam_commit.setEnabled(bool(checked))
         self._btn_sam_cancel.setEnabled(bool(checked))
         self._btn_sam_undo.setEnabled(bool(checked))

@@ -128,11 +128,3 @@ def test_undo_after_reset_brings_a_user_class_back():
     assert not c.layers[3].any()
     assert c.undo()
     assert (c.layers[3] == drawn).all()
-
-
-def test_current_category_compat_property():
-    c = _canvas()
-    c.current_category = "spalling"
-    assert c.current_class_id == 2 and c.current_category == "spalling"
-    c.current_category = "crack"
-    assert c.current_class_id == 1

@@ -408,13 +408,14 @@ def test_each_tool_shows_its_name_and_how_to(tmp_path, monkeypatch):
         win.close()
 
 
-def test_crack_and_spalling_are_only_shown_with_the_brush(tmp_path, monkeypatch):
+def test_the_class_picker_shows_with_the_brush_and_sam_only(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch)
     try:
         for idx in (VIEW, BRUSH, SAM, BBOX):
             win._tool_picker.setCurrentIndex(idx)
             QApplication.processEvents()
-            assert win._btn_cat_crack.isVisible() == (idx == BRUSH)
+            assert win._class_picker_brush.isVisible() == (idx == BRUSH)
+            assert win._class_picker_sam.isVisible() == (idx == SAM)
     finally:
         win.close()
 
@@ -479,17 +480,116 @@ def test_a_disabled_tool_cannot_be_picked_and_reclicking_emits_nothing():
     assert emitted == [BRUSH]
 
 
-def test_category_shortcuts_work_while_the_brush_page_is_hidden(tmp_path, monkeypatch):
+def test_number_keys_pick_classes_while_the_brush_page_is_hidden(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    from labeling_tool.core import classes as C
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._apply_class_registry(
+            C.ClassRegistry([C.LabelClass(3, "백태", "area", "#3C8CFF")]), "ok")
+        assert not win._class_picker_brush.isVisible()           # 보기 selected
+        win.activateWindow()
+        QTest.keyClick(win, Qt.Key_2)
+        assert win.canvas.current_class_id == 2
+        QTest.keyClick(win, Qt.Key_3)
+        assert win.canvas.current_class_id == 3
+        assert win._class_picker_brush.current_class() == 3
+        QTest.keyClick(win, Qt.Key_9)                             # no 9th class: no change
+        assert win.canvas.current_class_id == 3
+    finally:
+        win.close()
+
+
+def test_both_pickers_follow_the_current_class(tmp_path, monkeypatch):
+    from labeling_tool.core import classes as C
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._apply_class_registry(
+            C.ClassRegistry([C.LabelClass(3, "백태", "area", "#3C8CFF")]), "ok")
+        combo = win._class_picker_brush.combo
+        combo.setCurrentIndex(combo.findData(3))
+        assert win.canvas.current_class_id == 3
+        assert win._class_picker_sam.current_class() == 3
+        assert [combo.itemData(i) for i in range(combo.count())] == [1, 2, 3]
+        assert "백태" in combo.itemText(2) and "3" in combo.itemText(2)
+    finally:
+        win.close()
+
+
+def test_sam_cannot_use_the_crack_line(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._set_current_class(1)
+        win._tool_picker.setCurrentIndex(SAM)
+        QApplication.processEvents()
+        assert win.canvas.current_class_id == 2                   # moved to 박리
+        model = win._class_picker_sam.combo.model()
+        assert not model.item(win._class_picker_sam.combo.findData(1)).isEnabled()
+        win._set_current_class(1)                                 # e.g. key 1 in SAM
+        assert win.canvas.current_class_id == 2
+    finally:
+        win.close()
+
+
+def test_the_class_does_not_change_in_the_middle_of_a_brush_stroke(tmp_path, monkeypatch):
+    # A layer created after the stroke's undo snapshot would make part of
+    # the stroke impossible to undo, so a switch waits for the release.
     from PyQt5.QtCore import Qt
     from PyQt5.QtTest import QTest
     win = _make_window(tmp_path, monkeypatch)
     try:
-        assert not win._btn_cat_spalling.isVisible()                # 보기 selected
+        win._tool_picker.setCurrentIndex(BRUSH)
+        QApplication.processEvents()
+        centre = win.canvas.rect().center()
+        QTest.mousePress(win.canvas, Qt.LeftButton, Qt.NoModifier, centre)
+        assert win.canvas._brushing
+        win._set_current_class(2)
+        assert win.canvas.current_class_id == 1
         win.activateWindow()
         QTest.keyClick(win, Qt.Key_2)
-        assert win.canvas.current_category == "spalling"
-        assert win._btn_cat_spalling.isChecked()
+        assert win.canvas.current_class_id == 1
+        assert win._class_picker_brush.current_class() == 1
+        QTest.mouseRelease(win.canvas, Qt.LeftButton, Qt.NoModifier, centre)
+        assert not win.canvas._brushing
+        QTest.keyClick(win, Qt.Key_2)
+        assert win.canvas.current_class_id == 2
     finally:
+        win.close()
+
+
+def test_the_add_button_needs_the_server(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)                     # client=None
+    try:
+        win._tool_picker.setCurrentIndex(BRUSH)
+        QApplication.processEvents()
+        btn = win._class_picker_brush.add_button
+        assert not btn.isEnabled() and btn.toolTip()
+    finally:
+        win.close()
+
+
+def test_many_classes_keep_the_panel_unscrolled(tmp_path, monkeypatch):
+    from labeling_tool.core import classes as C
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win.resize(1400, 900)
+        win._apply_class_registry(C.ClassRegistry(
+            [C.LabelClass(3 + i, f"아주 긴 카테고리 이름 {i}", "area", "#3C8CFF")
+             for i in range(20)]), "ok")
+        scroll = win.findChild(QScrollArea)
+        content = scroll.widget()
+        narrowest = scroll.parentWidget().minimumWidth()
+        for code in ("ko", "en", "zh"):
+            i18n.set_language(code)
+            for idx in (BRUSH, SAM):
+                win._tool_picker.setCurrentIndex(idx)
+                for _ in range(10):
+                    QApplication.processEvents()
+                assert not scroll.verticalScrollBar().isVisible(), (code, idx)
+                assert content.minimumSizeHint().width() <= narrowest, (code, idx)
+    finally:
+        i18n.set_language("ko")
         win.close()
 
 

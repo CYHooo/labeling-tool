@@ -38,7 +38,9 @@ def _make_window(tmp_path, monkeypatch, *, inspection_name: str | None = "교량
 def test_no_folder_pickers_or_language_selector(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch)
     try:
-        assert win.findChildren(QComboBox) == []
+        # the only drop-downs are the class pickers' (no language selector)
+        pickers = {win._class_picker_brush.combo, win._class_picker_sam.combo}
+        assert set(win.findChildren(QComboBox)) == pickers
         assert not hasattr(win, "_cmb_lang")
         assert not hasattr(win, "_btn_select_origin")
         assert not hasattr(win, "_btn_select_detected")

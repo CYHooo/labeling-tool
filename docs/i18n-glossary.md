@@ -50,6 +50,7 @@
 | confirm / clear all | **확정** (Enter) / **전체 취소** (Esc) | 确认 / 全部取消 | Confirm / Clear all | Enter 在 SAM 与 보수 구역 都是确认；Esc 丢弃全部未确认的点 |
 | pan the view | **휠 버튼 드래그** / Ctrl+드래그 (보기: 왼쪽 드래그) | 中键拖动 / Ctrl+拖拽（查看：左键拖动） | Middle-drag / Ctrl+drag (View tool: left-drag) | 中键拖动在所有工具可用；左键拖动只在보기 |
 | auto-confirm on switch | **확정하지 않은 SAM 영역 / 보수 구역** | 未确认的 SAM 区域 / 修补区域 | Unconfirmed SAM selection / repair area | 换照片或关闭窗口时自动确认并保存，状态栏提示 |
+| damage class | **카테고리** (균열 · 박리 · 사용자 추가) | 类别 | Category | 下拉框 + 「+」；数字键 1～9；新类别名称原样显示不翻译；SAM 只能选面状类别 |
 
 ## 4. 程序与更新
 

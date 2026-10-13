@@ -25,6 +25,7 @@ from PyQt5.QtWidgets import (
 
 from labeling_tool.ui import icons
 from labeling_tool.core.window.shortcuts import keep_shortcuts_through
+from labeling_tool.core.window.class_picker import ClassPicker
 from labeling_tool.core.constants import BRUSH_DEFAULT_SIZE, BRUSH_MAX_SIZE
 
 if TYPE_CHECKING:
@@ -453,20 +454,10 @@ def _tool_page(window: "MainWindow", title_key: str, hint_key: str) -> tuple[QWi
 
 
 def _build_brush_options(window: "MainWindow", lay: QVBoxLayout) -> None:
-    cat_row = QHBoxLayout()
-    window._btn_cat_crack = _checkable(QPushButton(window.tr_("cat_crack")))
-    window._btn_cat_crack.setObjectName("catCrack")
-    window._btn_cat_spalling = _checkable(QPushButton(window.tr_("cat_spalling")))
-    window._btn_cat_spalling.setObjectName("catSpalling")
-    window._cat_group = QButtonGroup(window)
-    window._cat_group.setExclusive(True)
-    window._cat_group.addButton(window._btn_cat_crack, 0)
-    window._cat_group.addButton(window._btn_cat_spalling, 1)
-    window._btn_cat_crack.setChecked(True)
-    window._cat_group.idClicked.connect(window._on_category_changed)
-    cat_row.addWidget(window._btn_cat_crack)
-    cat_row.addWidget(window._btn_cat_spalling)
-    lay.addLayout(cat_row)
+    window._class_picker_brush = ClassPicker(window.tr_("lbl_class"))
+    window._class_picker_brush.classChosen.connect(window._set_current_class)
+    window._class_picker_brush.addRequested.connect(window._on_add_class)
+    lay.addWidget(window._class_picker_brush)
 
     size_row = QHBoxLayout()
     window._lbl_brush_size = QLabel(window.tr_("lbl_brush_size"))
@@ -510,6 +501,10 @@ def _build_brush_options(window: "MainWindow", lay: QVBoxLayout) -> None:
 
 
 def _build_sam_options(window: "MainWindow", lay: QVBoxLayout) -> None:
+    window._class_picker_sam = ClassPicker(window.tr_("lbl_class"))
+    window._class_picker_sam.classChosen.connect(window._set_current_class)
+    window._class_picker_sam.addRequested.connect(window._on_add_class)
+    lay.addWidget(window._class_picker_sam)
     window._btn_sam_commit = QPushButton(window.tr_("btn_sam_commit"))
     window._btn_sam_commit.setIcon(icons.icon("check"))
     window._btn_sam_commit.clicked.connect(window._on_sam_commit)

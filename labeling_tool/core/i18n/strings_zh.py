@@ -35,7 +35,7 @@ STRINGS = {
     "tool_bbox":          "修补区域",
     "tool_view_hint":     "只查看不编辑：左键拖动移动，滚轮缩放",
     "tool_brush_hint":    "左键拖动绘制，右键拖动擦除",
-    "tool_sam_hint":      "左键=加入、右键=排除；Enter 确认并写入剥落；Ctrl+Z 撤回上一点，Esc 全部取消",
+    "tool_sam_hint":      "左键=加入、右键=排除；Enter 确认并写入所选类别；Ctrl+Z 撤回上一点，Esc 全部取消",
     "tool_bbox_hint":     "单击加点，Enter 确认；Ctrl+Z 撤回上一点，Esc 取消，Del 删除",
     "btn_open_logs":      "打开日志文件夹",
     "log_folder_path":    "日志文件夹：{path}",
@@ -52,8 +52,8 @@ STRINGS = {
     "btn_next":           "下一张",
     "btn_save":           "保存",
     "hint_text":
-        "画笔   左键拖拽=绘制 · 右键拖拽=擦除 · 1/2=裂缝/剥落\n"
-        "       B=切换 · [ / ]=笔大小 · R通道=裂缝 G通道=剥落\n"
+        "画笔   左键拖拽=绘制 · 右键拖拽=擦除 · 1~9=类别\n"
+        "       B=切换 · [ / ]=笔大小\n"
         "SAM    左键=加入 · 右键=排除 · Enter=确认 · Esc=全部取消\n"
         "修补区域 点击=加点 · Enter=确认 · Esc=取消 · Del=删除\n"
         "通用   Ctrl+Z=撤销（先撤未确认的点）· Ctrl+Y=重做\n"
@@ -86,17 +86,17 @@ STRINGS = {
     "bbox_no_scale":         "未检测到比例尺，无法计算 15cm 余量",
     "btn_show_highlight":    "高亮",
     "btn_show_repair15":     "15cm 边界",
-    "btn_sam":         "SAM 分割 (剥落)",
+    "btn_sam":         "SAM 分割",
     "btn_sam_commit":  "确认",
     "btn_sam_cancel":  "取消",
     "btn_sam_undo":    "撤回点",
     "sam_undone":      "已撤回上一个 SAM 点。",
     "sam_redone":      "已恢复 SAM 点。",
-    "sam_hint":        "左键=加入、右键=排除;Enter 确认(写入剥落层);Ctrl+Z 撤回上一点;Esc 全部取消。",
-    "sam_auto_committed": "已将未确认的 SAM 区域写入剥落。",
+    "sam_hint":        "左键=加入、右键=排除;Enter 确认(写入所选类别);Ctrl+Z 撤回上一点;Esc 全部取消。",
+    "sam_auto_committed": "已将未确认的 SAM 区域写入所选类别。",
     "bbox_auto_committed": "已自动确认修补区域。",
     "bbox_auto_dropped": "没有比例尺，已丢弃未确认的修补区域点。",
-    "sam_committed":   "SAM 区域已写入剥落层。",
+    "sam_committed":   "已将 SAM 区域写入所选类别。",
     "sam_unavailable": "SAM 不可用(缺 onnxruntime 或 models/sam/*.onnx)。",
 
     # --- fetch/progress (shared, used across future screens too) ---
@@ -328,4 +328,10 @@ STRINGS = {
     "vmw_partial_title":               "部分失败 / 未反映",
     "vmw_partial_msg_header":          "服务器已确认的照片：{count} 张\n\n",
     "vmw_partial_msg_footer":          "\n详细日志：{log_path}\n\n请重新上传。",
+
+    # damage class picker (brush / SAM pages)
+    "lbl_class": "类别",
+    "class_add_unavailable": "追加类别需要连接服务器。",
+    "class_add_tip": "追加类别",
+    "class_add_unsupported": "服务器不支持追加类别（需要升级服务器）。",
 }

@@ -192,15 +192,6 @@ class ImageCanvas(QWidget):
         else:
             self.layers[cid] = m
 
-    @property
-    def current_category(self) -> str:
-        """Compatibility with the two-class callers (removed in Task 8)."""
-        return "crack" if self.current_class_id == CRACK_ID else "spalling"
-
-    @current_category.setter
-    def current_category(self, name: str) -> None:
-        self.current_class_id = CRACK_ID if name == "crack" else SPALLING_ID
-
     def set_class_registry(self, registry: ClassRegistry) -> None:
         self.class_registry = registry
         self._touch_mask()
