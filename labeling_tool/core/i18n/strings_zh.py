@@ -58,7 +58,7 @@ STRINGS = {
         "修补区域 点击=加点 · Enter=确认 · Esc=取消 · Del=删除\n"
         "通用   Ctrl+Z=撤销（先撤未确认的点）· Ctrl+Y=重做\n"
         "测量   点已知长度参照物的两端(默认 marker 边 7cm)\n"
-        "视图   中键拖动 · Ctrl+拖拽=平移（查看：左键拖动）· 滚轮=缩放\n"
+        "视图   中键拖动 / Ctrl+拖拽=平移（查看：左键拖动）· 滚轮=缩放\n"
         "导航   A / D=上/下一张 · S / Ctrl+S=保存 · 切换时自动保存",
     "ready":              "就绪",
     "loaded_n_images":    "共加载 {n} 张图片",
@@ -94,7 +94,8 @@ STRINGS = {
     "sam_redone":      "已恢复 SAM 点。",
     "sam_hint":        "左键=加入、右键=排除;Enter 确认(写入剥落层);Ctrl+Z 撤回上一点;Esc 全部取消。",
     "sam_auto_committed": "已将未确认的 SAM 区域写入剥落。",
-    "bbox_auto_committed": "已确认未确认的修补区域。",
+    "bbox_auto_committed": "已自动确认修补区域。",
+    "bbox_auto_dropped": "没有比例尺，已丢弃未确认的修补区域点。",
     "sam_committed":   "SAM 区域已写入剥落层。",
     "sam_unavailable": "SAM 不可用(缺 onnxruntime 或 models/sam/*.onnx)。",
 

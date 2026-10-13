@@ -21,6 +21,7 @@ def _canvas_with_thick_stroke():
     c._crack_stroke = stroke.copy()
     c.brush_mode = True
     c._brushing = True
+    c._brush_button = Qt.LeftButton   # as a left press would set
     return c
 
 

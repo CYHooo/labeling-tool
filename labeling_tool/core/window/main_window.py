@@ -958,7 +958,9 @@ class MainWindow(QMainWindow):
             notices.append(self.tr_("sam_auto_committed"))
         clicks = c.bbox_interaction.in_progress_clicks
         if clicks:
-            if (len(clicks) >= 2 and c.bbox_padding_px > 0
+            if len(clicks) >= 2 and c.bbox_padding_px <= 0:
+                notices.append(self.tr_("bbox_auto_dropped"))
+            elif (len(clicks) >= 2
                     and c.bbox_interaction.commit(c.bbox_padding_px)):
                 self._mark_bbox_edited()
                 notices.append(self.tr_("bbox_auto_committed"))

@@ -85,6 +85,7 @@ class ImageCanvas(QWidget):
 
         self._panning = False
         self._pan_button = Qt.NoButton
+        self._brush_button = Qt.NoButton
         self._pan_start_widget = (0, 0)
         self._pan_start_offset = QPoint(0, 0)
 
@@ -679,7 +680,8 @@ class ImageCanvas(QWidget):
             return
         ix, iy = self.viewport.widget_to_image(event.x(), event.y())
 
-        if self._panning or self._brushing:
+        if (self._panning or self._brushing
+                or self.bbox_interaction.dragging is not None):
             return      # one drag at a time; a second button changes nothing
         # Drag the view: middle button in every tool, Ctrl+left in every
         # tool, plain left in 보기 (no editing tool owns the left button).
@@ -735,6 +737,7 @@ class ImageCanvas(QWidget):
             return
 
         if self.brush_mode:
+            self._brush_button = event.button()
             if event.button() == Qt.LeftButton:
                 self._brushing = True
                 self._brush_erase = False
@@ -757,6 +760,12 @@ class ImageCanvas(QWidget):
         """보기: no editing tool and no measuring is active."""
         return not (self.brush_mode or self.sam_mode or self.bbox_mode
                     or self.measure_mode)
+
+    def _restore_mode_cursor(self) -> None:
+        if self.measure_mode:
+            self.setCursor(Qt.CrossCursor)
+        else:
+            self.unsetCursor()
 
     def _in_image(self, ix: float, iy: float) -> bool:
         return (0 <= ix < self.viewport.img_w) and (0 <= iy < self.viewport.img_h)
@@ -807,7 +816,7 @@ class ImageCanvas(QWidget):
         if self._panning:
             if event.button() == self._pan_button:
                 self._panning = False
-                self.unsetCursor()
+                self._restore_mode_cursor()
             return
 
         if self.bbox_mode and event.button() == Qt.LeftButton:
@@ -815,7 +824,8 @@ class ImageCanvas(QWidget):
                 self.update()
             return
 
-        if self.brush_mode and self._brushing:
+        if (self.brush_mode and self._brushing
+                and event.button() == self._brush_button):
             self._brushing = False
             self._brush_last_pt = None
             # Coarse-annotation: collapse the just-drawn crack stroke to a

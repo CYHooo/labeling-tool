@@ -134,6 +134,8 @@ class ViewerMainWindow(CoreMainWindow):
     def _toggle_range_view(self):
         """Switch between the fetched range and every photo of the job,
         saving the current photo first and staying on it if listed."""
+        notice = (self._confirm_pending_edits()
+                  if 0 <= self.current_idx < len(self.image_files) else None)
         self._save_all_artifacts(silent=True, only_if_edited=True)
         current = (self.image_files[self.current_idx]
                    if 0 <= self.current_idx < len(self.image_files) else None)
@@ -151,6 +153,8 @@ class ViewerMainWindow(CoreMainWindow):
             self._show_image(target)
         self._refresh_range_bar()
         self._refresh_job_info()
+        if notice:
+            self.status.showMessage(notice)
 
     def _photo_count_text(self) -> str:
         if self._focus is None or self._show_all:
@@ -263,6 +267,10 @@ class ViewerMainWindow(CoreMainWindow):
             QMessageBox.warning(self, self.tr_("vmw_offline_title"),
                                 self.tr_("vmw_offline_msg"))
             return
+        if 0 <= self.current_idx < len(self.image_files):
+            notice = self._confirm_pending_edits()   # upload what is on screen
+            if notice:
+                self.status.showMessage(notice)
         self._save_all_artifacts(silent=True, only_if_edited=True)
         filenames = self._edited_filenames()
         if not filenames:

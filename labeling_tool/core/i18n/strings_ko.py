@@ -63,7 +63,7 @@ STRINGS = {
         "보수 구역  클릭=점추가 · Enter=확정 · Esc=취소 · Del=삭제\n"
         "공통    Ctrl+Z=실행 취소 (확정 전 점부터) · Ctrl+Y=다시 실행\n"
         "측정    알려진 길이 기준의 양 끝을 클릭 (기본 마커변 7cm)\n"
-        "화면    휠 버튼 드래그 · Ctrl+드래그=이동 (보기: 왼쪽 드래그) · 휠=확대/축소\n"
+        "화면    휠 버튼 드래그 / Ctrl+드래그=이동 (보기: 왼쪽 드래그) · 휠=확대/축소\n"
         "탐색    A / D=이전/다음 · S / Ctrl+S=저장 · 전환 시 자동저장",
     "ready":              "준비 완료",
     "loaded_n_images":    "이미지 {n}장 로드됨",
@@ -100,6 +100,7 @@ STRINGS = {
     "sam_hint":        "좌클릭=포함, 우클릭=제외; Enter=확정(박리로 기록); Ctrl+Z=마지막 포인트 취소; Esc=전체 취소",
     "sam_auto_committed": "확정하지 않은 SAM 영역을 박리로 기록했습니다.",
     "bbox_auto_committed": "확정하지 않은 보수 구역을 확정했습니다.",
+    "bbox_auto_dropped": "축척이 없어 확정하지 않은 보수 구역 점을 버렸습니다.",
     "sam_committed":   "SAM 영역을 박리에 기록했습니다.",
     "sam_unavailable": "SAM 사용 불가 (onnxruntime 또는 models/sam/*.onnx 없음).",
 

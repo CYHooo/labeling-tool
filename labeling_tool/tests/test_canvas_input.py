@@ -113,3 +113,42 @@ def test_ctrl_left_drag_still_moves_the_view():
     c.brush_mode = True
     assert _drag(c, Qt.LeftButton, modifiers=Qt.ControlModifier) == (40, 25)
     assert not c.brush_mask_crack.any()
+
+
+def test_a_middle_press_during_a_box_drag_does_not_leave_it_stuck():
+    c = _canvas()
+    c.set_bbox_mode(True)
+    c.set_bbox_padding_px(2.0)
+    b = c.bbox_interaction
+    b.on_left_press(30, 30); b.on_left_press(70, 70)
+    assert b.commit(2.0)
+    b.selected_idx = None
+    x, y = c.viewport.image_to_widget(50, 50)
+    c.mousePressEvent(_Event(x, y))                       # grab the box body
+    assert b.dragging == "body"
+    c.mousePressEvent(_Event(x, y, Qt.MiddleButton))      # ignored mid-drag
+    assert not c._panning
+    c.mouseReleaseEvent(_Event(x + 5, y, Qt.LeftButton))
+    assert b.dragging is None
+    c.mouseReleaseEvent(_Event(x + 5, y, Qt.MiddleButton))
+
+
+def test_another_button_released_mid_stroke_keeps_the_stroke_going():
+    c = _canvas()
+    c.brush_mode = True
+    x, y = _inside(c)
+    c.mousePressEvent(_Event(x, y))
+    c.mousePressEvent(_Event(x, y, Qt.RightButton))       # ignored
+    c.mouseReleaseEvent(_Event(x, y, Qt.RightButton))     # must not end the stroke
+    assert c._brushing
+    c.mouseMoveEvent(_Event(x + 20, y))
+    c.mouseReleaseEvent(_Event(x + 20, y))
+    assert not c._brushing
+    assert c.can_undo()
+
+
+def test_panning_while_measuring_gives_the_cross_cursor_back():
+    c = _canvas()
+    c.set_measure_mode(True)
+    _drag(c, Qt.MiddleButton)
+    assert c.cursor().shape() == Qt.CrossCursor

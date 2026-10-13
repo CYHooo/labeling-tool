@@ -1294,3 +1294,47 @@ def test_closing_confirms_an_unconfirmed_sam_selection(tmp_path, monkeypatch):
     _sam_with_points(win, (2, 2, 1))
     win.close()
     assert seen and seen[-1]["spalling"]
+
+
+def test_switching_the_range_view_confirms_an_unconfirmed_sam_selection(tmp_path, monkeypatch):
+    win = _range_window(tmp_path, monkeypatch)
+    try:
+        seen = []
+        real = win._save_all_artifacts
+        monkeypatch.setattr(win, "_save_all_artifacts", lambda *a, **k: (
+            seen.append(bool(win.canvas.brush_mask_spalling.any())), real(*a, **k))[1])
+        _sam_with_points(win, (2, 2, 1))
+        win._btn_range_toggle.click()
+        QApplication.processEvents()
+        assert seen and seen[0]
+        assert win.status.currentMessage() == i18n.tr("sam_auto_committed")
+    finally:
+        win.close()
+
+
+def test_upload_confirms_an_unconfirmed_sam_selection_first(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._client = object()
+        monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+        monkeypatch.setattr(win, "_edited_filenames", lambda: [])
+        _sam_with_points(win, (2, 2, 1))
+        win._on_upload()
+        assert win.canvas.brush_mask_spalling.any() and not win.canvas.has_sam_preview()
+    finally:
+        win.close()
+
+
+def test_repair_area_points_without_a_scale_are_dropped_with_a_message(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._tool_picker.setCurrentIndex(BBOX)
+        QApplication.processEvents()
+        c = win.canvas
+        c.bbox_interaction.on_left_press(1, 1)
+        c.bbox_interaction.on_left_press(6, 6)
+        c.set_bbox_padding_px(0)
+        win.go_next()
+        assert win.status.currentMessage() == i18n.tr("bbox_auto_dropped")
+    finally:
+        win.close()

@@ -95,6 +95,7 @@ STRINGS = {
     "sam_hint":        "Left-click = include, right-click = exclude; Enter confirms (writes spalling); Ctrl+Z undoes the last point; Esc clears all.",
     "sam_auto_committed": "Unconfirmed SAM selection recorded as spalling.",
     "bbox_auto_committed": "Unconfirmed repair area confirmed.",
+    "bbox_auto_dropped": "No scale: unconfirmed repair-area points dropped.",
     "sam_committed":   "SAM region written to spalling.",
     "sam_unavailable": "SAM unavailable (onnxruntime or models/sam/*.onnx missing).",
 
