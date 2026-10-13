@@ -33,6 +33,9 @@ class ViewerMainWindow(CoreMainWindow):
         # After a range fetch: list just those photos until "show all".
         self._focus = focus
         self._show_all = focus is None
+        # Class ids added from this window (V6): a late sync result must not
+        # drop them, but cached classes the server no longer lists go away.
+        self._added_class_ids: set[int] = set()
         super().__init__()
 
         # Saving should be fast: only the editable mask + bbox JSON are needed.
@@ -126,16 +129,25 @@ class ViewerMainWindow(CoreMainWindow):
             QMessageBox.warning(self, self.tr_("class_add_title"),
                                 self.tr_(key, error=str(e)))
             return
+        self._added_class_ids.add(cls.class_id)
         self._apply_class_registry(registry, self._class_sync_status)
         self._set_current_class(cls.class_id)
 
     def _on_class_sync_done(self, registry, status: str) -> None:
-        """Apply the server's list without dropping classes added since the
-        sync started (the result may arrive after a local add)."""
+        """Apply the sync result.
+
+        ok: the server's list, plus classes added in this window since the
+        sync started (the result may arrive after a local add).
+        unsupported: the server has no V5, so built-in classes only.
+        offline: what sync_classes returned (the cache), plus this session's
+        additions.
+        """
+        from labeling_tool.api.class_sync import SYNC_UNSUPPORTED
         merged = registry
-        for cls in self.class_registry.user_classes():
-            if cls.class_id not in merged:
-                merged = merged.with_class(cls)
+        if status != SYNC_UNSUPPORTED:
+            for cls in self.class_registry.user_classes():
+                if cls.class_id in self._added_class_ids and cls.class_id not in merged:
+                    merged = merged.with_class(cls)
         self._apply_class_registry(merged, status)
 
     def _init_sam(self):

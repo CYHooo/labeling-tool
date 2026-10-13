@@ -118,11 +118,56 @@ def test_add_button_state_follows_the_server(tmp_path, monkeypatch):
 def test_late_sync_result_keeps_a_class_added_meanwhile(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch)
     try:
-        added = C.ClassRegistry().with_class(C.LabelClass(
-            3, "백태", "area", "#3C8CFF", False))
-        win._apply_class_registry(added, "ok")
+        client = _Client(added={"classId": 3, "name": "백태", "kind": "area",
+                                "color": "#3C8CFF", "builtin": False})
+        _online(win, client)
+        monkeypatch.setattr(win, "_ask_new_class", lambda: ("백태", "#3C8CFF"))
+        win._on_add_class()
         assert win.class_registry.ids() == [1, 2, 3]
         win._on_class_sync_done(C.ClassRegistry(), "ok")
         assert win.class_registry.ids() == [1, 2, 3]
+    finally:
+        win.close()
+
+
+def _cached_class_3():
+    return C.ClassRegistry().with_class(C.LabelClass(
+        3, "백태", "area", "#3C8CFF", False))
+
+
+def test_server_without_class_api_means_builtins_only(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._tool_picker.setCurrentIndex(BRUSH)
+        win._client = _Client()
+        # The cache (from an earlier server) knew class 3.
+        win._apply_class_registry(_cached_class_3(), "offline")
+        win._on_class_sync_done(C.ClassRegistry(), "unsupported")
+        assert win.class_registry.ids() == [1, 2]
+        assert not win._class_picker_brush.add_button.isEnabled()
+    finally:
+        win.close()
+
+
+def test_ok_sync_drops_a_cached_class_the_server_no_longer_lists(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._apply_class_registry(_cached_class_3(), "offline")
+        win._on_class_sync_done(C.ClassRegistry(), "ok")
+        assert win.class_registry.ids() == [1, 2]
+    finally:
+        win.close()
+
+
+def test_offline_sync_keeps_the_cache_and_classes_added_this_session(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        client = _Client(added={"classId": 4, "name": "누수", "kind": "area",
+                                "color": "#AA00AA", "builtin": False})
+        _online(win, client)
+        monkeypatch.setattr(win, "_ask_new_class", lambda: ("누수", "#AA00AA"))
+        win._on_add_class()
+        win._on_class_sync_done(_cached_class_3(), "offline")
+        assert win.class_registry.ids() == [1, 2, 3, 4]
     finally:
         win.close()

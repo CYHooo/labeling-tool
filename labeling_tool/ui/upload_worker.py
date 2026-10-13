@@ -24,7 +24,7 @@ from labeling_tool.core.bbox import load_bboxes, load_scale
 from labeling_tool.session import naming
 from labeling_tool.annotation_payload import build_annotation_item
 from labeling_tool.api.uploader import upload_session
-from labeling_tool.api.class_sync import sync_classes
+from labeling_tool.api.class_sync import SYNC_OFFLINE, sync_classes
 from labeling_tool.core.classes import ClassRegistry, CRACK_ID, SPALLING_ID
 from labeling_tool.logging_setup import vlog
 
@@ -62,7 +62,10 @@ class UploadWorker(QThread):
         if self._client is not None and hasattr(self._client, "list_classes"):
             synced, status = sync_classes(
                 self._client, getattr(self._client, "base_url", ""))
-            if status == "ok":
+            # ok: the server's list; unsupported (no V5): built-ins only, so
+            # stale cached classes are reported as unknown instead of sent.
+            # Only offline keeps the registry the window passed in.
+            if status != SYNC_OFFLINE:
                 registry = synced
         unknown: set[int] = set()
         vlog().info("prepare start: %d items", total)
