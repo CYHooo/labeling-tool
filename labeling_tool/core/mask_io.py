@@ -4,7 +4,7 @@ import cv2
 from pathlib import Path
 
 from labeling_tool.core.constants import IMAGE_EXTENSIONS, MASK_NAME_SUFFIXES
-from labeling_tool.core.mask_codec import decode_mask
+from labeling_tool.core.mask_codec import decode_layers, decode_mask
 
 
 def find_mask_path(origin_filename: str, detected_dir: str) -> str | None:
@@ -49,3 +49,17 @@ def load_origin_and_masks(origin_path: str, mask_path: str | None):
             crack_mask, spalling_mask = decode_mask(raw, mask_path=mask_path)
 
     return origin, crack_mask, spalling_mask
+
+
+def load_origin_and_layers(origin_path: str, mask_path: str | None):
+    """Load the origin image and decode its mask into {class id: 0/255
+    layer} (empty dict when there is no readable mask)."""
+    origin = cv2.imread(origin_path)
+    if origin is None:
+        raise FileNotFoundError(f"Cannot read origin image: {origin_path}")
+    layers = {}
+    if mask_path is not None:
+        raw = cv2.imread(mask_path, cv2.IMREAD_UNCHANGED)
+        if raw is not None:
+            layers = decode_layers(raw, mask_path=mask_path)
+    return origin, layers
