@@ -25,6 +25,9 @@ class AddClassDialog(QDialog):
         form.addRow(tr("class_add_name"), self.name_edit)
         form.addRow(tr("class_add_color"), self.color_button)
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        # No app-wide Qt translator: name the standard buttons ourselves.
+        self.buttons.button(QDialogButtonBox.Ok).setText(tr("class_add_ok"))
+        self.buttons.button(QDialogButtonBox.Cancel).setText(tr("class_add_cancel"))
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         form.addRow(self.buttons)

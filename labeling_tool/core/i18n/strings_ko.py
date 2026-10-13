@@ -348,7 +348,9 @@ STRINGS = {
     "class_add_title": "카테고리 추가",
     "class_add_name": "이름",
     "class_add_name_hint": "예: 백태, 누수",
-    "class_add_color": "색",
+    "class_add_color": "색상",
+    "class_add_ok": "추가",
+    "class_add_cancel": "취소",
     "class_add_failed": "카테고리를 추가하지 못했습니다.\n{error}",
     "class_add_full": "카테고리를 더 추가할 수 없습니다 (최대 252개).",
 }

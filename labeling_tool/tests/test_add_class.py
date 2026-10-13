@@ -42,6 +42,14 @@ def test_dialog_needs_a_name():
     assert not ok.isEnabled()
 
 
+def test_dialog_buttons_are_translated():
+    from labeling_tool.ui.add_class_dialog import AddClassDialog
+    ko = i18n.TRANSLATIONS["ko"]
+    d = AddClassDialog("#3C8CFF", lambda key, **kw: ko[key])
+    assert d.buttons.button(QDialogButtonBox.Ok).text() == "추가"
+    assert d.buttons.button(QDialogButtonBox.Cancel).text() == "취소"
+
+
 def test_adding_a_class_selects_it(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch)
     try:
