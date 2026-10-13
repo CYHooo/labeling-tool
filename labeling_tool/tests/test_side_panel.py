@@ -1222,3 +1222,119 @@ def test_ctrl_z_with_nothing_left_keeps_the_sam_redo_steps(tmp_path, monkeypatch
         assert c._sam_points == both
     finally:
         win.close()
+
+
+# ---------------------------------------------------------------- unconfirmed edits on switch
+def _saves_seen(win, monkeypatch):
+    """Record what the canvas held each time the photo was saved."""
+    seen = []
+    real = win._save_all_artifacts
+
+    def spy(*a, **k):
+        seen.append({"spalling": bool(win.canvas.brush_mask_spalling.any()),
+                     "boxes": len(win.canvas.bbox_interaction.boxes),
+                     "clicks": len(win.canvas.bbox_interaction.in_progress_clicks),
+                     "edited": bool(win._edited.get(_FILES[0])),
+                     "bbox_edited": bool(win._bbox_edited.get(_FILES[0])),
+                     "saved": None})
+        seen[-1]["saved"] = real(*a, **k)
+        return seen[-1]["saved"]
+    monkeypatch.setattr(win, "_save_all_artifacts", spy)
+    return seen
+
+
+def test_moving_on_confirms_an_unconfirmed_sam_selection(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        seen = _saves_seen(win, monkeypatch)
+        _sam_with_points(win, (2, 2, 1))
+        assert win.canvas.has_sam_preview()
+        win.go_next()
+        assert seen and seen[0]["spalling"]                  # written before the save
+        assert seen[0]["edited"] and seen[0]["saved"]
+        assert win.status.currentMessage() == i18n.tr("sam_auto_committed")
+    finally:
+        win.close()
+
+
+def test_moving_on_confirms_unconfirmed_repair_area_points(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        seen = _saves_seen(win, monkeypatch)
+        win._tool_picker.setCurrentIndex(BBOX)
+        QApplication.processEvents()
+        c = win.canvas
+        c.bbox_interaction.on_left_press(1, 1)
+        c.bbox_interaction.on_left_press(6, 6)
+        win.go_next()
+        assert seen[0]["boxes"] == 1 and seen[0]["clicks"] == 0
+        assert seen[0]["bbox_edited"] and seen[0]["saved"]
+        assert win.status.currentMessage() == i18n.tr("bbox_auto_committed")
+    finally:
+        win.close()
+
+
+def test_a_single_repair_area_point_is_dropped_on_moving_on(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        seen = _saves_seen(win, monkeypatch)
+        win._tool_picker.setCurrentIndex(BBOX)
+        QApplication.processEvents()
+        win.canvas.bbox_interaction.on_left_press(1, 1)
+        win.go_next()
+        assert seen[0]["boxes"] == 0 and seen[0]["clicks"] == 0
+        assert not seen[0]["bbox_edited"]
+    finally:
+        win.close()
+
+
+def test_closing_confirms_an_unconfirmed_sam_selection(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    seen = _saves_seen(win, monkeypatch)
+    _sam_with_points(win, (2, 2, 1))
+    win.close()
+    assert seen and seen[-1]["spalling"]
+
+
+def test_switching_the_range_view_confirms_an_unconfirmed_sam_selection(tmp_path, monkeypatch):
+    win = _range_window(tmp_path, monkeypatch)
+    try:
+        seen = []
+        real = win._save_all_artifacts
+        monkeypatch.setattr(win, "_save_all_artifacts", lambda *a, **k: (
+            seen.append(bool(win.canvas.brush_mask_spalling.any())), real(*a, **k))[1])
+        _sam_with_points(win, (2, 2, 1))
+        win._btn_range_toggle.click()
+        QApplication.processEvents()
+        assert seen and seen[0]
+        assert win.status.currentMessage() == i18n.tr("sam_auto_committed")
+    finally:
+        win.close()
+
+
+def test_upload_confirms_an_unconfirmed_sam_selection_first(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._client = object()
+        monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+        monkeypatch.setattr(win, "_edited_filenames", lambda: [])
+        _sam_with_points(win, (2, 2, 1))
+        win._on_upload()
+        assert win.canvas.brush_mask_spalling.any() and not win.canvas.has_sam_preview()
+    finally:
+        win.close()
+
+
+def test_repair_area_points_without_a_scale_are_dropped_with_a_message(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._tool_picker.setCurrentIndex(BBOX)
+        QApplication.processEvents()
+        c = win.canvas
+        c.bbox_interaction.on_left_press(1, 1)
+        c.bbox_interaction.on_left_press(6, 6)
+        c.set_bbox_padding_px(0)
+        win.go_next()
+        assert win.status.currentMessage() == i18n.tr("bbox_auto_dropped")
+    finally:
+        win.close()

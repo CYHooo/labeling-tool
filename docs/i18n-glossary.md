@@ -48,6 +48,8 @@
 | brush / eraser | **브러시** / **지우개** | 画笔 / 橡皮擦 | Brush / Eraser | |
 | undo / redo | **실행 취소** / **다시 실행** | 撤销 / 重做 | Undo / Redo | 掩码编辑（画笔、SAM 确认、복원）；Ctrl+Z / Ctrl+Y。所有工具含义相同：SAM / 보수 구역 先撤销未确认的点（SAM 포인트 / 점），再撤销掩码编辑 |
 | confirm / clear all | **확정** (Enter) / **전체 취소** (Esc) | 确认 / 全部取消 | Confirm / Clear all | Enter 在 SAM 与 보수 구역 都是确认；Esc 丢弃全部未确认的点 |
+| pan the view | **휠 버튼 드래그** / Ctrl+드래그 (보기: 왼쪽 드래그) | 中键拖动 / Ctrl+拖拽（查看：左键拖动） | Middle-drag / Ctrl+drag (View tool: left-drag) | 中键拖动在所有工具可用；左键拖动只在보기 |
+| auto-confirm on switch | **확정하지 않은 SAM 영역 / 보수 구역** | 未确认的 SAM 区域 / 修补区域 | Unconfirmed SAM selection / repair area | 换照片或关闭窗口时自动确认并保存，状态栏提示 |
 
 ## 4. 程序与更新
 

@@ -15,7 +15,7 @@ STRINGS = {
     "brush_hint":
         "Left drag    Paint (writes current category channel)\n"
         "Right drag   Erase (current category only)\n"
-        "Ctrl+drag    Pan view\n"
+        "Middle-drag / Ctrl+drag    Pan view\n"
         "Wheel        Zoom\n"
         "Auto-saves to Labeling/<mask name> on image switch\n"
         "  R = crack, G = spalling",
@@ -33,7 +33,7 @@ STRINGS = {
     "tool_brush":         "Brush",
     "tool_sam":           "SAM",
     "tool_bbox":          "Repair area",
-    "tool_view_hint":     "View only, no editing. Ctrl+drag to pan, wheel to zoom.",
+    "tool_view_hint":     "View only, no editing. Left-drag to pan, wheel to zoom.",
     "tool_brush_hint":    "Left-drag to draw, right-drag to erase.",
     "tool_sam_hint":      "Left-click includes, right-click excludes. Enter confirms it as spalling; Ctrl+Z undoes the last point, Esc clears all.",
     "tool_bbox_hint":     "Click to add points, Enter to confirm. Ctrl+Z undoes the last point, Esc cancels, Del deletes.",
@@ -58,7 +58,7 @@ STRINGS = {
         "Repair  click add point · Enter confirm · Esc cancel · Del delete\n"
         "Common  Ctrl+Z undo (unconfirmed points first) · Ctrl+Y redo\n"
         "Measure click the two ends of a known-length reference\n"
-        "View    Ctrl+drag pan · wheel zoom\n"
+        "View    middle-drag / Ctrl+drag pan (View tool: left-drag) · wheel zoom\n"
         "Nav     A / D prev/next · S / Ctrl+S save · auto-save on switch",
     "ready":              "Ready",
     "loaded_n_images":    "Loaded {n} images",
@@ -93,6 +93,9 @@ STRINGS = {
     "sam_undone":      "Last SAM point undone.",
     "sam_redone":      "SAM point restored.",
     "sam_hint":        "Left-click = include, right-click = exclude; Enter confirms (writes spalling); Ctrl+Z undoes the last point; Esc clears all.",
+    "sam_auto_committed": "Unconfirmed SAM selection recorded as spalling.",
+    "bbox_auto_committed": "Unconfirmed repair area confirmed.",
+    "bbox_auto_dropped": "No scale: unconfirmed repair-area points dropped.",
     "sam_committed":   "SAM region written to spalling.",
     "sam_unavailable": "SAM unavailable (onnxruntime or models/sam/*.onnx missing).",
 

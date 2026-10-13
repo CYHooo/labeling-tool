@@ -844,7 +844,9 @@ class MainWindow(QMainWindow):
         if idx < 0 or idx >= len(self.image_files):
             return
 
+        notice = None
         if (not force_reload) and self.current_idx >= 0 and self.current_idx != idx:
+            notice = self._confirm_pending_edits()
             self._save_all_artifacts(silent=True, only_if_edited=True)
 
         filename = self.image_files[idx]
@@ -942,6 +944,28 @@ class MainWindow(QMainWindow):
 
         self._refresh_list_colors()
         self._update_status_for_current()
+        if notice:
+            self.status.showMessage(notice)
+
+    def _confirm_pending_edits(self) -> str | None:
+        """Moving to another photo (or closing) confirms what was left
+        unconfirmed -- a SAM selection, repair-area points -- so it is saved
+        instead of silently dropped. A lone repair-area point cannot make a
+        box and is dropped. Returns a status line saying what was confirmed."""
+        c = self.canvas
+        notices = []
+        if c.has_sam_preview() and c.commit_sam():
+            notices.append(self.tr_("sam_auto_committed"))
+        clicks = c.bbox_interaction.in_progress_clicks
+        if clicks:
+            if len(clicks) >= 2 and c.bbox_padding_px <= 0:
+                notices.append(self.tr_("bbox_auto_dropped"))
+            elif (len(clicks) >= 2
+                    and c.bbox_interaction.commit(c.bbox_padding_px)):
+                self._mark_bbox_edited()
+                notices.append(self.tr_("bbox_auto_committed"))
+            c.bbox_interaction.in_progress_clicks = []
+        return " · ".join(notices) or None
 
     def _display_mask_path(self, filename: str) -> tuple[str | None, str]:
         """(mask_path|None, source) to display. Default: Labeling then Detected
@@ -1033,6 +1057,8 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         # Persist the in-flight image one last time before exit, but only
         # if the user actually edited it this session.
+        if self.current_idx >= 0:
+            self._confirm_pending_edits()
         self._save_all_artifacts(silent=True, only_if_edited=True,
                                  async_derived=False)
         self._disconnect_language_manager()
