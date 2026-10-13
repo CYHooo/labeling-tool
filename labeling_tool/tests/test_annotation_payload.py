@@ -102,3 +102,31 @@ def test_build_item_empty_scale_source_defaults_to_metrics():
         px_per_cm=10.0, scale_source="",
         crack_mask=None, spalling_mask=None, boxes=[])
     assert item["scaleSource"] == "metrics"
+
+
+def _blank(shape=(20, 20)):
+    return np.zeros(shape, np.uint8)
+
+
+def test_no_user_classes_means_no_class_areas_key():
+    item = build_annotation_item(
+        timestamp=1, mask_s3_key="m", highlight_s3_key="h", repair15_s3_key="r",
+        px_per_cm=10.0, scale_source="metrics", crack_mask=_blank(),
+        spalling_mask=_blank(), boxes=[], extra_layers={})
+    assert "classAreas" not in item
+
+
+def test_class_areas_for_user_classes_in_id_order():
+    a = _blank(); a[0:10, 0:10] = 255          # 100 px
+    b = _blank(); b[0:2, 0:5] = 255            # 10 px
+    empty = _blank()
+    item = build_annotation_item(
+        timestamp=1, mask_s3_key="m", highlight_s3_key="h", repair15_s3_key="r",
+        px_per_cm=10.0, scale_source="metrics", crack_mask=_blank(),
+        spalling_mask=_blank(), boxes=[], extra_layers={7: b, 3: a, 4: empty})
+    # 10 px/cm -> 1 px = 1 mm^2
+    assert item["classAreas"] == [
+        {"classId": 3, "areaMm2": 100.0, "pixelCount": 100},
+        {"classId": 7, "areaMm2": 10.0, "pixelCount": 10},
+    ]
+    assert item["crackMetrics"]["defectType"] == 0      # unchanged rule

@@ -1,6 +1,6 @@
 # MobileSAM ONNX 모델
 
-이 폴더에는 SAM(박리) 분할용 ONNX 모델 2개가 들어갑니다 (git 으로 함께 배포):
+이 폴더에는 SAM 분할(선택한 면형 카테고리)용 ONNX 모델 2개가 들어갑니다 (git 으로 함께 배포):
 
 - `mobile_sam_encoder.onnx`  (이미지 인코더, ~30–40MB)
 - `mobile_sam_decoder.onnx`  (포인트 디코더, ~16MB)

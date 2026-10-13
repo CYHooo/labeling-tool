@@ -16,6 +16,7 @@ def write_text_report(
     metrics: CrackMetrics,
     spalling_area_mm2: float | None,
     boxes: list[OrientedBox],
+    extra_areas_mm2: dict | None = None,
 ) -> None:
     """Write the fixed-format report. Overwrites if exists."""
     if scale_px_per_cm is not None:
@@ -36,4 +37,6 @@ def write_text_report(
         f"bbox_count: {len(boxes)}",
         f"bbox_total_area_mm2: {_fmt(bbox_total_mm2)}",
     ]
+    for name, area in (extra_areas_mm2 or {}).items():
+        lines.append(f"class_area_mm2[{name}]: {_fmt(area)}")
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

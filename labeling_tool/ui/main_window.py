@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import uuid
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QPushButton, QMessageBox, QProgressBar, QWidget, QHBoxLayout, QLabel,
+    QApplication, QPushButton, QMessageBox, QProgressBar, QWidget, QHBoxLayout, QLabel,
 )
 
 from labeling_tool.ui import icons
@@ -33,6 +34,9 @@ class ViewerMainWindow(CoreMainWindow):
         # After a range fetch: list just those photos until "show all".
         self._focus = focus
         self._show_all = focus is None
+        # Class ids added from this window (V6): a late sync result must not
+        # drop them, but cached classes the server no longer lists go away.
+        self._added_class_ids: set[int] = set()
         super().__init__()
 
         # Saving should be fast: only the editable mask + bbox JSON are needed.
@@ -62,10 +66,97 @@ class ViewerMainWindow(CoreMainWindow):
 
         self._add_upload_button()
         self._init_sam()
+        self._start_class_sync()
         # upload marks (✓ / ●) in their own column before the id
         self.file_list.itemDelegate().mark_width = 20
         self._fit_list_columns()
         self._refresh_list_colors()
+
+    def _class_base_url(self) -> str:
+        if self._client is not None:
+            return self._client.base_url
+        return getattr(self._manifest, "base", "") or ""
+
+    def _start_class_sync(self) -> None:
+        """Cached classes at once; the server's list when it answers."""
+        from labeling_tool.core.classes import load_cached
+        from labeling_tool.api.class_sync import SYNC_OFFLINE
+        base = self._class_base_url()
+        self._apply_class_registry(load_cached(base), SYNC_OFFLINE)
+        if self._client is None:
+            return
+        from PyQt5.QtCore import QThreadPool
+        from labeling_tool.ui.class_sync_worker import ClassSyncRunnable, ClassSyncSignals
+        self._class_sync_signals = ClassSyncSignals()
+        self._class_sync_signals.done.connect(self._on_class_sync_done)
+        QThreadPool.globalInstance().start(
+            ClassSyncRunnable(self._client, base, self._class_sync_signals))
+
+    def _can_add_class(self) -> tuple[bool, str]:
+        from labeling_tool.api.class_sync import SYNC_OK, SYNC_UNSUPPORTED
+        if self._client is None:
+            return False, self.tr_("class_add_unavailable")
+        if self._class_sync_status == SYNC_UNSUPPORTED:
+            return False, self.tr_("class_add_unsupported")
+        if self._class_sync_status != SYNC_OK:
+            return False, self.tr_("class_add_unavailable")
+        return True, self.tr_("class_add_tip")
+
+    def _ask_new_class(self) -> tuple[str, str] | None:
+        from labeling_tool.core.classes import pick_color
+        from labeling_tool.ui.add_class_dialog import AddClassDialog
+        dlg = AddClassDialog(pick_color(self.class_registry), self.tr_, self)
+        if dlg.exec_() != dlg.Accepted:
+            return None
+        return dlg.name(), dlg.color()
+
+    def _on_add_class(self) -> None:
+        import requests
+        from labeling_tool.api.class_sync import add_class_and_cache
+        from labeling_tool.api.errors import ViewerApiError
+        ok, _tip = self._can_add_class()
+        if not ok:
+            return
+        answer = self._ask_new_class()
+        if answer is None:
+            return
+        name, color = answer
+        # The V6 call blocks the UI briefly: show that something is happening,
+        # and give the normal cursor back before any message box.
+        try:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                registry, cls = add_class_and_cache(
+                    self._client, self._class_base_url(), self.class_registry,
+                    name, color)
+            finally:
+                QApplication.restoreOverrideCursor()
+        except (ViewerApiError, requests.RequestException, ValueError) as e:
+            key = ("class_add_full" if getattr(e, "code", "") == "CLASS_LIMIT_EXCEEDED"
+                   else "class_add_failed")
+            QMessageBox.warning(self, self.tr_("class_add_title"),
+                                self.tr_(key, error=str(e)))
+            return
+        self._added_class_ids.add(cls.class_id)
+        self._apply_class_registry(registry, self._class_sync_status)
+        self._set_current_class(cls.class_id)
+
+    def _on_class_sync_done(self, registry, status: str) -> None:
+        """Apply the sync result.
+
+        ok: the server's list, plus classes added in this window since the
+        sync started (the result may arrive after a local add).
+        unsupported: the server has no V5, so built-in classes only.
+        offline: what sync_classes returned (the cache), plus this session's
+        additions.
+        """
+        from labeling_tool.api.class_sync import SYNC_UNSUPPORTED
+        merged = registry
+        if status != SYNC_UNSUPPORTED:
+            for cls in self.class_registry.user_classes():
+                if cls.class_id in self._added_class_ids and cls.class_id not in merged:
+                    merged = merged.with_class(cls)
+        self._apply_class_registry(merged, status)
 
     def _init_sam(self):
         """Load the MobileSAM predictor and wire it to the canvas; if it's
@@ -313,7 +404,8 @@ class ViewerMainWindow(CoreMainWindow):
         worker = UploadWorker(
             self._client, session_id=self._ws.session_id, specs=specs,
             labeling_dir=str(self.output_dir),
-            edit_batch_id=str(uuid.uuid4()), parent=self)
+            edit_batch_id=str(uuid.uuid4()),
+            class_registry=self.class_registry, parent=self)
         self._upload_worker = worker      # keep a reference (avoid GC)
         worker.progress.connect(self._on_upload_progress)
         worker.done.connect(self._on_upload_done)
@@ -403,3 +495,7 @@ class ViewerMainWindow(CoreMainWindow):
                 self, self.tr_("vmw_done_title"),
                 self.tr_("vmw_done_msg", count=result["uploaded"],
                          report_line=report_line))
+        unknown = result.get("unknown_classes") or []
+        if unknown:
+            self.status.showMessage(self.tr_(
+                "class_unknown_on_upload", ids=", ".join(f"#{i}" for i in unknown)))

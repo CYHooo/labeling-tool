@@ -26,10 +26,9 @@ def register_shortcuts(window: "MainWindow") -> None:
               lambda: window._toggle_mode_shortcut(window._btn_brush_toggle))
     QShortcut(QKeySequence("["), window, lambda: window._nudge_brush_size(-2))
     QShortcut(QKeySequence("]"), window, lambda: window._nudge_brush_size(+2))
-    QShortcut(QKeySequence("1"), window,
-              lambda: window._select_category_btn(0))
-    QShortcut(QKeySequence("2"), window,
-              lambda: window._select_category_btn(1))
+    for n in range(1, 10):
+        QShortcut(QKeySequence(str(n)), window,
+                  lambda n=n: window._select_class_by_index(n - 1))
     QShortcut(QKeySequence("X"), window,
               lambda: window._toggle_mode_shortcut(window._btn_bbox_toggle))
     QShortcut(QKeySequence(Qt.Key_Return), window, window._on_confirm)

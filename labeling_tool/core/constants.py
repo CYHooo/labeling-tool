@@ -1,8 +1,5 @@
 """Project-wide constants for the labeling tool."""
 
-CATEGORIES: tuple[str, ...] = ("crack", "spalling")
-DEFAULT_CATEGORY: str = "crack"
-
 BRUSH_DEFAULT_SIZE: int = 10
 BRUSH_MAX_SIZE: int = 300
 OUTPUT_DIR_NAME: str = "Labeling"   # Auto-created next to Origin/

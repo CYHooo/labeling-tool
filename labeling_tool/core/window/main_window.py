@@ -12,12 +12,13 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QColor, QDesktopServices
 
 from labeling_tool.core.constants import (
-    CATEGORIES, DEFAULT_CATEGORY, OUTPUT_DIR_NAME,
+    OUTPUT_DIR_NAME,
     IMAGE_EXTENSIONS, MASK_NAME_SUFFIXES,
 )
 from labeling_tool.core.i18n import tr, language_manager
-from labeling_tool.core.mask_io import load_origin_and_masks
-from labeling_tool.core.mask_codec import encode_label_mask
+from labeling_tool.core.mask_io import load_origin_and_layers
+from labeling_tool.core.mask_codec import encode_layers
+from labeling_tool.core.classes import ClassRegistry, CRACK_ID, SPALLING_ID
 from labeling_tool.core.canvas import ImageCanvas
 from labeling_tool.core.bbox import (
     ScaleTracker, save_bboxes, load_bboxes, load_scale_info,
@@ -67,7 +68,15 @@ class MainWindow(QMainWindow):
         self.current_scale_source: str = "none"
         self._bbox_edited: dict[str, bool] = {}
 
+        self.class_registry = ClassRegistry()
+        self._class_sync_status = "offline"
+        # SAM moved crack -> spalling when it was turned on; leaving SAM
+        # gives crack back unless the user picked another category there.
+        self._sam_took_crack = False
+
         self._build_ui()
+        self.canvas.set_class_registry(self.class_registry)
+        self._refresh_class_pickers()
         self.setWindowTitle(self.tr_("window_title"))
         self.setMinimumSize(820, 560)
         self._apply_initial_geometry()
@@ -143,8 +152,7 @@ class MainWindow(QMainWindow):
         for title, title_key, hint, hint_key in self._tool_texts:
             title.setText(self.tr_(title_key))
             hint.setText(self.tr_(hint_key))
-        self._btn_cat_crack.setText(self.tr_("cat_crack"))
-        self._btn_cat_spalling.setText(self.tr_("cat_spalling"))
+        self._refresh_class_pickers()
 
         self._grp_display.setTitle(self.tr_("group_display"))
         self._chk_show_highlight.setText(self.tr_("btn_show_highlight"))
@@ -332,6 +340,10 @@ class MainWindow(QMainWindow):
             self._btn_measure.setChecked(False)   # leave measure mode
         if checked and self.canvas.sam_mode:
             self._btn_sam_toggle.setChecked(False)
+        if not checked:
+            # The release may never reach the brush: close the open stroke
+            # so it is undoable and class switching is not locked.
+            self.canvas.finish_brush_stroke()
         self.canvas.brush_mode = bool(checked)
         self._btn_brush_toggle.setText(
             self.tr_("btn_brush_off") if checked else self.tr_("btn_brush_on"))
@@ -398,21 +410,6 @@ class MainWindow(QMainWindow):
     def _on_brush_size_changed(self, value: int):
         self.canvas.brush_size = int(value)
         self.canvas.update()
-
-    def _on_category_changed(self, index: int):
-        cat = CATEGORIES[index] if 0 <= index < len(CATEGORIES) else DEFAULT_CATEGORY
-        self.canvas.current_category = cat
-        self.canvas.update()
-        cat_key = "cat_crack" if cat == "crack" else "cat_spalling"
-        self.status.showMessage(
-            self.tr_("status_category_changed", cat=self.tr_(cat_key)))
-
-    def _select_category_btn(self, idx: int):
-        """Select a category from a keyboard shortcut (1=crack, 2=spalling)."""
-        btn = self._cat_group.button(idx)
-        if btn is not None and not btn.isChecked():
-            btn.setChecked(True)
-            self._on_category_changed(idx)
 
     def _nudge_brush_size(self, delta: int):
         """Bump brush size from the [/ ] shortcuts; spinbox clamps the range."""
@@ -492,28 +489,26 @@ class MainWindow(QMainWindow):
 
         import cv2 as _cv2
 
-        mc = self.canvas.brush_mask_crack
-        ms = self.canvas.brush_mask_spalling
+        layers = self.canvas.layers
 
-        # ----- 1. Mask (single-channel integer label: 0=bg, 1=crack, 2=spalling) -----
-        if mc is not None or ms is not None:
-            label = encode_label_mask(mc, ms)
+        # ----- 1. Mask (single-channel integer label: 0=bg, class ids above) -----
+        if layers:
+            label = encode_layers(layers)
             self.output_dir.mkdir(parents=True, exist_ok=True)
             mask_out = self._save_mask_path(filename)
             _cv2.imwrite(str(mask_out), label)
 
             # ----- 1b. Derived masks: highlight + (scale-dependent) repair15 --
-            crack_snap = mc.copy() if mc is not None else None
-            spall_snap = ms.copy() if ms is not None else None
+            snap = {c: m.copy() for c, m in layers.items()}
             scale = self.current_scale or 0.0
             if async_derived:
                 # Offer to re-fit bboxes from the new 15cm contour only when the
                 # mask actually changed and bboxes already exist.
                 if mask_dirty and self.canvas.bbox_interaction.boxes:
                     self._offer_refit_for = filename
-                self._dispatch_derived(filename, crack_snap, spall_snap, scale)
+                self._dispatch_derived(filename, snap, scale)
             else:
-                from labeling_tool.core.derived_masks import generate_derived_masks
+                from labeling_tool.core.derived_masks import generate_derived_layers
                 hi_path = (str(self.highlight_dir / mask_store.mask_name(filename))
                            if self.highlight_dir is not None else None)
                 r15_path = (str(self.repair15_dir / mask_store.mask_name(filename))
@@ -522,8 +517,7 @@ class MainWindow(QMainWindow):
                     self.highlight_dir.mkdir(parents=True, exist_ok=True)
                 if self.repair15_dir is not None:
                     self.repair15_dir.mkdir(parents=True, exist_ok=True)
-                hi, r15 = generate_derived_masks(
-                    crack_snap, spall_snap, scale, hi_path, r15_path)
+                hi, r15 = generate_derived_layers(snap, scale, hi_path, r15_path)
                 self.canvas.set_highlight(hi)
                 self.canvas.set_repair15(r15)
 
@@ -548,9 +542,12 @@ class MainWindow(QMainWindow):
             if origin is not None:
                 export_result(
                     self.result_dir, filename, origin,
-                    mc, ms,
+                    layers.get(CRACK_ID), layers.get(SPALLING_ID),
                     list(self.canvas.bbox_interaction.boxes),
                     self.current_scale,
+                    extra_layers={c: m for c, m in layers.items()
+                                  if c not in (CRACK_ID, SPALLING_ID)},
+                    registry=self.class_registry,
                 )
 
         # ----- 4. Bookkeeping -----
@@ -563,7 +560,81 @@ class MainWindow(QMainWindow):
             self.status.showMessage(self.tr_("brush_saved", p=str(self.output_dir)))
         return True
 
-    def _dispatch_derived(self, filename: str, crack, spall, scale: float) -> None:
+    # ------------------------------------------------------------------
+    # Damage classes
+    # ------------------------------------------------------------------
+    def _class_base_url(self) -> str:
+        return ""
+
+    def _apply_class_registry(self, registry: ClassRegistry, status: str) -> None:
+        self.class_registry = registry
+        self._class_sync_status = status
+        self.canvas.set_class_registry(registry)
+        self._refresh_class_pickers()
+
+    def _refresh_class_pickers(self) -> None:
+        """Rebuild both class pickers from class_registry (names follow the
+        language, so this also runs on retranslate)."""
+        if not hasattr(self, "_class_picker_brush"):
+            return                      # called while the panel is being built
+        reg = self.class_registry
+        cur = self.canvas.current_class_id
+        if cur not in reg:
+            cur = SPALLING_ID if self.canvas.sam_mode else CRACK_ID
+            self.canvas.current_class_id = cur
+        entries = [(c.class_id, reg.display_name(c.class_id, self.tr_), c.rgb)
+                   for c in reg.classes()]
+        # Ids found in a photo but unknown to the registry are not listed:
+        # they cannot be chosen and only show grey on the canvas.
+        ok, tip = self._can_add_class()
+        for picker, disabled in ((self._class_picker_brush, frozenset()),
+                                 (self._class_picker_sam, frozenset({CRACK_ID}))):
+            shown = cur if cur not in disabled else SPALLING_ID
+            picker.set_classes(entries, shown, disabled)
+            picker.set_add_enabled(ok, tip)
+            picker.retranslate(self.tr_("lbl_class"))
+
+    def _set_current_class(self, cid: int) -> None:
+        """Make `cid` the class the brush and SAM write (pickers, keys 1-9)."""
+        reg = self.class_registry
+        if cid not in reg:
+            return
+        if self.canvas._brushing:
+            # A layer created mid-stroke would come after the stroke's undo
+            # snapshot, leaving part of the stroke un-undoable: keep the
+            # class and put the pickers back on it.
+            self._show_current_class()
+            return
+        if self.canvas.sam_mode and not reg.is_area(cid):
+            cid = SPALLING_ID                      # SAM selects areas only
+        self.canvas.current_class_id = cid
+        self._show_current_class()
+        self.canvas.update()
+        self.status.showMessage(self.tr_(
+            "status_category_changed", cat=reg.display_name(cid, self.tr_)))
+
+    def _show_current_class(self) -> None:
+        """Point both pickers at the current class; the SAM picker cannot
+        show the crack line, so it shows spalling while crack is current."""
+        cid = self.canvas.current_class_id
+        self._class_picker_brush.set_current(cid)
+        self._class_picker_sam.set_current(
+            cid if self.class_registry.is_area(cid) else SPALLING_ID)
+
+    def _select_class_by_index(self, i: int) -> None:
+        """Number key i+1: the i-th class in list order; nothing if absent."""
+        classes = self.class_registry.classes()
+        if 0 <= i < len(classes):
+            self._set_current_class(classes[i].class_id)
+
+    def _can_add_class(self) -> tuple[bool, str]:
+        """Whether "+" works, and its tooltip. Adding needs the server."""
+        return False, self.tr_("class_add_unavailable")
+
+    def _on_add_class(self) -> None:
+        """Adding needs the server (the Viewer window implements it)."""
+
+    def _dispatch_derived(self, filename: str, layers: dict, scale: float) -> None:
         """Start the async highlight+repair15 generation for one image."""
         from PyQt5.QtCore import QThreadPool
         from labeling_tool.ui.derived_mask_worker import DerivedMaskRunnable
@@ -576,7 +647,7 @@ class MainWindow(QMainWindow):
         r15_path = (str(self.repair15_dir / mask_store.mask_name(filename))
                     if self.repair15_dir is not None else None)
         QThreadPool.globalInstance().start(DerivedMaskRunnable(
-            crack=crack, spalling=spall, px_per_cm=scale,
+            layers=layers, px_per_cm=scale,
             highlight_path=hi_path, repair15_path=r15_path,
             token=filename, signals=self._derived_signals))
 
@@ -614,7 +685,14 @@ class MainWindow(QMainWindow):
             self._maybe_auto_bbox(token)
 
     def _on_brush_save(self):
-        self._save_all_artifacts(silent=False)
+        """S / Ctrl+S / the save button: what is still unconfirmed (a SAM
+        selection, repair-area points) is confirmed first, then saved."""
+        notice = (self._confirm_pending_edits()
+                  if 0 <= self.current_idx < len(self.image_files) else None)
+        ok = self._save_all_artifacts(silent=False)
+        # A failed save already said why; do not cover it with "recorded".
+        if notice and ok:
+            self.status.showMessage(notice)
 
     def _on_mask_edited(self):
         if self.current_idx < 0:
@@ -696,6 +774,13 @@ class MainWindow(QMainWindow):
             if self._btn_measure.isChecked():
                 self._btn_measure.setChecked(False)
         self.canvas.set_sam_mode(bool(checked))
+        if checked and not self.class_registry.is_area(self.canvas.current_class_id):
+            self._set_current_class(SPALLING_ID)       # SAM selects areas only
+            self._sam_took_crack = self.canvas.current_class_id == SPALLING_ID
+        elif not checked:
+            took, self._sam_took_crack = self._sam_took_crack, False
+            if took and self.canvas.current_class_id == SPALLING_ID:
+                self._set_current_class(CRACK_ID)
         self._btn_sam_commit.setEnabled(bool(checked))
         self._btn_sam_cancel.setEnabled(bool(checked))
         self._btn_sam_undo.setEnabled(bool(checked))
@@ -858,8 +943,7 @@ class MainWindow(QMainWindow):
         print(f"[load] {filename} -> {source}: {mask_path}", file=_sys.stderr)
 
         try:
-            origin, crack_mask, spalling_mask = load_origin_and_masks(
-                origin_path, mask_path)
+            origin, layers = load_origin_and_layers(origin_path, mask_path)
         except FileNotFoundError as e:
             self.status.showMessage(self.tr_("status_error", error=str(e)))
             return
@@ -868,7 +952,7 @@ class MainWindow(QMainWindow):
         # A pending refit offer is only meaningful for an in-place save; drop it
         # on navigation so a deferred async result can't pop the dialog on return.
         self._offer_refit_for = None
-        self.canvas.set_image(origin, crack_mask, spalling_mask)
+        self.canvas.set_image_layers(origin, layers)
 
         # ----- derived-mask overlays (read saved files; else clear) -----
         import cv2 as _cv2_load
@@ -922,15 +1006,11 @@ class MainWindow(QMainWindow):
         if self.canvas.repair15_contours:
             self._maybe_auto_bbox(filename)            # fit-if-empty (no dialog on load)
         elif self.current_scale and self.current_scale > 0:
-            mc = self.canvas.brush_mask_crack
-            ms = self.canvas.brush_mask_spalling
-            if mc is not None or ms is not None:
+            if self.canvas.layers:
                 # No Repair15 on disk yet -> generate it (and the contour) async;
                 # the callback fits bboxes when ready.
                 self._dispatch_derived(
-                    filename,
-                    mc.copy() if mc is not None else None,
-                    ms.copy() if ms is not None else None,
+                    filename, {c: m.copy() for c, m in self.canvas.layers.items()},
                     float(self.current_scale))
 
         # File list selection

@@ -158,3 +158,21 @@ class ViewerApiClient:
         vlog().info("list_sessions -> %d (%.0f ms)",
                     len(out), (time.perf_counter() - t) * 1000)
         return out
+
+    # ---- damage classes (API v1.0.16 V5 / V6) ------------------------
+    # Short timeout: the labeling window syncs on open and must not hang
+    # when the server is unreachable (the cached list is used instead).
+    CLASSES_TIMEOUT = (5, 10)
+
+    def list_classes(self) -> dict:
+        url = f"{self.base_url}/api/viewer/classes/"
+        resp = self._s.get(url, timeout=self.CLASSES_TIMEOUT)
+        self._raise_for_error(resp)
+        return resp.json()
+
+    def add_class(self, name: str, color: str) -> dict:
+        url = f"{self.base_url}/api/viewer/classes/"
+        resp = self._s.post(url, json={"name": name, "color": color},
+                            timeout=self.CLASSES_TIMEOUT)
+        self._raise_for_error(resp)
+        return resp.json()

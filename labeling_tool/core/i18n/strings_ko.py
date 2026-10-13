@@ -40,7 +40,7 @@ STRINGS = {
     "tool_bbox":          "보수 구역",
     "tool_view_hint":     "편집하지 않고 봅니다. 왼쪽 드래그로 이동하고 휠로 확대/축소합니다.",
     "tool_brush_hint":    "왼쪽 드래그로 그리고, 오른쪽 드래그로 지웁니다.",
-    "tool_sam_hint":      "좌클릭으로 포함, 우클릭으로 제외합니다. Enter 로 확정하면 박리로 기록됩니다. Ctrl+Z 는 마지막 포인트 취소, Esc 는 전체 취소입니다.",
+    "tool_sam_hint":      "좌클릭으로 포함, 우클릭으로 제외합니다. Enter 로 확정하면 선택한 카테고리로 기록됩니다. Ctrl+Z 는 마지막 포인트 취소, Esc 는 전체 취소입니다.",
     "tool_bbox_hint":     "클릭으로 점을 추가하고 Enter 로 확정합니다. Ctrl+Z 는 마지막 점 취소, Esc 는 취소, Del 은 삭제입니다.",
     "btn_open_logs":      "로그 폴더 열기",
     "log_folder_path":    "로그 폴더: {path}",
@@ -57,8 +57,8 @@ STRINGS = {
     "btn_next":           "다음 사진",
     "btn_save":           "저장",
     "hint_text":
-        "브러시  왼쪽=그리기 · 오른쪽=지우기 · 1/2=균열/박리\n"
-        "        B=토글 · [ / ]=크기 · R=균열 G=박리\n"
+        "브러시  왼쪽=그리기 · 오른쪽=지우기 · 1~9=카테고리\n"
+        "        B=토글 · [ / ]=크기\n"
         "SAM     좌클릭=포함 · 우클릭=제외 · Enter=확정 · Esc=전체 취소\n"
         "보수 구역  클릭=점추가 · Enter=확정 · Esc=취소 · Del=삭제\n"
         "공통    Ctrl+Z=실행 취소 (확정 전 점부터) · Ctrl+Y=다시 실행\n"
@@ -91,17 +91,17 @@ STRINGS = {
     "bbox_no_scale":         "축척 없음, 15cm 여백 계산 불가",
     "btn_show_highlight":    "하이라이트",
     "btn_show_repair15":     "15cm 경계",
-    "btn_sam":         "SAM 분할 (박리)",
+    "btn_sam":         "SAM 분할",
     "btn_sam_commit":  "확정",
     "btn_sam_cancel":  "취소",
     "btn_sam_undo":    "포인트 취소",
     "sam_undone":      "마지막 SAM 포인트를 취소했습니다.",
     "sam_redone":      "SAM 포인트를 다시 추가했습니다.",
-    "sam_hint":        "좌클릭=포함, 우클릭=제외; Enter=확정(박리로 기록); Ctrl+Z=마지막 포인트 취소; Esc=전체 취소",
-    "sam_auto_committed": "확정하지 않은 SAM 영역을 박리로 기록했습니다.",
+    "sam_hint":        "좌클릭=포함, 우클릭=제외; Enter=확정(선택한 카테고리로 기록); Ctrl+Z=마지막 포인트 취소; Esc=전체 취소",
+    "sam_auto_committed": "확정하지 않은 SAM 영역을 선택한 카테고리로 기록했습니다.",
     "bbox_auto_committed": "확정하지 않은 보수 구역을 확정했습니다.",
     "bbox_auto_dropped": "축척이 없어 확정하지 않은 보수 구역 점을 버렸습니다.",
-    "sam_committed":   "SAM 영역을 박리에 기록했습니다.",
+    "sam_committed":   "SAM 영역을 선택한 카테고리로 기록했습니다.",
     "sam_unavailable": "SAM 사용 불가 (onnxruntime 또는 models/sam/*.onnx 없음).",
 
     # --- fetch/progress (shared, used across future screens too) ---
@@ -305,6 +305,8 @@ STRINGS = {
 
     # --- viewer main window (labeling_tool/ui/main_window.py) ---
     "vmw_btn_upload":                  "EC2 업로드",
+    "class_unknown_on_upload": "서버에 없는 카테고리({ids})는 마스크에만 남기고 면적은 보내지 않았습니다.",
+    "class_unknown": "#{id}",
     "vmw_offline_title":               "오프라인",
     "vmw_offline_msg":                 "API 클라이언트가 없어 업로드할 수 없습니다.",
     "vmw_status_no_edits":
@@ -337,4 +339,18 @@ STRINGS = {
     "vmw_partial_title":               "일부 실패 / 미반영",
     "vmw_partial_msg_header":          "서버에 확인된 사진: {count}장\n\n",
     "vmw_partial_msg_footer":          "\n자세한 로그: {log_path}\n\n다시 업로드하세요.",
+
+    # damage class picker (brush / SAM pages)
+    "lbl_class": "카테고리",
+    "class_add_unavailable": "카테고리 추가는 서버 연결이 필요합니다.",
+    "class_add_tip": "카테고리 추가",
+    "class_add_unsupported": "서버가 카테고리 추가를 지원하지 않습니다 (서버 업데이트 필요).",
+    "class_add_title": "카테고리 추가",
+    "class_add_name": "이름",
+    "class_add_name_hint": "예: 백태, 누수",
+    "class_add_color": "색상",
+    "class_add_ok": "추가",
+    "class_add_cancel": "취소",
+    "class_add_failed": "카테고리를 추가하지 못했습니다.\n{error}",
+    "class_add_full": "카테고리를 더 추가할 수 없습니다 (최대 252개).",
 }

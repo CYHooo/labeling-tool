@@ -15,14 +15,17 @@ import time
 from pathlib import Path
 
 import cv2
+import requests  # noqa: F401 - class sync failures surface as requests errors
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from labeling_tool.session import mask_store
-from labeling_tool.core.mask_codec import decode_mask
+from labeling_tool.core.mask_codec import decode_layers
 from labeling_tool.core.bbox import load_bboxes, load_scale
 from labeling_tool.session import naming
 from labeling_tool.annotation_payload import build_annotation_item
 from labeling_tool.api.uploader import upload_session
+from labeling_tool.api.class_sync import SYNC_OFFLINE, sync_classes
+from labeling_tool.core.classes import ClassRegistry, CRACK_ID, SPALLING_ID
 from labeling_tool.logging_setup import vlog
 
 
@@ -32,13 +35,16 @@ class UploadWorker(QThread):
     error = pyqtSignal(str)
 
     def __init__(self, client, *, session_id: int, specs: list,
-                 labeling_dir: str, edit_batch_id: str, parent=None):
+                 labeling_dir: str, edit_batch_id: str,
+                 class_registry: ClassRegistry | None = None, parent=None):
         super().__init__(parent)
         self._client = client
         self._session_id = session_id
         self._specs = specs              # [{filename, timestamp, px_per_cm, scale_source}]
         self._labeling_dir = labeling_dir
         self._batch_id = edit_batch_id
+        self._class_registry = class_registry or ClassRegistry()
+        self.unknown_classes: list[int] = []
 
     @property
     def batch_id(self) -> str:
@@ -50,6 +56,18 @@ class UploadWorker(QThread):
         ldir = Path(self._labeling_dir)
         hdir = ldir.parent / "HighLight"
         rdir = ldir.parent / "Repair15"
+        # Classes added on other PCs since this window opened: ask once more,
+        # so only ids the server knows go into classAreas (unknown -> 400).
+        registry = self._class_registry
+        if self._client is not None and hasattr(self._client, "list_classes"):
+            synced, status = sync_classes(
+                self._client, getattr(self._client, "base_url", ""))
+            # ok: the server's list; unsupported (no V5): built-ins only, so
+            # stale cached classes are reported as unknown instead of sent.
+            # Only offline keeps the registry the window passed in.
+            if status != SYNC_OFFLINE:
+                registry = synced
+        unknown: set[int] = set()
         vlog().info("prepare start: %d items", total)
         for i, spec in enumerate(self._specs, start=1):
             fn = spec["filename"]
@@ -63,9 +81,17 @@ class UploadWorker(QThread):
                 continue
             t = time.perf_counter()
             raw = cv2.imread(str(mask_path), cv2.IMREAD_UNCHANGED)
-            crack, spall = (None, None)
-            if raw is not None:
-                crack, spall = decode_mask(raw, mask_path=str(mask_path))
+            layers = (decode_layers(raw, mask_path=str(mask_path))
+                      if raw is not None else {})
+            crack, spall = layers.get(CRACK_ID), layers.get(SPALLING_ID)
+            extra = {}
+            for cid, layer in layers.items():
+                if cid in (CRACK_ID, SPALLING_ID):
+                    continue
+                if cid in registry:
+                    extra[cid] = layer
+                else:
+                    unknown.add(cid)
             boxes = load_bboxes(ldir / mask_store.bbox_name(fn))
             measured = load_scale(ldir / mask_store.bbox_name(fn))
             px = measured if measured else (spec.get("px_per_cm") or 0.0)
@@ -80,13 +106,18 @@ class UploadWorker(QThread):
                 highlight_s3_key=naming.high_s3_key(self._session_id, ts),
                 repair15_s3_key=naming.repair15_s3_key(self._session_id, ts),
                 px_per_cm=px, scale_source=spec.get("scale_source", "aruco"),
-                crack_mask=crack, spalling_mask=spall, boxes=boxes)
+                crack_mask=crack, spalling_mask=spall, boxes=boxes,
+                extra_layers=extra)
             items.append(item)
             cm = item["crackMetrics"]
             vlog().info("prepare ts=%s metrics lenMm=%.0f defect=%s "
                         "(%.0f ms) [%d/%d]", ts, cm["lengthMm"], cm["defectType"],
                         (time.perf_counter() - t) * 1000, i, total)
             self.progress.emit(i, total, "prepare")
+        self.unknown_classes = sorted(unknown)
+        if self.unknown_classes:
+            vlog().warning("upload: class ids unknown to the server kept in "
+                           "the mask only: %s", self.unknown_classes)
         vlog().info("prepare done: %d items", len(items))
         return items, cache
 
@@ -96,7 +127,8 @@ class UploadWorker(QThread):
             items, cache = self._build_items()
             if not items:
                 self.done.emit({"uploaded": 0, "failed": [],
-                                "timestamps": [], "batch_id": self._batch_id})
+                                "timestamps": [], "batch_id": self._batch_id,
+                                "unknown_classes": self.unknown_classes})
                 return
             result = upload_session(
                 self._client, session_id=self._session_id, items=items,
@@ -112,6 +144,7 @@ class UploadWorker(QThread):
             result["timestamps"] = result.get("confirmed_timestamps",
                                                list(cache.keys()))
             result["batch_id"] = self._batch_id
+            result["unknown_classes"] = self.unknown_classes
             vlog().info("upload finished: uploaded=%d failed_batches=%d "
                         "anomalies=%d verify_failures=%d total=%.1fs",
                         result["uploaded"], len(result["failed"]),

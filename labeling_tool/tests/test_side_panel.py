@@ -408,13 +408,14 @@ def test_each_tool_shows_its_name_and_how_to(tmp_path, monkeypatch):
         win.close()
 
 
-def test_crack_and_spalling_are_only_shown_with_the_brush(tmp_path, monkeypatch):
+def test_the_class_picker_shows_with_the_brush_and_sam_only(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch)
     try:
         for idx in (VIEW, BRUSH, SAM, BBOX):
             win._tool_picker.setCurrentIndex(idx)
             QApplication.processEvents()
-            assert win._btn_cat_crack.isVisible() == (idx == BRUSH)
+            assert win._class_picker_brush.isVisible() == (idx == BRUSH)
+            assert win._class_picker_sam.isVisible() == (idx == SAM)
     finally:
         win.close()
 
@@ -479,17 +480,180 @@ def test_a_disabled_tool_cannot_be_picked_and_reclicking_emits_nothing():
     assert emitted == [BRUSH]
 
 
-def test_category_shortcuts_work_while_the_brush_page_is_hidden(tmp_path, monkeypatch):
+def test_number_keys_pick_classes_while_the_brush_page_is_hidden(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    from labeling_tool.core import classes as C
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._apply_class_registry(
+            C.ClassRegistry([C.LabelClass(3, "백태", "area", "#3C8CFF")]), "ok")
+        assert not win._class_picker_brush.isVisible()           # 보기 selected
+        win.activateWindow()
+        QTest.keyClick(win, Qt.Key_2)
+        assert win.canvas.current_class_id == 2
+        QTest.keyClick(win, Qt.Key_3)
+        assert win.canvas.current_class_id == 3
+        assert win._class_picker_brush.current_class() == 3
+        QTest.keyClick(win, Qt.Key_9)                             # no 9th class: no change
+        assert win.canvas.current_class_id == 3
+    finally:
+        win.close()
+
+
+def test_both_pickers_follow_the_current_class(tmp_path, monkeypatch):
+    from labeling_tool.core import classes as C
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._apply_class_registry(
+            C.ClassRegistry([C.LabelClass(3, "백태", "area", "#3C8CFF")]), "ok")
+        combo = win._class_picker_brush.combo
+        combo.setCurrentIndex(combo.findData(3))
+        assert win.canvas.current_class_id == 3
+        assert win._class_picker_sam.current_class() == 3
+        assert [combo.itemData(i) for i in range(combo.count())] == [1, 2, 3]
+        assert "백태" in combo.itemText(2) and "3" in combo.itemText(2)
+    finally:
+        win.close()
+
+
+def test_sam_cannot_use_the_crack_line(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._set_current_class(1)
+        win._tool_picker.setCurrentIndex(SAM)
+        QApplication.processEvents()
+        assert win.canvas.current_class_id == 2                   # moved to 박리
+        model = win._class_picker_sam.combo.model()
+        assert not model.item(win._class_picker_sam.combo.findData(1)).isEnabled()
+        win._set_current_class(1)                                 # e.g. key 1 in SAM
+        assert win.canvas.current_class_id == 2
+    finally:
+        win.close()
+
+
+def test_leaving_sam_gives_back_the_crack_line(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._set_current_class(1)
+        win._tool_picker.setCurrentIndex(SAM)
+        QApplication.processEvents()
+        assert win.canvas.current_class_id == 2                   # SAM chose 박리
+        win._tool_picker.setCurrentIndex(BRUSH)
+        QApplication.processEvents()
+        assert win.canvas.current_class_id == 1
+        assert win._class_picker_brush.current_class() == 1
+    finally:
+        win.close()
+
+
+def test_leaving_sam_keeps_a_category_picked_there(tmp_path, monkeypatch):
+    from labeling_tool.core import classes as C
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._apply_class_registry(
+            C.ClassRegistry([C.LabelClass(3, "백태", "area", "#3C8CFF")]), "ok")
+        win._set_current_class(1)
+        win._tool_picker.setCurrentIndex(SAM)
+        QApplication.processEvents()
+        win._set_current_class(3)                                 # the user's choice
+        win._tool_picker.setCurrentIndex(BRUSH)
+        QApplication.processEvents()
+        assert win.canvas.current_class_id == 3
+        # Spalling chosen before SAM stays spalling after it.
+        win._set_current_class(2)
+        win._tool_picker.setCurrentIndex(SAM)
+        QApplication.processEvents()
+        win._tool_picker.setCurrentIndex(VIEW)
+        QApplication.processEvents()
+        assert win.canvas.current_class_id == 2
+    finally:
+        win.close()
+
+
+def test_the_class_does_not_change_in_the_middle_of_a_brush_stroke(tmp_path, monkeypatch):
+    # A layer created after the stroke's undo snapshot would make part of
+    # the stroke impossible to undo, so a switch waits for the release.
     from PyQt5.QtCore import Qt
     from PyQt5.QtTest import QTest
     win = _make_window(tmp_path, monkeypatch)
     try:
-        assert not win._btn_cat_spalling.isVisible()                # 보기 selected
+        win._tool_picker.setCurrentIndex(BRUSH)
+        QApplication.processEvents()
+        centre = win.canvas.rect().center()
+        QTest.mousePress(win.canvas, Qt.LeftButton, Qt.NoModifier, centre)
+        assert win.canvas._brushing
+        win._set_current_class(2)
+        assert win.canvas.current_class_id == 1
         win.activateWindow()
         QTest.keyClick(win, Qt.Key_2)
-        assert win.canvas.current_category == "spalling"
-        assert win._btn_cat_spalling.isChecked()
+        assert win.canvas.current_class_id == 1
+        assert win._class_picker_brush.current_class() == 1
+        QTest.mouseRelease(win.canvas, Qt.LeftButton, Qt.NoModifier, centre)
+        assert not win.canvas._brushing
+        QTest.keyClick(win, Qt.Key_2)
+        assert win.canvas.current_class_id == 2
     finally:
+        win.close()
+
+
+def test_leaving_the_brush_mid_stroke_ends_the_stroke(tmp_path, monkeypatch):
+    # The release may never reach the brush (tool switched by key while the
+    # button is held): the stroke must not stay open and lock the class.
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._tool_picker.setCurrentIndex(BRUSH)
+        QApplication.processEvents()
+        centre = win.canvas.rect().center()
+        QTest.mousePress(win.canvas, Qt.LeftButton, Qt.NoModifier, centre)
+        assert win.canvas._brushing
+        win._tool_picker.setCurrentIndex(VIEW)
+        QApplication.processEvents()
+        assert not win.canvas.brush_mode
+        QTest.mouseRelease(win.canvas, Qt.LeftButton, Qt.NoModifier, centre)
+        assert not win.canvas._brushing
+        assert win.canvas.can_undo()                 # the stroke was recorded
+        win.activateWindow()
+        QTest.keyClick(win, Qt.Key_2)
+        assert win.canvas.current_class_id == 2
+    finally:
+        win.close()
+
+
+def test_the_add_button_needs_the_server(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)                     # client=None
+    try:
+        win._tool_picker.setCurrentIndex(BRUSH)
+        QApplication.processEvents()
+        btn = win._class_picker_brush.add_button
+        assert not btn.isEnabled() and btn.toolTip()
+    finally:
+        win.close()
+
+
+def test_many_classes_keep_the_panel_unscrolled(tmp_path, monkeypatch):
+    from labeling_tool.core import classes as C
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win.resize(1400, 900)
+        win._apply_class_registry(C.ClassRegistry(
+            [C.LabelClass(3 + i, f"아주 긴 카테고리 이름 {i}", "area", "#3C8CFF")
+             for i in range(20)]), "ok")
+        scroll = win.findChild(QScrollArea)
+        content = scroll.widget()
+        narrowest = scroll.parentWidget().minimumWidth()
+        for code in ("ko", "en", "zh"):
+            i18n.set_language(code)
+            for idx in (BRUSH, SAM):
+                win._tool_picker.setCurrentIndex(idx)
+                for _ in range(10):
+                    QApplication.processEvents()
+                assert not scroll.verticalScrollBar().isVisible(), (code, idx)
+                assert content.minimumSizeHint().width() <= narrowest, (code, idx)
+    finally:
+        i18n.set_language("ko")
         win.close()
 
 
@@ -1336,5 +1500,119 @@ def test_repair_area_points_without_a_scale_are_dropped_with_a_message(tmp_path,
         c.set_bbox_padding_px(0)
         win.go_next()
         assert win.status.currentMessage() == i18n.tr("bbox_auto_dropped")
+    finally:
+        win.close()
+
+
+# ---------------------------------------------------------------- user classes
+def _with_user_class_mask(tmp_path, monkeypatch, value=3):
+    """A window whose first photo already has class `value` pixels saved."""
+    win = _make_window(tmp_path, monkeypatch)
+    label = np.zeros((8, 8), np.uint8)
+    label[1:3, 1:3] = value
+    win.output_dir.mkdir(parents=True, exist_ok=True)
+    from labeling_tool.session import mask_store
+    cv2.imwrite(str(win.output_dir / mask_store.mask_name(_FILES[0])), label)
+    win._show_image(0, force_reload=True)
+    return win
+
+
+def test_a_saved_user_class_survives_load_and_save(tmp_path, monkeypatch):
+    from labeling_tool.session import mask_store
+    win = _with_user_class_mask(tmp_path, monkeypatch, value=3)
+    try:
+        assert sorted(win.canvas.layers) == [1, 2, 3]
+        win._edited[_FILES[0]] = True
+        assert win._save_all_artifacts(silent=True, async_derived=False)
+        back = cv2.imread(str(win.output_dir / mask_store.mask_name(_FILES[0])),
+                          cv2.IMREAD_UNCHANGED)
+        assert back[1, 1] == 3 and back[5, 5] == 0
+        hi = cv2.imread(str(win.highlight_dir / mask_store.mask_name(_FILES[0])),
+                        cv2.IMREAD_UNCHANGED)
+        assert hi[1, 1] == 3
+    finally:
+        win.close()
+
+
+def test_an_unknown_class_is_kept_through_a_save(tmp_path, monkeypatch):
+    from labeling_tool.session import mask_store
+    win = _with_user_class_mask(tmp_path, monkeypatch, value=9)
+    try:
+        assert 9 not in win.class_registry
+        win._edited[_FILES[0]] = True
+        assert win._save_all_artifacts(silent=True, async_derived=False)
+        back = cv2.imread(str(win.output_dir / mask_store.mask_name(_FILES[0])),
+                          cv2.IMREAD_UNCHANGED)
+        assert back[1, 1] == 9
+    finally:
+        win.close()
+
+
+def test_the_window_starts_from_the_cached_class_list(tmp_path, monkeypatch):
+    from labeling_tool.core import classes as C
+    C.save_cached("", C.ClassRegistry([C.LabelClass(3, "백태", "area", "#3C8CFF")]))
+    win = _make_window(tmp_path, monkeypatch)            # client=None -> offline
+    try:
+        assert win.class_registry.ids() == [1, 2, 3]
+        assert win._class_sync_status == "offline"
+        assert win.canvas.class_registry is win.class_registry
+    finally:
+        win.close()
+
+
+def test_unknown_classes_are_announced_after_an_upload(tmp_path, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._finish_upload({"failed": [], "uploaded": 1, "timestamps": [],
+                            "unknown_classes": [7, 9]})
+        assert "#7, #9" in win.status.currentMessage()
+    finally:
+        win.close()
+
+
+def test_s_saves_an_unconfirmed_sam_selection(tmp_path, monkeypatch):
+    import cv2
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    from labeling_tool.session import mask_store
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        _sam_with_points(win, (2, 2, 1))
+        win.activateWindow()
+        QTest.keyClick(win.canvas, Qt.Key_S)
+        QApplication.processEvents()
+        assert not win.canvas.has_sam_preview()
+        saved = cv2.imread(str(win.output_dir / mask_store.mask_name(_FILES[0])),
+                           cv2.IMREAD_UNCHANGED)
+        assert saved is not None and (saved == 2).any()
+        assert win.status.currentMessage() == i18n.tr("sam_auto_committed")
+    finally:
+        win.close()
+
+
+def test_failed_save_does_not_claim_the_selection_was_saved(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        _sam_with_points(win, (2, 2, 1))
+        monkeypatch.setattr(win, "_save_all_artifacts", lambda **k: False)
+        win.status.clearMessage()
+        win._on_brush_save()
+        assert win.status.currentMessage() != i18n.tr("sam_auto_committed")
+    finally:
+        win.close()
+
+
+def test_ctrl_s_confirms_repair_area_points(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._tool_picker.setCurrentIndex(BBOX)
+        QApplication.processEvents()
+        c = win.canvas
+        c.bbox_interaction.on_left_press(1, 1)
+        c.bbox_interaction.on_left_press(6, 6)
+        _ctrl(win, Qt.Key_S)
+        assert len(c.bbox_interaction.boxes) == 1 and not c.bbox_interaction.in_progress_clicks
     finally:
         win.close()
