@@ -121,7 +121,9 @@ def parse_class(d: dict) -> LabelClass:
     color = d.get("color") or ""
     if not _HEX.match(color):
         color = PALETTE[cid % len(PALETTE)]
-    return LabelClass(cid, name, kind, color.upper(), bool(d.get("builtin")))
+    # Only ids 1 / 2 are built in; a server flag on a user id is ignored.
+    builtin = cid in (CRACK_ID, SPALLING_ID)
+    return LabelClass(cid, name, kind, color.upper(), builtin)
 
 
 def parse_classes(payload: dict) -> ClassRegistry:

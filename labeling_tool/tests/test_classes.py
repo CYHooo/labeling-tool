@@ -100,3 +100,12 @@ def test_a_cache_of_the_wrong_shape_gives_the_builtins(tmp_path, content):
     path.write_text(content, encoding="utf-8")
     assert C.load_cached("https://a.example.com", root=tmp_path).ids() == [1, 2]
     assert path.read_text(encoding="utf-8") == content   # left alone
+
+
+def test_builtin_flag_follows_the_id_not_the_server():
+    from labeling_tool.core.classes import parse_class
+    user = parse_class({"classId": 3, "name": "백태", "kind": "area",
+                        "color": "#3C8CFF", "builtin": True})
+    crack = parse_class({"classId": 1, "name": "crack", "kind": "line",
+                         "color": "#FF0000", "builtin": False})
+    assert user.builtin is False and crack.builtin is True
