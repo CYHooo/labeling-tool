@@ -678,7 +678,13 @@ class MainWindow(QMainWindow):
             self._maybe_auto_bbox(token)
 
     def _on_brush_save(self):
+        """S / Ctrl+S / the save button: what is still unconfirmed (a SAM
+        selection, repair-area points) is confirmed first, then saved."""
+        notice = (self._confirm_pending_edits()
+                  if 0 <= self.current_idx < len(self.image_files) else None)
         self._save_all_artifacts(silent=False)
+        if notice:
+            self.status.showMessage(notice)
 
     def _on_mask_edited(self):
         if self.current_idx < 0:

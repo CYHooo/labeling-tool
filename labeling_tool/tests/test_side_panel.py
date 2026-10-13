@@ -1505,3 +1505,38 @@ def test_unknown_classes_are_announced_after_an_upload(tmp_path, monkeypatch):
         assert "#7, #9" in win.status.currentMessage()
     finally:
         win.close()
+
+
+def test_s_saves_an_unconfirmed_sam_selection(tmp_path, monkeypatch):
+    import cv2
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    from labeling_tool.session import mask_store
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        _sam_with_points(win, (2, 2, 1))
+        win.activateWindow()
+        QTest.keyClick(win.canvas, Qt.Key_S)
+        QApplication.processEvents()
+        assert not win.canvas.has_sam_preview()
+        saved = cv2.imread(str(win.output_dir / mask_store.mask_name(_FILES[0])),
+                           cv2.IMREAD_UNCHANGED)
+        assert saved is not None and (saved == 2).any()
+        assert win.status.currentMessage() == i18n.tr("sam_auto_committed")
+    finally:
+        win.close()
+
+
+def test_ctrl_s_confirms_repair_area_points(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._tool_picker.setCurrentIndex(BBOX)
+        QApplication.processEvents()
+        c = win.canvas
+        c.bbox_interaction.on_left_press(1, 1)
+        c.bbox_interaction.on_left_press(6, 6)
+        _ctrl(win, Qt.Key_S)
+        assert len(c.bbox_interaction.boxes) == 1 and not c.bbox_interaction.in_progress_clicks
+    finally:
+        win.close()
