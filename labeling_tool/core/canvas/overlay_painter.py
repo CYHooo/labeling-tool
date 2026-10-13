@@ -1,8 +1,8 @@
 """Mask overlay rendering for ImageCanvas.
 
 Pure function (no class state): given a painter, viewport, widget size,
-and the two mask layers, draws semi-transparent red/green overlays for
-crack/spalling channels respectively.
+and the class mask layers, draws a semi-transparent overlay per layer in
+that layer's colour.
 """
 
 import numpy as np
@@ -37,15 +37,22 @@ def _screen_thicken(binimg: np.ndarray, target_px: int = DISPLAY_LINE_PX) -> np.
     return cv2.dilate(binimg, k)
 
 
-def paint_mask_overlay(
+def paint_mask_overlay(painter, viewport, widget_w, widget_h,
+                       crack_mask, spalling_mask) -> None:
+    """Two-layer form of paint_layer_overlays (crack red, spalling green)."""
+    paint_layer_overlays(painter, viewport, widget_w, widget_h,
+                         [(spalling_mask, _SPALLING_RGB), (crack_mask, _CRACK_RGB)])
+
+
+def paint_layer_overlays(
     painter: QPainter,
     viewport: Viewport,
     widget_w: int,
     widget_h: int,
-    crack_mask: np.ndarray | None,
-    spalling_mask: np.ndarray | None,
+    layers: list[tuple[np.ndarray | None, tuple[int, int, int]]],
 ) -> None:
-    """Render both mask channels as semi-transparent overlays."""
+    """Render each (mask, rgb) layer as a semi-transparent overlay, in list
+    order (later layers are drawn on top)."""
     if viewport.scale <= 0:
         return
     ih, iw = viewport.img_h, viewport.img_w
@@ -65,10 +72,7 @@ def paint_mask_overlay(
     px = int(ox + x0 * scale)
     py = int(oy + y0 * scale)
 
-    for mask, rgb in (
-        (crack_mask,    _CRACK_RGB),
-        (spalling_mask, _SPALLING_RGB),
-    ):
+    for mask, rgb in layers:
         if mask is None:
             continue
         crop = mask[y0:y1, x0:x1]
@@ -138,19 +142,17 @@ def paint_single_color_overlay(
 
 
 def compute_highlight_halo(highlight: np.ndarray | None,
-                           crack: np.ndarray | None,
-                           spalling: np.ndarray | None) -> np.ndarray | None:
-    """Halo = the (dilated) highlight region MINUS the original mask.
+                           *layers: np.ndarray | None) -> np.ndarray | None:
+    """Halo = the (dilated) highlight region MINUS every class layer.
 
-    Drawing only this ring keeps the original crack/spalling pixels showing
-    their own red/green colour while a yellow glow surrounds them, instead of
-    flooding the whole mask yellow. Returns a 0/255 uint8 mask, or None.
+    Drawing only this ring keeps the original class pixels showing their own
+    colour while a yellow glow surrounds them, instead of flooding the whole
+    mask yellow. Returns a 0/255 uint8 mask, or None.
     """
     if highlight is None:
         return None
     halo = highlight > 0
-    if crack is not None and crack.shape == halo.shape:
-        halo &= (crack == 0)
-    if spalling is not None and spalling.shape == halo.shape:
-        halo &= (spalling == 0)
+    for m in layers:
+        if m is not None and m.shape == halo.shape:
+            halo &= (m == 0)
     return (halo.astype(np.uint8) * 255)

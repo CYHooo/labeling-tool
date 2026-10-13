@@ -6,10 +6,11 @@ from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import Qt, QPoint, QPointF, pyqtSignal
 from PyQt5.QtGui import QPainter, QPen, QColor, QBrush, QPixmap
 
-from labeling_tool.core.constants import BRUSH_DEFAULT_SIZE, DEFAULT_CATEGORY
+from labeling_tool.core.constants import BRUSH_DEFAULT_SIZE
+from labeling_tool.core.classes import ClassRegistry, CRACK_ID, SPALLING_ID
 from labeling_tool.core.qt_utils import numpy_to_qpixmap
 from labeling_tool.core.canvas.viewport import Viewport
-from labeling_tool.core.canvas.overlay_painter import paint_mask_overlay
+from labeling_tool.core.canvas.overlay_painter import paint_layer_overlays
 from labeling_tool.core.bbox import BBoxInteraction, paint_bboxes
 from labeling_tool.core.canvas.stroke_thinning import thin_stroke_into
 from labeling_tool.core.canvas.mask_history import MaskHistory
@@ -54,13 +55,14 @@ class ImageCanvas(QWidget):
         self._pixmap = None
         self.viewport = Viewport()
 
-        self.brush_mask_crack: np.ndarray | None = None
-        self.brush_mask_spalling: np.ndarray | None = None
+        # One 0/255 layer per class id (crack 1, spalling 2, user classes 3+).
+        self.layers: dict[int, np.ndarray] = {}
         # Undo / redo of mask edits on the current image (cleared on switch).
         self._history = MaskHistory()
         self._edit_before: dict | None = None
 
-        self.current_category: str = DEFAULT_CATEGORY
+        self.current_class_id: int = CRACK_ID
+        self.class_registry = ClassRegistry()
         self.brush_mode: bool = False
         self.brush_size: int = BRUSH_DEFAULT_SIZE
         # Fine-annotation: when True a crack stroke keeps its painted thickness
@@ -128,23 +130,30 @@ class ImageCanvas(QWidget):
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def set_image(self, origin_bgr: np.ndarray,
-                  crack_mask: np.ndarray | None,
-                  spalling_mask: np.ndarray | None):
+    def set_image(self, origin_bgr, crack_mask, spalling_mask):
+        """Two-class form of set_image_layers (crack, spalling)."""
+        self.set_image_layers(origin_bgr, {CRACK_ID: crack_mask, SPALLING_ID: spalling_mask})
+
+    def set_image_layers(self, origin_bgr: np.ndarray, layers: dict) -> None:
+        """Show `origin_bgr` with one 0/255 mask per class id (crack and
+        spalling are always present; missing ones start empty)."""
         h, w = origin_bgr.shape[:2]
         self.viewport.set_image_size(w, h)
         self._pixmap = numpy_to_qpixmap(origin_bgr)
         self._origin_bgr = origin_bgr.copy()
         self.viewport.fit_to(self.width(), self.height())
 
-        for _name, _m in (("crack", crack_mask), ("spalling", spalling_mask)):
-            if _m is not None and _m.shape[:2] != (h, w):
+        conformed = {}
+        for cid, m in (layers or {}).items():
+            if m is not None and m.shape[:2] != (h, w):
                 from labeling_tool.logging_setup import vlog
-                vlog().warning("loaded %s mask %s != origin (%d,%d); conformed "
+                vlog().warning("loaded class %s layer %s != origin (%d,%d); conformed "
                                "(upstream AI-mask vs stitched-size mismatch)",
-                               _name, tuple(_m.shape[:2]), h, w)
-        self.brush_mask_crack = _mask_to_origin(crack_mask, h, w)
-        self.brush_mask_spalling = _mask_to_origin(spalling_mask, h, w)
+                               cid, tuple(m.shape[:2]), h, w)
+            conformed[int(cid)] = _mask_to_origin(m, h, w)
+        for cid in (CRACK_ID, SPALLING_ID):
+            conformed.setdefault(cid, np.zeros((h, w), dtype=np.uint8))
+        self.layers = conformed
 
         self._brushing = False
         self._brush_last_pt = None
@@ -160,14 +169,72 @@ class ImageCanvas(QWidget):
         self._touch_mask()
         self.update()
 
+    # ----- class layers --------------------------------------------------
+    @property
+    def brush_mask_crack(self):
+        return self.layers.get(CRACK_ID)
+
+    @brush_mask_crack.setter
+    def brush_mask_crack(self, m):
+        self._set_layer(CRACK_ID, m)
+
+    @property
+    def brush_mask_spalling(self):
+        return self.layers.get(SPALLING_ID)
+
+    @brush_mask_spalling.setter
+    def brush_mask_spalling(self, m):
+        self._set_layer(SPALLING_ID, m)
+
+    def _set_layer(self, cid: int, m) -> None:
+        if m is None:
+            self.layers.pop(cid, None)
+        else:
+            self.layers[cid] = m
+
+    @property
+    def current_category(self) -> str:
+        """Compatibility with the two-class callers (removed in Task 8)."""
+        return "crack" if self.current_class_id == CRACK_ID else "spalling"
+
+    @current_category.setter
+    def current_category(self, name: str) -> None:
+        self.current_class_id = CRACK_ID if name == "crack" else SPALLING_ID
+
+    def set_class_registry(self, registry: ClassRegistry) -> None:
+        self.class_registry = registry
+        self._touch_mask()
+        self.update()
+
+    def _ensure_layer(self, cid: int) -> np.ndarray | None:
+        """The layer for `cid`, created empty on first use."""
+        if cid not in self.layers:
+            ref = self.layers.get(CRACK_ID)
+            if ref is None:
+                return None
+            self.layers[cid] = np.zeros_like(ref)
+        return self.layers[cid]
+
+    def _clear_other_areas(self, cid: int, where) -> None:
+        """One pixel, one class: an area edit wins over other areas there.
+        `where` is a boolean mask or a callable drawing 0 into a layer."""
+        if not self.class_registry.is_area(cid):
+            return
+        for other, layer in self.layers.items():
+            if other == cid or other == CRACK_ID or layer is None:
+                continue
+            if callable(where):
+                where(layer)
+            else:
+                layer[where] = 0
+
     def _touch_mask(self):
         """Invalidate the overlay cache after a mask edit."""
         self._mask_revision += 1
 
     def clear(self):
         self._pixmap = None
-        self.brush_mask_crack = None
-        self.brush_mask_spalling = None
+        self.layers = {}
         self._reset_history()
         self._touch_mask()
         self.update()
@@ -176,7 +243,7 @@ class ImageCanvas(QWidget):
     # Undo / redo of mask edits
     # ------------------------------------------------------------------
     def _masks(self) -> dict:
-        return {"crack": self.brush_mask_crack, "spalling": self.brush_mask_spalling}
+        return self.layers
 
     def _snapshot(self) -> dict:
         return {k: (m.copy() if m is not None else None) for k, m in self._masks().items()}
@@ -193,7 +260,10 @@ class ImageCanvas(QWidget):
 
     def record_external_change(self, before: dict) -> None:
         """Record a change made outside the canvas (reset to the loaded mask)
-        from `before` (see snapshot()) to the current masks."""
+        from `before` (see snapshot()) to the current masks. Layers that the
+        reload dropped come back empty so the step can restore them."""
+        for cid in before:
+            self._ensure_layer(cid)
         if self._history.record(before, self._masks()):
             self.history_changed.emit()
 
@@ -419,11 +489,16 @@ class ImageCanvas(QWidget):
         return True
 
     def commit_sam(self) -> bool:
-        """OR the preview into the spalling layer; returns True if anything written."""
-        if self._sam_preview is None or self.brush_mask_spalling is None:
+        """OR the preview into the current area class (spalling when the
+        current class is the crack line); returns True if anything written."""
+        cid = (self.current_class_id
+               if self.class_registry.is_area(self.current_class_id) else SPALLING_ID)
+        if self._sam_preview is None or self._ensure_layer(cid) is None:
             return False
         self._begin_mask_edit()
-        self.brush_mask_spalling[self._sam_preview > 0] = 255
+        region = self._sam_preview > 0
+        self.layers[cid][region] = 255
+        self._clear_other_areas(cid, region)
         self._end_mask_edit()
         self._clear_sam_state()
         self._touch_mask()
@@ -461,8 +536,7 @@ class ImageCanvas(QWidget):
         dilated region minus the current mask, so the mask keeps its colour)."""
         from labeling_tool.core.canvas.overlay_painter import compute_highlight_halo
         self.highlight_mask = arr
-        self._highlight_halo = compute_highlight_halo(
-            arr, self.brush_mask_crack, self.brush_mask_spalling)
+        self._highlight_halo = compute_highlight_halo(arr, *self.layers.values())
         self._touch_mask()
         self.update()
 
@@ -568,8 +642,10 @@ class ImageCanvas(QWidget):
             pm = QPixmap(w, h)
             pm.fill(Qt.transparent)
             op = QPainter(pm)
-            paint_mask_overlay(op, self.viewport, w, h,
-                               self.brush_mask_crack, self.brush_mask_spalling)
+            reg = self.class_registry
+            ordered = sorted(c for c in self.layers if c != CRACK_ID) + [CRACK_ID]
+            paint_layer_overlays(op, self.viewport, w, h,
+                                 [(self.layers.get(c), reg.rgb(c)) for c in ordered])
             op.end()
             self._overlay_pixmap = pm
             self._overlay_key = key
@@ -639,10 +715,8 @@ class ImageCanvas(QWidget):
         radius_w = self.brush_size * self.viewport.scale
         if self._brush_erase:
             color = QColor(255, 80, 80)
-        elif self.current_category == "spalling":
-            color = QColor(60, 230, 60)
         else:
-            color = QColor(255, 60, 60)
+            color = QColor(*self.class_registry.rgb(self.current_class_id))
         painter.setPen(QPen(color, 2, Qt.DashLine))
         painter.setBrush(QBrush(QColor(0, 0, 0, 0)))
         painter.drawEllipse(QPointF(wx, wy), radius_w, radius_w)
@@ -651,8 +725,7 @@ class ImageCanvas(QWidget):
     # Brush helpers
     # ------------------------------------------------------------------
     def _active_brush_mask(self) -> np.ndarray | None:
-        return self.brush_mask_spalling if self.current_category == "spalling" \
-                                       else self.brush_mask_crack
+        return self._ensure_layer(self.current_class_id)
 
     def _brush_paint_at(self, p1, p2):
         m = self._active_brush_mask()
@@ -664,10 +737,15 @@ class ImageCanvas(QWidget):
         value = 0 if self._brush_erase else 255
         cv2.line(m, (x1, y1), (x2, y2),
                  value, thickness=thickness, lineType=cv2.LINE_8)
+        if not self._brush_erase:
+            self._clear_other_areas(
+                self.current_class_id,
+                lambda layer: cv2.line(layer, (x1, y1), (x2, y2), 0,
+                                       thickness=thickness, lineType=cv2.LINE_8))
         # Mirror the crack paint into the stroke layer so it can be thinned
         # to a 1-px line when the mouse is released.
         if (self._crack_stroke is not None and not self._brush_erase
-                and self.current_category == "crack"):
+                and self.current_class_id == CRACK_ID):
             cv2.line(self._crack_stroke, (x1, y1), (x2, y2),
                      255, thickness=thickness, lineType=cv2.LINE_8)
         self._touch_mask()
@@ -742,7 +820,7 @@ class ImageCanvas(QWidget):
                 self._brushing = True
                 self._brush_erase = False
                 # Start tracking this crack paint stroke for release-time thinning.
-                if (self.current_category == "crack"
+                if (self.current_class_id == CRACK_ID
                         and self.brush_mask_crack is not None):
                     self._crack_stroke = np.zeros_like(self.brush_mask_crack)
             elif event.button() == Qt.RightButton:
@@ -750,6 +828,8 @@ class ImageCanvas(QWidget):
                 self._brush_erase = True
             else:
                 return
+            # the layer must exist before the snapshot so undo can restore it
+            self._ensure_layer(self.current_class_id)
             self._begin_mask_edit()
             self._brush_paint_at((ix, iy), (ix, iy))
             self._brush_last_pt = (int(ix), int(iy))
