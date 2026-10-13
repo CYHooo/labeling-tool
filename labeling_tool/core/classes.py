@@ -126,8 +126,13 @@ def parse_class(d: dict) -> LabelClass:
 
 def parse_classes(payload: dict) -> ClassRegistry:
     """A V5 response (or our cache, same shape); bad entries are skipped."""
+    if not isinstance(payload, dict):
+        return ClassRegistry()
+    entries = payload.get("classes")
+    if not isinstance(entries, list):
+        return ClassRegistry()
     out = []
-    for d in (payload or {}).get("classes") or []:
+    for d in entries:
         try:
             out.append(parse_class(d))
         except (ValueError, TypeError, AttributeError):

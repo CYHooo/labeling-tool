@@ -91,3 +91,12 @@ def test_with_class_returns_a_new_registry():
 def test_tests_never_write_the_cache_into_the_repo():
     from labeling_tool.core.app_paths import REPO_ROOT
     assert REPO_ROOT not in C.cache_dir().parents
+
+
+@pytest.mark.parametrize("content", ["[1]", '{"classes": 5}'])
+def test_a_cache_of_the_wrong_shape_gives_the_builtins(tmp_path, content):
+    path = C.cache_file("https://a.example.com", root=tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    assert C.load_cached("https://a.example.com", root=tmp_path).ids() == [1, 2]
+    assert path.read_text(encoding="utf-8") == content   # left alone
