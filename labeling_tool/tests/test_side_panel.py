@@ -2024,6 +2024,41 @@ def test_a_deleted_current_photo_gives_way_to_the_next(tmp_path, monkeypatch):
         win.close()
 
 
+def _capture_info(monkeypatch):
+    shown = []
+    monkeypatch.setattr(QMessageBox, "information",
+                        lambda _parent, title, text, *a, **k: shown.append((title, text)))
+    return shown
+
+
+def test_an_edits_only_upload_reports_the_edits_not_zero_photos(tmp_path, monkeypatch):
+    win = _three(tmp_path, monkeypatch)
+    try:
+        shown = _capture_info(monkeypatch)
+        win._manifest.get(_THREE[1]).delete_pending = True
+        win._finish_upload(_result(deleted_timestamps=[2]))
+        summary = i18n.tr("upload_deleted_summary", n=1)
+        expected = i18n.tr("vmw_status_done_edits", summary=summary)
+        assert win.status.currentMessage() == expected
+        assert shown == [(i18n.tr("vmw_done_title"), expected)]
+    finally:
+        win.close()
+
+
+def test_a_mixed_upload_keeps_the_photo_count_and_adds_the_edits(tmp_path, monkeypatch):
+    win = _three(tmp_path, monkeypatch)
+    try:
+        shown = _capture_info(monkeypatch)
+        win._finish_upload(_result(timestamps=[1], uploaded=1, deleted_timestamps=[3]))
+        summary = i18n.tr("upload_deleted_summary", n=1)
+        assert win.status.currentMessage() == (
+            i18n.tr("vmw_status_done", count=1) + " · " + summary)
+        assert shown == [(i18n.tr("vmw_done_title"),
+                          i18n.tr("vmw_done_msg", count=1, report_line="") + "\n" + summary)]
+    finally:
+        win.close()
+
+
 def test_a_deleted_last_photo_gives_way_to_the_previous(tmp_path, monkeypatch):
     win = _three(tmp_path, monkeypatch)
     try:

@@ -345,6 +345,7 @@ STRINGS = {
     "vmw_upload_failed":               "업로드 실패",
     "vmw_status_no_items":             "업로드할 항목이 없습니다",
     "vmw_status_done":                 "업로드 완료: {count}건 (서버 확인 완료)",
+    "vmw_status_done_edits":           "업로드 완료 · {summary}",
     "vmw_done_title":                  "완료",
     "vmw_done_msg":                    "{count}건 업로드 + 서버 확인 완료.{report_line}",
     "vmw_report_line":                 "\n검증 보고서(CSV): {report}",

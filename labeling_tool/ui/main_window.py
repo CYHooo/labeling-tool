@@ -692,6 +692,12 @@ class ViewerMainWindow(CoreMainWindow):
             self.status.showMessage(self.tr_("vmw_status_no_items"))
             QMessageBox.information(self, self.tr_("vmw_none_title"),
                                      self.tr_("vmw_msg_no_edits"))
+        elif summary and not result["uploaded"]:
+            # only deletes / surface changes went up: "0 photos" would mislead
+            done = self.tr_("vmw_status_done_edits", summary=summary)
+            self.status.showMessage(done)
+            QMessageBox.information(self, self.tr_("vmw_done_title"),
+                                     done + report_line)
         else:
             self.status.showMessage(_joined(
                 self.tr_("vmw_status_done", count=result["uploaded"]), summary))

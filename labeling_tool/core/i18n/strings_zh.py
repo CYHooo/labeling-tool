@@ -334,6 +334,7 @@ STRINGS = {
     "vmw_upload_failed":               "上传失败",
     "vmw_status_no_items":             "没有可上传的项目",
     "vmw_status_done":                 "上传完成：{count} 张（服务器确认 OK）",
+    "vmw_status_done_edits":           "上传完成 · {summary}",
     "vmw_done_title":                  "完成",
     "vmw_done_msg":                    "已上传 {count} 张并完成服务器确认。{report_line}",
     "vmw_report_line":                 "\n验证报告（CSV）：{report}",

@@ -341,6 +341,7 @@ STRINGS = {
     "vmw_status_no_items":             "Nothing to upload",
     "vmw_status_done":
         "Upload complete: {count} photo(s) (server-verified)",
+    "vmw_status_done_edits":           "Upload complete · {summary}",
     "vmw_done_title":                  "Done",
     "vmw_done_msg":
         "{count} photo(s) uploaded and server-verified.{report_line}",
