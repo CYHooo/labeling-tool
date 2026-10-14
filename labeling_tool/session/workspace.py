@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from labeling_tool.core.app_paths import writable_path
+from labeling_tool.logging_setup import vlog
+from labeling_tool.session import mask_store, naming
 
 # Package root (the labeling_tool/ directory); from source, workspace data lives
 # under it so a checkout carries its sessions (no ~/ scattering). In the exe it
@@ -64,3 +66,33 @@ class Workspace:
                   self.highlight_dir, self.repair15_dir):
             d.mkdir(parents=True, exist_ok=True)
 
+
+    def remove_photo_files(self, filename: str, timestamp: int) -> list[Path]:
+        """Delete one photo's files from every job folder.
+
+        Returns the files actually removed; missing files are skipped and a
+        file that cannot be deleted is logged without stopping the rest.
+        """
+        stem = Path(filename).stem
+        mask = mask_store.mask_name(filename)
+        candidates = [
+            self.origin_dir / filename,
+            self.detected_dir / naming.detected_mask_filename(timestamp),
+            self.labeling_dir / mask,
+            self.labeling_dir / mask_store.bbox_name(filename),
+            self.highlight_dir / mask,
+            self.repair15_dir / mask,
+            self.result_dir / f"{stem}.png",
+            self.result_dir / f"{stem}.txt",
+        ]
+        removed: list[Path] = []
+        for path in candidates:
+            if not path.exists():
+                continue
+            try:
+                path.unlink()
+            except OSError as exc:
+                vlog().warning("could not remove %s: %s", path, exc)
+                continue
+            removed.append(path)
+        return removed
