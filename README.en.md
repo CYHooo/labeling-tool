@@ -75,6 +75,8 @@ The top of the right panel shows the job ID, inspection name and photo count; "?
 | **Scale (px/cm)** | Uses the value the server computed. To correct it, use "Measure": click two points of a reference line and enter its real length. |
 | **SAM segment** | Left-click to include and right-click to exclude; the region is found automatically. "Confirm" records it as the chosen (area) category; Enter also confirms. Ctrl+Z undoes the last point and Esc clears all unconfirmed points. Pressing S or moving to another photo confirms an unconfirmed selection automatically. |
 | **Highlight / 15cm zone** | Preview the highlight around cracks and the 15 cm boundary around repair areas. |
+| **Surface** | "Display · Scale" shows the photo's surface (Floor / Wall / Ceiling) and the shooting angle; if the surface is wrong, fix it with the buttons. The server decides the surface; with no value it shows "Unknown". The image list shows it in the "Side" column, with corrected values in amber. An upload sends only the surface, not the images again. |
+| **Delete photo** | The trash button at the right end of an image-list row marks the photo "To delete" (click again to undo). At upload, "Delete and upload" in the confirmation deletes it on the server; this cannot be undone. Its measurements, repair areas and comments go with it, and the photos after it move up one number. |
 
 Your work is saved automatically when you move to another image; "Save" (S) saves it on demand.
 

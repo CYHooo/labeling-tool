@@ -142,6 +142,14 @@
 
 字段名和上限集中在 `api/edit_fields.py`，后端实际实现若不同只改一处。
 
+**核对结果（2026-10-14，Task 8）**：v1.0.16 文档按客户端实际实现整理，样例由
+`labeling_tool/tests/test_api_doc_examples.py` 验证（照片列表项 → `photo_fields`；`register_annotations`
+组装的请求体与文档样例逐字段相同；响应 `deleted` / `skipped` → `timestamps_in`）。后端消息与客户端没有冲突；
+后端未说明、由我们在文档里写明或列入「서버 측 확인 요청」的有：`surfaceUpdates` 里的照片已不存在时的处理
+（建议跳过，否则整批失败、同批 `deletes` 也不生效）、同一 `editBatchId` 重试（200）是否仍返回 `deleted` / `skipped`、
+`updatedPhotoCount` 是否计入 `surfaceUpdates` / `deletes`（客户端只与 `items` 数比较，两种都能工作）、
+V1 新字段的部署时间。
+
 ## 8. 测试
 
 - TDD；三目录命令全绿（当前 1012）。
