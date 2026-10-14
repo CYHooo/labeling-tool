@@ -145,6 +145,60 @@ def test_clicking_the_delete_icon_reports_the_row_and_keeps_the_selection():
         view.close()
 
 
+def _send(view, kind, pos, buttons):
+    from PyQt5.QtCore import QEvent
+    from PyQt5.QtGui import QMouseEvent
+    button = Qt.NoButton if kind == QEvent.MouseMove else Qt.LeftButton
+    event = QMouseEvent(kind, pos, view.viewport().mapToGlobal(pos),
+                        button, buttons, Qt.NoModifier)
+    QApplication.sendEvent(view.viewport(), event)
+
+
+def test_a_shaky_click_on_the_delete_icon_does_not_switch_the_photo():
+    from PyQt5.QtCore import QEvent
+    view = _list()
+    try:
+        delegate = view.itemDelegate()
+        delegate.delete_width = 20
+        view.setCurrentRow(0)
+        spy = QSignalSpy(delegate.delete_clicked)
+        rect = view.visualRect(view.model().index(1, 0))
+        pos = QPoint(rect.right() - 10, rect.center().y())
+        _send(view, QEvent.MouseButtonPress, pos, Qt.LeftButton)
+        _send(view, QEvent.MouseMove, pos + QPoint(1, 0), Qt.LeftButton)
+        _send(view, QEvent.MouseMove, pos + QPoint(-30, 0), Qt.LeftButton)
+        _send(view, QEvent.MouseButtonRelease, pos + QPoint(-30, 0), Qt.NoButton)
+        assert view.currentRow() == 0
+        assert [args[0] for args in spy] == [1]
+        # after the release the list drags and selects as before
+        QTest.mouseClick(view.viewport(), Qt.LeftButton,
+                         pos=QPoint(rect.center().x(), rect.center().y()))
+        assert view.currentRow() == 1
+    finally:
+        view.close()
+
+
+def test_a_double_click_on_the_delete_icon_toggles_twice():
+    from PyQt5.QtCore import QEvent
+    view = _list()
+    try:
+        delegate = view.itemDelegate()
+        delegate.delete_width = 20
+        view.setCurrentRow(0)
+        spy = QSignalSpy(delegate.delete_clicked)
+        rect = view.visualRect(view.model().index(1, 0))
+        pos = QPoint(rect.right() - 10, rect.center().y())
+        # Qt's sequence for a double-click: the second press arrives as DblClick
+        _send(view, QEvent.MouseButtonPress, pos, Qt.LeftButton)
+        _send(view, QEvent.MouseButtonRelease, pos, Qt.NoButton)
+        _send(view, QEvent.MouseButtonDblClick, pos, Qt.LeftButton)
+        _send(view, QEvent.MouseButtonRelease, pos, Qt.NoButton)
+        assert [args[0] for args in spy] == [1, 1]
+        assert view.currentRow() == 0
+    finally:
+        view.close()
+
+
 def test_without_a_delete_column_the_row_end_selects_the_row():
     view = _list()
     try:

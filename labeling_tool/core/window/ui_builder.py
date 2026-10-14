@@ -85,8 +85,14 @@ class TwoPartItemDelegate(QStyledItemDelegate):
       surface_width  SURFACE_ROLE after the id (amber when SURFACE_EDITED_ROLE)
       delete_width   a trash button at the row's right end; a left press on
                      it emits delete_clicked(row) and is swallowed, so the
-                     current row does not change. DELETE_PENDING_ROLE rows
-                     are drawn red with the file name struck through."""
+                     current row does not change. Every press counts, the
+                     second press of a double-click too (it arrives as
+                     MouseButtonDblClick), so two fast clicks toggle twice.
+                     Until that button is released, mouse moves and the
+                     release are swallowed as well: otherwise a shaky click
+                     starts a drag-selection that switches the photo.
+                     DELETE_PENDING_ROLE rows are drawn red with the file
+                     name struck through."""
 
     delete_clicked = pyqtSignal(int)
 
@@ -96,6 +102,7 @@ class TwoPartItemDelegate(QStyledItemDelegate):
         self.mark_width = 0          # > 0: a column for MARK_ROLE before the id
         self.surface_width = 0       # > 0: a "면" column after the id
         self.delete_width = 0        # > 0: a delete button at the row's end
+        self._held_viewport = None   # viewport where a delete press is held
 
     def fit_primary_column(self, texts, font) -> None:
         metrics = QFontMetrics(font)
@@ -130,10 +137,31 @@ class TwoPartItemDelegate(QStyledItemDelegate):
                 and event.type() in (QEvent.MouseButtonPress, QEvent.MouseButtonDblClick)
                 and event.button() == Qt.LeftButton
                 and self._delete_rect(option.rect).contains(event.pos())):
-            if event.type() == QEvent.MouseButtonPress:
-                self.delete_clicked.emit(index.row())
+            self._hold_press(option.widget)
+            self.delete_clicked.emit(index.row())
             return True      # swallowed: the selection stays where it was
         return super().editorEvent(event, model, option, index)
+
+    def _hold_press(self, view) -> None:
+        """Swallow the view's mouse moves and the release that follow a
+        press on the delete button (see eventFilter)."""
+        viewport = view.viewport() if view is not None else None
+        if viewport is None:
+            return
+        if self._held_viewport is not viewport:
+            viewport.installEventFilter(self)   # once per viewport; idempotent
+        self._held_viewport = viewport
+
+    def eventFilter(self, obj, event):
+        if obj is self._held_viewport:
+            if event.type() == QEvent.MouseMove and event.buttons() & Qt.LeftButton:
+                return True
+            if (event.type() == QEvent.MouseButtonRelease
+                    and event.button() == Qt.LeftButton):
+                self._held_viewport = None
+                obj.removeEventFilter(self)
+                return True
+        return super().eventFilter(obj, event)
 
     def helpEvent(self, event, view, option, index):
         if (self.delete_width > 0 and index.isValid()
