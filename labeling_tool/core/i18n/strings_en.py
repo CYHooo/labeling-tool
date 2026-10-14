@@ -91,7 +91,7 @@ STRINGS = {
     "delete_pending_label":  "To delete",
     "delete_toggle_tip":     "Deleted on the server at upload; click again to undo",
     "delete_confirm_title":  "Delete photos?",
-    "delete_confirm_msg":    "{count} photos will be deleted on the server.\n{numbers}\nThis cannot be undone; their measurements, repair areas and comments are deleted too.",
+    "delete_confirm_msg":    "Photos to delete on the server: {count}\n{numbers}\nThis cannot be undone; their measurements, repair areas and comments are deleted too.",
     "delete_confirm_more":   "and {n} more",
     "delete_confirm_ok":     "Delete and upload",
     "delete_confirm_cancel": "Cancel",

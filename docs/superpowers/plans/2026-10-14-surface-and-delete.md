@@ -469,7 +469,7 @@ def deletes(entries) -> list[dict]:
     - 三者都空 → 照旧「没有修改」提示
     - `dels` 非空 → `_confirm_deletes(dels)`（`QMessageBox.warning` 风格的问题框，按钮 `delete_confirm_ok` / `delete_confirm_cancel`，文本 `delete_confirm_msg`：张数、编号列表（最多 20 个，其余 `delete_confirm_more`）、不可恢复与计测值 · 보수 구역 · 댓글说明）；取消 → 返回
     - 只有 surface / deletes 而 specs 为空时，也启动 `UploadWorker`（`specs=[]`）
-- i18n 新键：`delete_confirm_title`（사진 삭제 확인 / 确认删除照片 / Delete photos?）、`delete_confirm_msg`（「사진 {count}장을 서버에서 삭제합니다.\n{numbers}\n되돌릴 수 없으며 계측값 · 보수 구역 · 댓글도 함께 지워집니다.」/「将在服务器上删除 {count} 张照片。\n{numbers}\n无法恢复，计测值、修补区域和评论也会一起删除。」/「{count} photos will be deleted on the server.\n{numbers}\nThis cannot be undone; their measurements, repair areas and comments are deleted too.」）、`delete_confirm_more`（외 {n}장 / 等 {n} 张 / and {n} more）、`delete_confirm_ok`（삭제하고 업로드 / 删除并上传 / Delete and upload）、`delete_confirm_cancel`（취소 / 取消 / Cancel）
+- i18n 新键：`delete_confirm_title`（사진 삭제 확인 / 确认删除照片 / Delete photos?）、`delete_confirm_msg`（「사진 {count}장을 서버에서 삭제합니다.\n{numbers}\n되돌릴 수 없으며 계측값 · 보수 구역 · 댓글도 함께 지워집니다.」/「将在服务器上删除 {count} 张照片。\n{numbers}\n无法恢复，计测值、修补区域和评论也会一起删除。」/「Photos to delete on the server: {count}\n{numbers}\nThis cannot be undone; their measurements, repair areas and comments are deleted too.」）、`delete_confirm_more`（외 {n}장 / 等 {n} 张 / and {n} more）、`delete_confirm_ok`（삭제하고 업로드 / 删除并上传 / Delete and upload）、`delete_confirm_cancel`（취소 / 取消 / Cancel）
 
 - [ ] **Step 1: 写失败测试**（`_make_window` 已有；manifest 照片默认无 surface）：
   1. 列表第一行 `SURFACE_ROLE == tr("surface_unknown_short")`；给 manifest 设 `surface="wall"` 后重建列表 → 「벽」
