@@ -14,8 +14,15 @@ def shown_surface(entry) -> str | None:
 
 
 def set_surface(entry, value: str) -> bool:
+    """Record the user's surface choice. Choosing the server's value or the
+    already edited value again clears the edit. True if anything changed."""
     if value not in SURFACES:
         raise ValueError(f"unknown surface: {value!r}")
+    # Choosing the edited surface again takes the edit back (toggle): with no
+    # surface from the server there is no other way to undo a misclick.
+    if value == entry.surface_edit:
+        entry.surface_edit = None
+        return True
     new = None if value == normalize_surface(entry.surface) else value
     if new == entry.surface_edit:
         return False

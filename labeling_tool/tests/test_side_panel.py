@@ -1735,6 +1735,29 @@ def test_choosing_a_surface_edits_the_current_photo_and_back(tmp_path, monkeypat
         win.close()
 
 
+def test_clicking_the_edited_surface_again_undoes_a_misclick(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        entry = win._manifest.get(_FILES[0])
+        assert entry.surface is None                       # what the server sends today
+        row = win._surface_row
+        row.buttons["wall"].click()
+        assert entry.surface_edit == "wall"
+        assert row.buttons["wall"].isChecked() and row.buttons["wall"].property("edited")
+        assert _mark(win, 0) == "pending"
+        row.buttons["wall"].click()                        # the misclick, taken back
+        assert entry.surface_edit is None
+        assert Manifest.load(win._ws.manifest_path).get(_FILES[0]).surface_edit is None
+        assert not any(b.isChecked() for b in row.buttons.values())
+        assert not row.buttons["wall"].property("edited")
+        assert row.unknown.isVisibleTo(row)
+        assert _surface(win, 0) == i18n.tr("surface_unknown_short")
+        assert not win.file_list.item(0).data(ui_builder.SURFACE_EDITED_ROLE)
+        assert _mark(win, 0) is None
+    finally:
+        win.close()
+
+
 def test_the_surface_row_follows_the_current_photo(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch)
     try:

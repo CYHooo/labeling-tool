@@ -18,13 +18,25 @@ def test_shown_surface_prefers_the_local_edit():
 def test_set_surface_and_set_back_to_the_server_value():
     e = _e(surface="wall")
     assert E.set_surface(e, "floor") is True and e.surface_edit == "floor"
-    assert E.set_surface(e, "floor") is False
     assert E.set_surface(e, "wall") is True and e.surface_edit is None
+    assert E.set_surface(e, "wall") is False and e.surface_edit is None
 
 
 def test_set_surface_on_an_unknown_server_value_is_an_edit():
     e = _e(surface=None)
     assert E.set_surface(e, "ceiling") and e.surface_edit == "ceiling"
+
+
+def test_choosing_the_edited_surface_again_takes_the_edit_back():
+    # The server sends no surface today, so the server value cannot be clicked
+    # to undo a misclick: clicking the edited surface again undoes it instead.
+    e = _e(surface=None)
+    assert E.set_surface(e, "wall") is True and e.surface_edit == "wall"
+    assert E.set_surface(e, "wall") is True and e.surface_edit is None
+    assert E.shown_surface(e) is None
+    e = _e(surface="floor")
+    assert E.set_surface(e, "ceiling") and E.set_surface(e, "ceiling")
+    assert e.surface_edit is None and E.shown_surface(e) == "floor"
 
 
 def test_set_surface_rejects_unknown_values():

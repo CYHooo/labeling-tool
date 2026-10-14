@@ -85,6 +85,18 @@ def test_clicking_a_button_reports_the_surface_but_set_value_is_silent(tmp_path,
     assert [args[0] for args in spy] == ["ceiling", "ceiling"]
 
 
+def test_clicking_the_edited_button_again_shows_it_unchecked_at_once(tmp_path, monkeypatch):
+    _korean(tmp_path, monkeypatch)
+    row = SurfaceRow()
+    row.show()
+    spy = QSignalSpy(row.surfaceChosen)
+    row.set_value("wall", True, None, None)
+    QTest.mouseClick(row.buttons["wall"], Qt.LeftButton)
+    # still reported, so the window can take the edit back
+    assert [args[0] for args in spy] == ["wall"]
+    assert not any(b.isChecked() for b in row.buttons.values())
+
+
 def test_retranslate_changes_the_texts(tmp_path, monkeypatch):
     _korean(tmp_path, monkeypatch)
     row = SurfaceRow()

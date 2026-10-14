@@ -9,7 +9,8 @@ tilt angle is grey text: the server's tiltDeg rounded, or a dash without one.
 
 The row decides nothing itself: set_value() shows a value without emitting
 anything, and a click only reports the chosen surface (surfaceChosen); the
-window keeps the record and calls set_value() back.
+window keeps the record and calls set_value() back. Clicking the edited
+surface again reports it too: the window takes the edit back.
 """
 
 from __future__ import annotations
@@ -88,10 +89,13 @@ class SurfaceRow(QWidget):
 
     # ------------------------------------------------------------ internals
     def _on_clicked(self, key: str) -> None:
-        # Optimistic: show the choice at once (and keep a re-clicked button
-        # checked); the window answers with set_value() for the real state.
+        # Optimistic: show the choice at once; the window answers with
+        # set_value() for the real state. A re-click on the edited surface
+        # takes the edit back, so it is shown unchecked; any other re-click
+        # keeps its button checked.
+        undo = key == self._surface and self._edited
         for other, button in self.buttons.items():
-            button.setChecked(other == key)
+            button.setChecked(other == key and not undo)
         self.surfaceChosen.emit(key)
 
     def _show(self) -> None:
