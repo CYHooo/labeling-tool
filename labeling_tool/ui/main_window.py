@@ -7,6 +7,7 @@ single "Upload to EC2" action that uploads edited photos.
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
@@ -26,11 +27,13 @@ from labeling_tool.session.workspace import Workspace
 from labeling_tool.session.focus import PhotoFocus
 from labeling_tool.session.manifest import Manifest
 from labeling_tool.session.photo_edits import (
-    deletes, has_pending_edit, set_surface, shown_surface, surface_updates,
-    toggle_delete,
+    apply_photo_refresh, deletes, has_pending_edit, set_surface, shown_surface,
+    surface_updates, toggle_delete,
 )
 from labeling_tool.api.client import ViewerApiClient
+from labeling_tool.api.edit_fields import normalize_surface
 from labeling_tool.ui.upload_worker import UploadWorker
+from labeling_tool.logging_setup import vlog
 
 # Text keys of the list's surface column: a known surface
 # by name, anything else as the short "unknown" mark.
@@ -590,6 +593,10 @@ class ViewerMainWindow(CoreMainWindow):
         self.status.showMessage(self.tr_("vmw_status_upload_starting", total=total))
 
         self._begin_upload_tracking()
+        # What each surface change sent: one changed again while uploading
+        # must stay pending afterwards (see _apply_sent_surfaces).
+        self._upload_surface_snapshot = {
+            int(u["timestamp"]): u["surface"] for u in surface}
         worker = UploadWorker(
             self._client, session_id=self._ws.session_id, specs=specs,
             labeling_dir=str(self.output_dir),
@@ -642,6 +649,13 @@ class ViewerMainWindow(CoreMainWindow):
             self._manifest.save(self._ws.manifest_path)
             self._refresh_list_colors()
 
+        n_deleted, n_surface = self._apply_upload_edits(result)
+        summary = " · ".join(
+            ([self.tr_("upload_deleted_summary", n=n_deleted)] if n_deleted else [])
+            + ([self.tr_("upload_surface_summary", n=n_surface)] if n_surface else []))
+        if n_deleted or n_surface:
+            self._start_photo_refresh()
+
         verify_failures = result.get("verify_failures") or []
         report = result.get("verify_report")
         log_path = self._ws.session_dir / "vapi.log"
@@ -666,26 +680,199 @@ class ViewerMainWindow(CoreMainWindow):
             elif anomalies:
                 missing = sum(a["sent"] - a["updated"] for a in anomalies)
                 parts.append(self.tr_("vmw_part_anomalies", missing=missing))
-            self.status.showMessage(
-                self.tr_("vmw_status_partial", count=len(synced_ts)))
+            self.status.showMessage(_joined(
+                self.tr_("vmw_status_partial", count=len(synced_ts)), summary))
             QMessageBox.warning(
                 self, self.tr_("vmw_partial_title"),
                 self.tr_("vmw_partial_msg_header", count=len(synced_ts))
                 + "\n".join(parts)
                 + report_line
                 + self.tr_("vmw_partial_msg_footer", log_path=log_path))
-        elif not synced_ts:
+        elif not (synced_ts or summary):
             self.status.showMessage(self.tr_("vmw_status_no_items"))
             QMessageBox.information(self, self.tr_("vmw_none_title"),
                                      self.tr_("vmw_msg_no_edits"))
         else:
-            self.status.showMessage(
-                self.tr_("vmw_status_done", count=result["uploaded"]))
+            self.status.showMessage(_joined(
+                self.tr_("vmw_status_done", count=result["uploaded"]), summary))
             QMessageBox.information(
                 self, self.tr_("vmw_done_title"),
                 self.tr_("vmw_done_msg", count=result["uploaded"],
-                         report_line=report_line))
+                         report_line=report_line)
+                + (f"\n{summary}" if summary else ""))
         unknown = result.get("unknown_classes") or []
         if unknown:
             self.status.showMessage(self.tr_(
                 "class_unknown_on_upload", ids=", ".join(f"#{i}" for i in unknown)))
+
+    # ------------------------------------------------------------ after an upload
+    def _apply_upload_edits(self, result) -> tuple[int, int]:
+        """Apply what the server confirmed: drop deleted photos and take the
+        sent surfaces. Returns (photos removed, surfaces applied)."""
+        snapshot = getattr(self, "_upload_surface_snapshot", None) or {}
+        self._upload_surface_snapshot = None
+        # Only server-confirmed deletes: everything else sent stays marked.
+        deleted = {int(t) for t in result.get("deleted_timestamps") or []}
+        by_ts = {int(e.timestamp): fn for fn, e in self._manifest.photos.items()}
+        gone = [by_ts[t] for t in sorted(deleted) if t in by_ts]
+        n_surface = self._apply_sent_surfaces(
+            [int(t) for t in result.get("surface_timestamps") or []
+             if int(t) not in deleted], by_ts, snapshot)
+        for fn in gone:
+            # The server is the truth: a photo it deleted goes here too, even
+            # if the user took the mark back while the upload ran.
+            entry = self._manifest.get(fn)
+            removed = self._ws.remove_photo_files(fn, entry.timestamp)
+            vlog().info("upload: photo %s deleted on the server; removed %d "
+                        "local files", fn, len(removed))
+            self._manifest.remove(fn)
+            self._edited.pop(fn, None)
+            self._bbox_edited.pop(fn, None)
+        if gone or n_surface:
+            self._save_manifest()
+        if gone:
+            self._drop_photos_from_view(gone)
+        elif n_surface:
+            self._refresh_list_colors()
+            self.file_list.viewport().update()
+            self._refresh_surface_row()
+        return len(gone), n_surface
+
+    def _apply_sent_surfaces(self, timestamps, by_ts, snapshot) -> int:
+        """A surface change the server took becomes the photo's surface. A
+        change made while the upload ran is newer than what was sent, so it
+        stays pending (including one taken back to the old value)."""
+        count = 0
+        for ts in timestamps:
+            fn = by_ts.get(ts)
+            if fn is None:
+                continue
+            entry = self._manifest.get(fn)
+            sent = snapshot.get(ts, entry.surface_edit)
+            if normalize_surface(sent) is None:
+                continue
+            before = normalize_surface(entry.surface)
+            entry.surface = sent
+            entry.tilt_source = "manual"
+            if entry.surface_edit == sent:
+                entry.surface_edit = None
+            elif entry.surface_edit is None and before not in (None, sent):
+                entry.surface_edit = before      # taken back: still to be sent
+            count += 1
+        return count
+
+    def _drop_photos_from_view(self, gone: list[str]) -> None:
+        """Take removed photos out of the list (and the range). The current
+        photo stays on screen untouched; if it was removed, the photo that
+        took its place is shown (else the one before, else nothing)."""
+        gone_set = set(gone)
+        old = list(self.image_files)
+        current = (old[self.current_idx]
+                   if 0 <= self.current_idx < len(old) else None)
+        if self._focus is not None:
+            self._focus = replace(self._focus, filenames=tuple(
+                fn for fn in self._focus.filenames if fn not in gone_set))
+            if not self._range_files():
+                # Nothing of the range is left: show every photo of the job.
+                self._focus = None
+                self._show_all = True
+                self._range_bar.setVisible(False)
+        files = self._build_image_list()
+        if current in gone_set or current is None:
+            target = self._neighbour_of(current, old, files)
+        else:
+            target = current
+        if files == [fn for fn in old if fn not in gone_set]:
+            self._remove_list_rows(gone_set)
+            if target is not None and target == current:
+                self.current_idx = self.image_files.index(current)
+                self.file_list.blockSignals(True)
+                self.file_list.setCurrentRow(self.current_idx)
+                self.file_list.blockSignals(False)
+            else:
+                self.current_idx = -1            # never save a removed photo
+                if target is not None:
+                    self._show_image(self.image_files.index(target))
+            self._refresh_list_colors()
+            self._fit_list_columns()
+            self._refresh_job_info()
+        else:
+            if current is not None and current not in gone_set:
+                self._save_all_artifacts(silent=True, only_if_edited=True)
+            self.file_list.blockSignals(True)
+            try:
+                self._reload_data()
+            finally:
+                self.file_list.blockSignals(False)
+            if target is not None and target in self.image_files:
+                self.current_idx = -1
+                self._show_image(self.image_files.index(target))
+        if not self.image_files:
+            self.current_idx = -1
+            self.canvas.clear()
+            self.btn_upload.setEnabled(False)    # nothing left to upload
+        self._refresh_surface_row()
+        self._refresh_range_bar()
+        self.file_list.viewport().update()
+
+    @staticmethod
+    def _neighbour_of(current, old: list[str], files: list[str]):
+        """The photo shown instead of a removed one: the next listed photo,
+        else the previous one, else the first left (or None)."""
+        listed = set(files)
+        if current in old:
+            pos = old.index(current)
+            for fn in old[pos + 1:]:
+                if fn in listed:
+                    return fn
+            for fn in reversed(old[:pos]):
+                if fn in listed:
+                    return fn
+        return files[0] if files else None
+
+    def _remove_list_rows(self, gone_set: set[str]) -> None:
+        self.file_list.blockSignals(True)
+        try:
+            for row in reversed(range(len(self.image_files))):
+                if self.image_files[row] in gone_set:
+                    self.file_list.takeItem(row)
+                    del self.image_files[row]
+        finally:
+            self.file_list.blockSignals(False)
+
+    def _start_photo_refresh(self) -> None:
+        """Fetch the job's photo list again in the background: deletes
+        renumber the photos and the server may adjust surfaces."""
+        if self._client is None:
+            return
+        from PyQt5.QtCore import QThreadPool
+        from labeling_tool.ui.photo_refresh_worker import (
+            PhotoRefreshRunnable, PhotoRefreshSignals)
+        if getattr(self, "_photo_refresh_signals", None) is None:
+            self._photo_refresh_signals = PhotoRefreshSignals()
+            self._photo_refresh_signals.done.connect(self._on_photo_refresh_done)
+        QThreadPool.globalInstance().start(PhotoRefreshRunnable(
+            self._client, self._ws.session_id, self._photo_refresh_signals))
+
+    def _on_photo_refresh_done(self, photos) -> None:
+        """New numbers and surfaces for the photos still here; the list
+        order and the current photo stay as they are."""
+        if photos is None:
+            self.status.showMessage(self.tr_("photo_refresh_failed"))
+            return
+        if not apply_photo_refresh(self._manifest, photos):
+            return
+        self._save_manifest()
+        for row, fn in enumerate(self.image_files):
+            item = self.file_list.item(row)
+            if item is not None:
+                item.setText(self._list_item_parts(fn)[0])
+        self._fit_list_columns()
+        self._refresh_list_colors()
+        self._refresh_surface_row()
+        self.file_list.viewport().update()
+
+
+def _joined(text: str, summary: str) -> str:
+    """A status line with the delete / surface summary after it."""
+    return f"{text} · {summary}" if summary else text

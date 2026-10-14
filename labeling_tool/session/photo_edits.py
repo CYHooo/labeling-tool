@@ -4,7 +4,7 @@ out a surface itself; it shows the server's value or the user's choice."""
 
 from __future__ import annotations
 
-from labeling_tool.api.edit_fields import SURFACES, normalize_surface
+from labeling_tool.api.edit_fields import SURFACES, normalize_surface, photo_fields
 
 
 def shown_surface(entry) -> str | None:
@@ -41,3 +41,31 @@ def surface_updates(entries) -> list[dict]:
 def deletes(entries) -> list[dict]:
     return [{"timestamp": int(e.timestamp)}
             for e in sorted(entries, key=lambda e: e.timestamp) if e.delete_pending]
+
+
+def apply_photo_refresh(manifest, photos: list[dict]) -> bool:
+    """Take the server's photo numbers and surface fields for the photos the
+    manifest has (matched by timestamp). Photos the server did not list stay
+    as they are (never removed here), and local edits are left alone.
+    True if anything changed."""
+    by_ts = {}
+    for p in photos or []:
+        if not isinstance(p, dict):
+            continue
+        ts = p.get("timestamp")
+        if isinstance(ts, int) and not isinstance(ts, bool):
+            by_ts[ts] = p
+    changed = False
+    for entry in manifest.photos.values():
+        p = by_ts.get(int(entry.timestamp))
+        if p is None:
+            continue
+        fields = photo_fields(p)
+        num = p.get("reportPhotoNum")
+        if isinstance(num, int) and not isinstance(num, bool):
+            fields["report_photo_num"] = num
+        for name, value in fields.items():
+            if getattr(entry, name) != value:
+                setattr(entry, name, value)
+                changed = True
+    return changed
