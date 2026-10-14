@@ -57,12 +57,33 @@ def test_server_surface_fields_are_updated_and_the_local_edit_kept():
     assert e.surface_edit == "floor" and e.delete_pending is True
 
 
-def test_missing_surface_fields_count_as_null():
+def test_missing_surface_fields_leave_the_local_values():
+    # The live server does not send surface / tiltDeg / tiltSource yet: a
+    # missing key must not wipe what the photo has (e.g. a just-uploaded surface).
     m = _manifest(1)
     e = m.get("stitched_1.jpg")
     e.surface, e.tilt_deg, e.tilt_source = "wall", 3.0, "auto"
-    assert E.apply_photo_refresh(m, [{"timestamp": 1, "reportPhotoNum": 1}]) is True
+    assert E.apply_photo_refresh(m, [{"timestamp": 1, "reportPhotoNum": 1}]) is False
+    assert (e.surface, e.tilt_deg, e.tilt_source) == ("wall", 3.0, "auto")
+
+
+def test_surface_fields_sent_as_null_count_as_null():
+    m = _manifest(1)
+    e = m.get("stitched_1.jpg")
+    e.surface, e.tilt_deg, e.tilt_source = "wall", 3.0, "auto"
+    assert E.apply_photo_refresh(m, [{"timestamp": 1, "reportPhotoNum": 1,
+                                      "surface": None, "tiltDeg": None,
+                                      "tiltSource": None}]) is True
     assert (e.surface, e.tilt_deg, e.tilt_source) == (None, None, None)
+
+
+def test_each_surface_field_is_taken_only_when_sent():
+    m = _manifest(1)
+    e = m.get("stitched_1.jpg")
+    e.surface, e.tilt_deg, e.tilt_source = "wall", 3.0, "auto"
+    E.apply_photo_refresh(m, [{"timestamp": 1, "reportPhotoNum": 4, "tiltDeg": 7}])
+    assert (e.report_photo_num, e.surface, e.tilt_deg, e.tilt_source) == (
+        4, "wall", 7.0, "auto")
 
 
 def test_a_malformed_entry_is_skipped():
@@ -118,3 +139,14 @@ def test_the_worker_reports_a_failure_as_none():
         def list_photos(self, *a, **k):
             raise ConnectionError("offline")
     assert _run(Broken()) == [None]
+
+
+def test_the_worker_tells_its_generation():
+    from labeling_tool.ui.photo_refresh_worker import (
+        PhotoRefreshRunnable, PhotoRefreshSignals)
+    signals = PhotoRefreshSignals()
+    got = []
+    signals.finished.connect(lambda g, p: got.append((g, p)))
+    PhotoRefreshRunnable(_PagedClient([{"timestamp": 1}]), 45, signals, 3).run()
+    QApplication.processEvents()
+    assert got == [(3, [{"timestamp": 1}])]

@@ -43,10 +43,15 @@ def deletes(entries) -> list[dict]:
             for e in sorted(entries, key=lambda e: e.timestamp) if e.delete_pending]
 
 
+# PhotoEntry field -> its key in the server's photo list
+_REFRESH_KEYS = {"surface": "surface", "tilt_deg": "tiltDeg", "tilt_source": "tiltSource"}
+
+
 def apply_photo_refresh(manifest, photos: list[dict]) -> bool:
     """Take the server's photo numbers and surface fields for the photos the
     manifest has (matched by timestamp). Photos the server did not list stay
-    as they are (never removed here), and local edits are left alone.
+    as they are (never removed here), and local edits are left alone. Surface
+    fields the entry does not carry are kept.
     True if anything changed."""
     by_ts = {}
     for p in photos or []:
@@ -60,7 +65,11 @@ def apply_photo_refresh(manifest, photos: list[dict]) -> bool:
         p = by_ts.get(int(entry.timestamp))
         if p is None:
             continue
-        fields = photo_fields(p)
+        # A surface field is taken only when the server sent its key (null
+        # included): the live server does not send them yet, and a missing
+        # key must not wipe a surface the user just uploaded.
+        fields = {name: value for name, value in photo_fields(p).items()
+                  if _REFRESH_KEYS[name] in p}
         num = p.get("reportPhotoNum")
         if isinstance(num, int) and not isinstance(num, bool):
             fields["report_photo_num"] = num

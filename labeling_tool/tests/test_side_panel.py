@@ -2209,3 +2209,51 @@ def test_an_upload_with_nothing_applied_starts_no_refresh(tmp_path, monkeypatch)
         assert started == [1]
     finally:
         win.close()
+
+
+def test_a_refresh_without_surface_fields_keeps_the_uploaded_surface(tmp_path, monkeypatch):
+    win = _three(tmp_path, monkeypatch)
+    try:
+        win._client = object()
+        _fake_worker(monkeypatch)
+        monkeypatch.setattr(win, "_start_photo_refresh", lambda: None)
+        win._on_surface_chosen("floor")
+        win._on_upload()
+        win._finish_upload(_result(surface_timestamps=[1]))
+        win._on_photo_refresh_done([{"timestamp": n, "reportPhotoNum": n}
+                                    for n in (1, 2, 3)])
+        entry = win._manifest.get(_THREE[0])
+        assert (entry.surface, entry.surface_edit, entry.tilt_source) == (
+            "floor", None, "manual")
+        assert _surface(win, 0) == i18n.tr("surface_floor")
+    finally:
+        win.close()
+
+
+def test_an_older_refresh_result_is_ignored(tmp_path, monkeypatch):
+    from PyQt5.QtCore import QThreadPool
+    win = _three(tmp_path, monkeypatch)
+    try:
+        class Client:
+            def __init__(self, num):
+                self.num = num
+
+            def list_photos(self, session_id, *, offset=0, limit=100, **_kw):
+                return {"photos": [{"timestamp": 3, "reportPhotoNum": self.num}],
+                        "total": 1}
+        started = []
+        monkeypatch.setattr(QThreadPool.globalInstance().__class__, "start",
+                            lambda pool, runnable, *a: started.append(runnable))
+        win._client = Client(8)
+        win._start_photo_refresh()                         # older
+        win._client = Client(9)
+        win._start_photo_refresh()                         # newer
+        started[1].run()
+        _settle()
+        assert win.file_list.item(2).text() == "45-9"
+        started[0].run()                                   # arrives late
+        _settle()
+        assert win.file_list.item(2).text() == "45-9"
+        assert win._manifest.get(_THREE[2]).report_photo_num == 9
+    finally:
+        win.close()

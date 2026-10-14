@@ -848,15 +848,28 @@ class ViewerMainWindow(CoreMainWindow):
         from PyQt5.QtCore import QThreadPool
         from labeling_tool.ui.photo_refresh_worker import (
             PhotoRefreshRunnable, PhotoRefreshSignals)
+        # Each refresh gets a generation: only the newest one's result is
+        # applied (an older one may arrive later with older numbers). One
+        # signals object for the window's life, slot = a bound method (as
+        # with the class sync), so a closed window is never called back.
+        self._photo_refresh_gen = getattr(self, "_photo_refresh_gen", 0) + 1
         if getattr(self, "_photo_refresh_signals", None) is None:
             self._photo_refresh_signals = PhotoRefreshSignals()
-            self._photo_refresh_signals.done.connect(self._on_photo_refresh_done)
+            self._photo_refresh_signals.finished.connect(self._on_photo_refresh_finished)
         QThreadPool.globalInstance().start(PhotoRefreshRunnable(
-            self._client, self._ws.session_id, self._photo_refresh_signals))
+            self._client, self._ws.session_id, self._photo_refresh_signals,
+            self._photo_refresh_gen))
 
-    def _on_photo_refresh_done(self, photos) -> None:
+    def _on_photo_refresh_finished(self, generation: int, photos) -> None:
+        self._on_photo_refresh_done(photos, generation)
+
+    def _on_photo_refresh_done(self, photos, generation: int | None = None) -> None:
         """New numbers and surfaces for the photos still here; the list
-        order and the current photo stay as they are."""
+        order and the current photo stay as they are. A result from an
+        older refresh than the latest started is dropped."""
+        if generation is not None and generation != getattr(
+                self, "_photo_refresh_gen", 0):
+            return
         if photos is None:
             self.status.showMessage(self.tr_("photo_refresh_failed"))
             return

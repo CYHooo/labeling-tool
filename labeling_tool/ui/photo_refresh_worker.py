@@ -12,12 +12,17 @@ from labeling_tool.logging_setup import vlog
 
 class PhotoRefreshSignals(QObject):
     done = pyqtSignal(object)               # list[dict] of photos, or None on failure
+    # the same result with the refresh's generation, so a window that started
+    # several refreshes applies only the newest one
+    finished = pyqtSignal(int, object)
 
 
 class PhotoRefreshRunnable(QRunnable):
-    def __init__(self, client, session_id: int, signals: PhotoRefreshSignals):
+    def __init__(self, client, session_id: int, signals: PhotoRefreshSignals,
+                 generation: int = 0):
         super().__init__()
         self._client, self._session_id, self._signals = client, session_id, signals
+        self._generation = generation
 
     def run(self):
         try:
@@ -27,5 +32,6 @@ class PhotoRefreshRunnable(QRunnable):
             photos = None
         try:
             self._signals.done.emit(photos)
+            self._signals.finished.emit(self._generation, photos)
         except RuntimeError as e:           # the window (and its signals) is gone
             vlog().warning("photo refresh result dropped: %s", e)
