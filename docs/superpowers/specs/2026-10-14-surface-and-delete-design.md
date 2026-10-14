@@ -156,6 +156,6 @@
 
 ## 9. v1.0.16 文档
 
-功能完成后整理 `docs/api/api-reference_v1.0.16.md`（韩语，格式与 v1.0.15 相同）：v1.0.15 全文 + 拍摄面（V1 字段、
+功能完成后整理 `~/Downloads/api-reference_v1.0.16.md`（**不进仓库**：仓库公开，文档含内部地址与密钥名）（韩语，格式与 v1.0.15 相同）：v1.0.15 全文 + 拍摄面（V1 字段、
 V4 `surfaceUpdates`）+ 删除（V4 `deletes`、响应 `deleted` / `skipped`、说明）+ 类别（V5 / V6、V4 `classAreas`、
 像素值定义，标注「제안 · 서버 구현 전」）。变更履历写在开头。

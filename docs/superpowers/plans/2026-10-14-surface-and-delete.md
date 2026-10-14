@@ -525,10 +525,10 @@ def deletes(entries) -> list[dict]:
 
 **Files:**
 - Modify: README（ko / en / zh-CN，tracked 的三份）、`docs/i18n-glossary.md`（核对 Task 4/6/7 新词都在）、spec §7（写下核对结果）
-- Create: `docs/api/api-reference_v1.0.16.md`（v1.0.15 全文为底：`~/Downloads/api-reference_v1.0.15.md`）
+- Create: `~/Downloads/api-reference_v1.0.16.md`（**不进仓库**：仓库公开，文档含内部地址与密钥名）（v1.0.15 全文为底：`~/Downloads/api-reference_v1.0.15.md`）
 - Test: 新增 `labeling_tool/tests/test_api_doc_examples.py`：用 v1.0.16 文档里的请求 / 响应样例（照片列表项、V4 请求体、V4 响应）验证 `photo_fields`、`register_annotations` 组装的请求体、`timestamps_in` 解析
 
-- [ ] **Step 1:** 写 `docs/api/api-reference_v1.0.16.md`：复制 v1.0.15 全文，标题改 v.1.0.16，开头加「v1.0.16 변경 이력」；V1 `photos[]` 加 `surface` / `tiltDeg` / `tiltSource`；V4 请求 `items` 可为空、加 `surfaceUpdates[]` / `deletes[]`（各最多 100 건，三者至少一个）、响应加 `deleted[]` / `skipped[]`，写明删除不可恢复、计测值 · 보수 구역 · 댓글一起删除、`reportPhotoNum` 前移、同一 `editBatchId` 可重试；把 `docs/superpowers/specs/2026-10-13-api-v1.0.16-classes-proposal.ko.md` 的类别内容（V5 / V6、V4 `classAreas`、像素值、`CLASS_LIMIT_EXCEEDED`）并入，标注「제안 · 서버 구현 전」；错误码表补 `surface` 非法值 → `MISSING_FIELDS`。韩语、格式与 v1.0.15 一致。
+- [ ] **Step 1:** 写 `~/Downloads/api-reference_v1.0.16.md`（**不进仓库**：仓库公开，文档含内部地址与密钥名）：复制 v1.0.15 全文，标题改 v.1.0.16，开头加「v1.0.16 변경 이력」；V1 `photos[]` 加 `surface` / `tiltDeg` / `tiltSource`；V4 请求 `items` 可为空、加 `surfaceUpdates[]` / `deletes[]`（各最多 100 건，三者至少一个）、响应加 `deleted[]` / `skipped[]`，写明删除不可恢复、计测值 · 보수 구역 · 댓글一起删除、`reportPhotoNum` 前移、同一 `editBatchId` 可重试；把 `docs/superpowers/specs/2026-10-13-api-v1.0.16-classes-proposal.ko.md` 的类别内容（V5 / V6、V4 `classAreas`、像素值、`CLASS_LIMIT_EXCEEDED`）并入，标注「제안 · 서버 구현 전」；错误码表补 `surface` 非法值 → `MISSING_FIELDS`。韩语、格式与 v1.0.15 一致。
 - [ ] **Step 2:** 写文档样例测试并通过。
 - [ ] **Step 3:** README 的标注窗口功能表加两行（촬영면 / 사진 삭제），합니다체。
 - [ ] **Step 4:** 截图（ko）：列表含正常 / 改过拍摄面 / 待删除三种行；侧边栏拍摄面一行；删除确认框。人工检查。
