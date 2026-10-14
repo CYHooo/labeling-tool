@@ -29,6 +29,7 @@ ENGLISH_LEFTOVER_ALLOWLIST: dict[str, set[str]] = {}
 # regression guard that keeps them migrated.
 UI_MODULES = [
     "labeling_tool/core/window/ui_builder.py",
+    "labeling_tool/core/window/surface_row.py",
     "labeling_tool/core/window/main_window.py",
     "labeling_tool/ui/login_dialog.py",
     "labeling_tool/ui/main_window.py",

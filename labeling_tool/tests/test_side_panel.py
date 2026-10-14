@@ -109,7 +109,7 @@ def test_the_header_columns_line_up_with_the_rows(tmp_path, monkeypatch):
         header = win._list_header
         delegate = win.file_list.itemDelegate()
         from PyQt5.QtCore import QPoint
-        number_x, file_x = header.column_offsets()
+        number_x, _surface_x, file_x = header.column_offsets()
         viewport = win.file_list.viewport()
 
         def in_viewport(x):                  # header x -> list viewport x
@@ -123,6 +123,17 @@ def test_the_header_columns_line_up_with_the_rows(tmp_path, monkeypatch):
         from PyQt5.QtGui import QFontMetrics
         assert delegate.primary_column_width() >= QFontMetrics(win.file_list.font()).horizontalAdvance(
             header.labels()[0])
+    finally:
+        win.close()
+
+
+def test_the_surface_row_is_built_but_hidden_in_the_base_window(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        assert win._surface_row.parent() is not None
+        assert not win._surface_row.isVisible()
+        assert win.file_list.itemDelegate().surface_width == 0
+        assert win.file_list.itemDelegate().delete_width == 0
     finally:
         win.close()
 

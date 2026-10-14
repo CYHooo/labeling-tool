@@ -36,6 +36,7 @@
 | sign in / log out | **로그인** / **로그아웃** | 登录 / 退出登录 | Log in / Log out | 第一页的账号登录；`로그인: {user}` 显示当前用户 |
 | password | **비밀번호** | 密码 | Password | 账号字段名保持 `ID` |
 | output folder | **저장 폴더** | 保存文件夹 | Output folder | |
+| delete photo（上传时由服务器删除） | **삭제 예정** · 행 오른쪽 휴지통 버튼 | 待删除 · 行右侧垃圾桶按钮 | To delete · trash button at the row's right end | 图片列表每行最右的删除按钮只做标记：文件名删除线、红色、显示 `삭제 예정`，再点一次取消；提示 `업로드할 때 서버에서 삭제합니다. 다시 누르면 취소` / 上传时在服务器删除，再点一次取消 / Deleted on the server at upload; click again to undo |
 | log / app log | **로그** / **프로그램 로그** | 日志 / 程序日志 | Log / App log | 帮助窗口按钮 `로그 폴더 열기` / 打开日志文件夹 / Open log folder；文件名 `app.log`、`vapi.log` 不翻译 |
 
 ## 3. 测量与几何
@@ -44,6 +45,7 @@
 |---|---|---|---|---|
 | scale（px/cm 换算） | **축척** | 比例尺 | Scale | 现为 `스케일`。`축척` 是测量/制图的标准词，更准确 |
 | manual measurement | **수동 측정** | 手动测量 | Manual measurement | 保留；英文按钮因面板宽度用短形式 `Measure`。手动测得的축척数值以琥珀色显示，提示文字 `수동 측정값 (서버 값 대신 사용)` / 手动测量值（替代服务器的值） / Measured by hand (used instead of the server's value) |
+| shooting surface | **촬영면**: **바닥** / **벽** / **천장** / **모름** | 拍摄面：地面 / 墙面 / 天花板 / 未知 | Surface: Floor / Wall / Ceiling / Unknown | 「표시 · 축척」组的一行，三个按钮 + 倾角（`{deg}°`，无值 `—`；人工修改的提示 `수정된 값입니다` / 已人工修改 / Corrected by hand）。图片列表列标题 `면` / 面 / `Side`（英文用短词以免挤），无值显示 `?`。修改过的值用琥珀色 |
 | bounding box / 补修区域 | **보수 구역** | 修补区域 | Repair area | 现状为 OBB/bbox 等技术词，对用户改用 `보수 구역` |
 | brush / eraser | **브러시** / **지우개** | 画笔 / 橡皮擦 | Brush / Eraser | |
 | undo / redo | **실행 취소** / **다시 실행** | 撤销 / 重做 | Undo / Redo | 掩码编辑（画笔、SAM 确认、복원）；Ctrl+Z / Ctrl+Y。所有工具含义相同：SAM / 보수 구역 先撤销未确认的点（SAM 포인트 / 점），再撤销掩码编辑 |

@@ -14,18 +14,20 @@ returns the widget so build_side_panel can lay them out:
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from PyQt5.QtCore import QPoint, QRect, QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPainter, QPalette
+from PyQt5.QtCore import QEvent, QPoint, QRect, QSize, Qt, pyqtSignal
+from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPainter, QPalette, QPixmap
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGroupBox,
     QButtonGroup, QListWidget, QSpinBox, QSlider, QScrollArea, QCheckBox,
     QStyle, QStyledItemDelegate, QToolButton, QDialog, QSizePolicy, QGridLayout,
-    QFrame,
+    QFrame, QToolTip,
 )
 
+from labeling_tool.core import i18n
 from labeling_tool.ui import icons
 from labeling_tool.core.window.shortcuts import keep_shortcuts_through
 from labeling_tool.core.window.class_picker import ClassPicker
+from labeling_tool.core.window.surface_row import SurfaceRow
 from labeling_tool.core.constants import BRUSH_DEFAULT_SIZE, BRUSH_MAX_SIZE
 
 if TYPE_CHECKING:
@@ -46,22 +48,54 @@ SECONDARY_TEXT_ROLE = Qt.UserRole + 1
 MARK_ROLE = Qt.UserRole + 2
 _MARKS = {"uploaded": ("✓", QColor(92, 200, 122)),
           "pending": ("●", QColor(240, 181, 74))}
+# Item data roles for the Viewer window's surface column and delete button
+# (drawn only when the delegate's surface_width / delete_width are set):
+# the surface text shown in the "면" column (e.g. "벽"), whether that value
+# was changed here (amber), and whether the photo is marked for deletion
+# (struck-through red file name + "삭제 예정", red trash icon).
+SURFACE_ROLE = Qt.UserRole + 3
+SURFACE_EDITED_ROLE = Qt.UserRole + 4
+DELETE_PENDING_ROLE = Qt.UserRole + 5
+_SURFACE_EDITED_COLOR = QColor("#e0a040")
+_DELETE_COLOR = QColor("#e05a5a")
 _SECONDARY_COLOR = QColor(140, 140, 140)
 _SECONDARY_SELECTED_COLOR = QColor(215, 225, 245)   # readable on the blue highlight
 _SELECTED_TEXT_COLOR = QColor(255, 255, 255)        # QListWidget::item:selected
 _PART_GAP = 10
 
 
+def _tinted(pixmap: QPixmap, colour: QColor) -> QPixmap:
+    """The pixmap's shape filled with one colour (for the red trash icon)."""
+    result = QPixmap(pixmap)
+    painter = QPainter(result)
+    painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+    painter.fillRect(result.rect(), colour)
+    painter.end()
+    return result
+
+
 class TwoPartItemDelegate(QStyledItemDelegate):
     """Paints a list row as its text (in the item's own foreground, so the
     edited/labeled status colours still apply) followed by a smaller, grey
     SECONDARY_TEXT_ROLE part elided to the remaining width. The second parts
-    start in one column: fit_primary_column() sizes it to the widest id."""
+    start in one column: fit_primary_column() sizes it to the widest id.
+
+    Optional columns, each off while its width is 0 (the default):
+      mark_width     MARK_ROLE (✓ / ●) before the id
+      surface_width  SURFACE_ROLE after the id (amber when SURFACE_EDITED_ROLE)
+      delete_width   a trash button at the row's right end; a left press on
+                     it emits delete_clicked(row) and is swallowed, so the
+                     current row does not change. DELETE_PENDING_ROLE rows
+                     are drawn red with the file name struck through."""
+
+    delete_clicked = pyqtSignal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._primary_width = 0
         self.mark_width = 0          # > 0: a column for MARK_ROLE before the id
+        self.surface_width = 0       # > 0: a "면" column after the id
+        self.delete_width = 0        # > 0: a delete button at the row's end
 
     def fit_primary_column(self, texts, font) -> None:
         metrics = QFontMetrics(font)
@@ -71,6 +105,13 @@ class TwoPartItemDelegate(QStyledItemDelegate):
     def primary_column_width(self) -> int:
         return self._primary_width
 
+    def fit_surface_column(self, texts, font) -> None:
+        """Turn the surface column on, as wide as the widest of `texts` (the
+        surface names and the column title)."""
+        metrics = QFontMetrics(font)
+        self.surface_width = max(
+            (metrics.horizontalAdvance(t) for t in texts), default=0)
+
     def text_left(self, view) -> int:
         """x where a row's text starts, in the view's viewport coordinates."""
         option = view.viewOptions()
@@ -79,6 +120,28 @@ class TwoPartItemDelegate(QStyledItemDelegate):
         option.features |= option.HasDisplay
         style = view.style()
         return style.subElementRect(QStyle.SE_ItemViewItemText, option, view).left()
+
+    def _delete_rect(self, row_rect: QRect) -> QRect:
+        return QRect(row_rect.right() - self.delete_width + 1, row_rect.top(),
+                     self.delete_width, row_rect.height())
+
+    def editorEvent(self, event, model, option, index):
+        if (self.delete_width > 0 and index.isValid()
+                and event.type() in (QEvent.MouseButtonPress, QEvent.MouseButtonDblClick)
+                and event.button() == Qt.LeftButton
+                and self._delete_rect(option.rect).contains(event.pos())):
+            if event.type() == QEvent.MouseButtonPress:
+                self.delete_clicked.emit(index.row())
+            return True      # swallowed: the selection stays where it was
+        return super().editorEvent(event, model, option, index)
+
+    def helpEvent(self, event, view, option, index):
+        if (self.delete_width > 0 and index.isValid()
+                and event.type() == QEvent.ToolTip
+                and self._delete_rect(option.rect).contains(event.pos())):
+            QToolTip.showText(event.globalPos(), i18n.tr("delete_toggle_tip"), view)
+            return True
+        return super().helpEvent(event, view, option, index)
 
     def paint(self, painter, option, index):
         secondary = index.data(SECONDARY_TEXT_ROLE)
@@ -99,6 +162,7 @@ class TwoPartItemDelegate(QStyledItemDelegate):
         painter.save()
         painter.setFont(option.font)
         selected = bool(option.state & QStyle.State_Selected)
+        pending = self.delete_width > 0 and bool(index.data(DELETE_PENDING_ROLE))
         if self.mark_width:
             kind = index.data(MARK_ROLE)
             mark = _MARKS.get(kind)
@@ -116,13 +180,39 @@ class TwoPartItemDelegate(QStyledItemDelegate):
                     painter.setPen(colour)
                     painter.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter, mark[0])
             rect = rect.adjusted(self.mark_width, 0, 0, 0)
+        if self.delete_width:
+            rect.setRight(min(rect.right(), self._delete_rect(option.rect).left() - 2))
         # initStyleOption copied the item's status colour into palette Text;
         # a selected row is white on the highlight, as the stylesheet had it.
-        painter.setPen(_SELECTED_TEXT_COLOR if selected
-                       else option.palette.color(QPalette.Text))
+        if selected:
+            text_colour = _SELECTED_TEXT_COLOR
+        elif pending:
+            text_colour = _DELETE_COLOR
+        else:
+            text_colour = option.palette.color(QPalette.Text)
+        painter.setPen(text_colour)
         primary_width = max(option.fontMetrics.horizontalAdvance(primary),
                             self._primary_width)
         painter.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter, primary)
+        rest = rect.adjusted(primary_width + _PART_GAP, 0, 0, 0)
+
+        if self.surface_width:
+            surface = index.data(SURFACE_ROLE) or ""
+            if selected or pending:
+                painter.setPen(text_colour)
+            elif index.data(SURFACE_EDITED_ROLE):
+                painter.setPen(_SURFACE_EDITED_COLOR)
+            else:
+                painter.setPen(text_colour)
+            # Elide only what is really too wide: elidedText() compares in
+            # fractional widths, so a text exactly as wide as the column (as
+            # fit_surface_column() makes it) would lose its last letters.
+            metrics = painter.fontMetrics()
+            if metrics.horizontalAdvance(surface) > self.surface_width:
+                surface = metrics.elidedText(surface, Qt.ElideRight, self.surface_width)
+            cell = QRect(rest.left(), rest.top(), self.surface_width + 2, rest.height())
+            painter.drawText(cell, Qt.AlignLeft | Qt.AlignVCenter, surface)
+            rest = rest.adjusted(self.surface_width + _PART_GAP, 0, 0, 0)
 
         # Copy: option.font is shared with the view's other rows, so shrinking
         # it in place made every later row smaller still.
@@ -131,13 +221,40 @@ class TwoPartItemDelegate(QStyledItemDelegate):
             small.setPointSizeF(max(option.font.pointSizeF() - 1.5, 6.0))
         else:                                   # pixel-sized font
             small.setPixelSize(max(option.font.pixelSize() - 2, 8))
-        painter.setFont(small)
-        painter.setPen(_SECONDARY_SELECTED_COLOR if selected
-                       else _SECONDARY_COLOR)
-        rest = rect.adjusted(primary_width + _PART_GAP, 0, 0, 0)
-        elided = painter.fontMetrics().elidedText(
-            secondary, Qt.ElideMiddle, max(rest.width(), 0))
-        painter.drawText(rest, Qt.AlignLeft | Qt.AlignVCenter, elided)
+        if pending:
+            label = i18n.tr("delete_pending_label")
+            label_width = QFontMetrics(small).horizontalAdvance(label)
+            name_font = QFont(small)
+            name_font.setStrikeOut(True)
+            painter.setFont(name_font)
+            painter.setPen(text_colour)
+            name_room = max(rest.width() - label_width - _PART_GAP, 0)
+            elided = painter.fontMetrics().elidedText(secondary, Qt.ElideMiddle, name_room)
+            painter.drawText(rest, Qt.AlignLeft | Qt.AlignVCenter, elided)
+            painter.setFont(small)
+            label_x = rest.left() + painter.fontMetrics().horizontalAdvance(elided) + _PART_GAP
+            painter.drawText(QRect(label_x, rest.top(), max(rest.right() - label_x + 1, 0),
+                                   rest.height()),
+                             Qt.AlignLeft | Qt.AlignVCenter, label)
+        else:
+            painter.setFont(small)
+            painter.setPen(_SECONDARY_SELECTED_COLOR if selected
+                           else _SECONDARY_COLOR)
+            elided = painter.fontMetrics().elidedText(
+                secondary, Qt.ElideMiddle, max(rest.width(), 0))
+            painter.drawText(rest, Qt.AlignLeft | Qt.AlignVCenter, elided)
+
+        if self.delete_width:
+            box = self._delete_rect(option.rect)
+            side = min(16, box.width(), box.height())
+            pixmap = icons.icon("trash-2").pixmap(side, side)
+            if pending:
+                pixmap = _tinted(pixmap, _SELECTED_TEXT_COLOR if selected
+                                 else _DELETE_COLOR)
+            elif not selected:
+                pixmap = _tinted(pixmap, _SECONDARY_COLOR)
+            painter.drawPixmap(box.center().x() - side // 2 + 1,
+                               box.center().y() - side // 2 + 1, pixmap)
         painter.restore()
 
 
@@ -174,38 +291,53 @@ class ElidedLabel(QLabel):
 
 class ListHeader(QWidget):
     """Column titles over the image list, drawn at the x positions the
-    TwoPartItemDelegate uses for the id and the file name."""
+    TwoPartItemDelegate uses for the id, the surface column (when the
+    delegate has one and a title was given) and the file name."""
 
     def __init__(self, view: QListWidget, parent=None):
         super().__init__(parent)
         self._view = view
         self._labels = ("", "")
+        self._surface_label = ""
         self.setObjectName("listHeader")
         self.setFixedHeight(QFontMetrics(view.font()).height() + 8)
 
     def labels(self) -> tuple[str, str]:
         return self._labels
 
-    def set_labels(self, number: str, file: str) -> None:
+    def surface_label(self) -> str:
+        return self._surface_label
+
+    def set_labels(self, number: str, file: str, surface: str = "") -> None:
+        """The surface title is drawn only when given and the delegate has a
+        surface column; labels() stays (number, file)."""
         self._labels = (number, file)
+        self._surface_label = surface
         self.update()
 
-    def column_offsets(self) -> tuple[int, int]:
-        """x of the id and file-name columns, in this widget's coordinates."""
+    def column_offsets(self) -> tuple[int, int, int]:
+        """x of the id, surface and file-name columns, in this widget's
+        coordinates. Without a surface column, surface x == file-name x."""
         delegate = self._view.itemDelegate()
         viewport_x = self._view.viewport().mapTo(self.window(), QPoint(0, 0)).x()
         own_x = self.mapTo(self.window(), QPoint(0, 0)).x()
         number_x = viewport_x - own_x + delegate.text_left(self._view) + delegate.mark_width
-        return number_x, number_x + delegate.primary_column_width() + _PART_GAP
+        surface_x = number_x + delegate.primary_column_width() + _PART_GAP
+        surface_width = getattr(delegate, "surface_width", 0)
+        file_x = surface_x + (surface_width + _PART_GAP if surface_width else 0)
+        return number_x, surface_x, file_x
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setFont(self._view.font())
         painter.setPen(_SECONDARY_COLOR)
-        number_x, file_x = self.column_offsets()
+        number_x, surface_x, file_x = self.column_offsets()
         rect = self.rect()
         painter.drawText(rect.adjusted(number_x, 0, 0, 0),
                          Qt.AlignLeft | Qt.AlignVCenter, self._labels[0])
+        if self._surface_label and file_x > surface_x:
+            painter.drawText(rect.adjusted(surface_x, 0, 0, 0),
+                             Qt.AlignLeft | Qt.AlignVCenter, self._surface_label)
         painter.drawText(rect.adjusted(file_x, 0, 0, 0),
                          Qt.AlignLeft | Qt.AlignVCenter, self._labels[1])
         painter.setPen(QColor(58, 64, 72))
@@ -575,6 +707,11 @@ def build_display_group(window: "MainWindow") -> QGroupBox:
     scale_row.addWidget(window._lbl_scale, 1)
     scale_row.addWidget(window._btn_measure)
     gd.addLayout(scale_row)
+
+    # The Viewer window shows it (it has the photos' surfaces); hidden here.
+    window._surface_row = SurfaceRow()
+    window._surface_row.setVisible(False)
+    gd.addWidget(window._surface_row)
     window._grp_display.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
     return window._grp_display
 
