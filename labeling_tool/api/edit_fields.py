@@ -7,6 +7,8 @@ written, so a renamed field or a different limit is a one-line change here.
 
 from __future__ import annotations
 
+import math
+
 SURFACES = ("floor", "wall", "ceiling")
 
 SURFACE_UPDATES_KEY = "surfaceUpdates"
@@ -26,10 +28,14 @@ def normalize_surface(value) -> str | None:
 def _float_or_none(value) -> float | None:
     if isinstance(value, bool):
         return None
+    if value is None:
+        return None
     try:
-        return float(value) if value is not None else None
+        number = float(value)
     except (TypeError, ValueError):
         return None
+    # nan / inf ("NaN", "inf" parse too) cannot be shown as an angle
+    return number if math.isfinite(number) else None
 
 
 def photo_fields(p: dict) -> dict:

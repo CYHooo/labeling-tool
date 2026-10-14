@@ -19,6 +19,11 @@ def test_photo_fields_reads_the_three_server_values():
         "surface": None, "tilt_deg": None, "tilt_source": None}
 
 
+@pytest.mark.parametrize("tilt", [float("nan"), float("inf"), "inf", "-inf", "NaN"])
+def test_photo_fields_drops_a_non_finite_tilt(tilt):
+    assert F.photo_fields({"tiltDeg": tilt})["tilt_deg"] is None
+
+
 @pytest.mark.parametrize("body, expected", [
     ({"deleted": [1, 2]}, [1, 2]),
     ({"deleted": [{"timestamp": 1}, {"timestamp": 2}]}, [1, 2]),
