@@ -11,9 +11,8 @@ from labeling_tool.logging_setup import vlog
 
 
 class PhotoRefreshSignals(QObject):
-    done = pyqtSignal(object)               # list[dict] of photos, or None on failure
-    # the same result with the refresh's generation, so a window that started
-    # several refreshes applies only the newest one
+    # (generation, list[dict] of photos or None on failure): the generation
+    # lets a window that started several refreshes apply only the newest one
     finished = pyqtSignal(int, object)
 
 
@@ -31,7 +30,6 @@ class PhotoRefreshRunnable(QRunnable):
             vlog().exception("photo refresh after upload failed: %s", e)
             photos = None
         try:
-            self._signals.done.emit(photos)
             self._signals.finished.emit(self._generation, photos)
         except RuntimeError as e:           # the window (and its signals) is gone
             vlog().warning("photo refresh result dropped: %s", e)

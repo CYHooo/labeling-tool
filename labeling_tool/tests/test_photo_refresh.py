@@ -123,7 +123,7 @@ def _run(client):
         PhotoRefreshRunnable, PhotoRefreshSignals)
     signals = PhotoRefreshSignals()
     got = []
-    signals.done.connect(got.append)
+    signals.finished.connect(lambda _generation, photos: got.append(photos))
     PhotoRefreshRunnable(client, 45, signals).run()
     QApplication.processEvents()
     return got
@@ -150,3 +150,8 @@ def test_the_worker_tells_its_generation():
     PhotoRefreshRunnable(_PagedClient([{"timestamp": 1}]), 45, signals, 3).run()
     QApplication.processEvents()
     assert got == [(3, [{"timestamp": 1}])]
+
+
+def test_the_worker_reports_only_through_finished():
+    from labeling_tool.ui.photo_refresh_worker import PhotoRefreshSignals
+    assert not hasattr(PhotoRefreshSignals, "done")
