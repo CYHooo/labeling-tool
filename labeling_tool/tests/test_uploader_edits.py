@@ -193,3 +193,28 @@ def test_worker_with_nothing_still_returns_early(tmp_path):
     res = _run_worker(tmp_path, c)
     assert c.registers == []
     assert res[0]["deleted_timestamps"] == [] and res[0]["uploaded"] == 0
+
+
+# ---- fix round 1 ----------------------------------------------------------
+
+def test_unsent_timestamp_from_server_is_not_deleted():
+    class Extra(EditClient):
+        def register_annotations(self, **kw):
+            r = super().register_annotations(**kw)
+            r["deleted"] = r["deleted"] + [999999]
+            r["skipped"] = [888888]
+            return r
+    r = _run(Extra(), deletes=_dels(1))
+    assert r["deleted_timestamps"] == [1000]
+
+
+def test_post_register_failure_is_not_in_both_lists():
+    class BadCount(EditClient):
+        def register_annotations(self, **kw):
+            r = super().register_annotations(**kw)
+            r["updatedPhotoCount"] = "many"
+            return r
+    r = _run(BadCount(), items=[_item(1)], deletes=_dels(1))
+    assert len(r["failed"]) == 1
+    assert r["failed"][0]["delete_timestamps"] == [1000]
+    assert r["deleted_timestamps"] == []
