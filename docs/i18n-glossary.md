@@ -37,6 +37,7 @@
 | password | **비밀번호** | 密码 | Password | 账号字段名保持 `ID` |
 | output folder | **저장 폴더** | 保存文件夹 | Output folder | |
 | delete photo（上传时由服务器删除） | **삭제 예정** · 행 오른쪽 휴지통 버튼 | 待删除 · 行右侧垃圾桶按钮 | To delete · trash button at the row's right end | 图片列表每行最右的删除按钮只做标记：文件名删除线、红色、显示 `삭제 예정`，再点一次取消；提示 `업로드할 때 서버에서 삭제합니다. 다시 누르면 취소` / 上传时在服务器删除，再点一次取消 / Deleted on the server at upload; click again to undo |
+| delete confirmation（上传前确认） | **사진 삭제 확인** · [**삭제하고 업로드**] [**취소**] | 确认删除照片 · [删除并上传] [取消] | Delete photos? · [Delete and upload] [Cancel] | 有 `삭제 예정` 的照片时上传前弹出：`사진 {count}장을 서버에서 삭제합니다.` + 编号（最多 20 个，其余 `외 {n}장` / 等 {n} 张 / and {n} more）+ `되돌릴 수 없으며 계측값 · 보수 구역 · 댓글도 함께 지워집니다.`；取消 = 整个上传不进行。默认按钮是取消 |
 | log / app log | **로그** / **프로그램 로그** | 日志 / 程序日志 | Log / App log | 帮助窗口按钮 `로그 폴더 열기` / 打开日志文件夹 / Open log folder；文件名 `app.log`、`vapi.log` 不翻译 |
 
 ## 3. 测量与几何

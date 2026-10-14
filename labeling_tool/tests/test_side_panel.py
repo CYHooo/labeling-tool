@@ -109,7 +109,7 @@ def test_the_header_columns_line_up_with_the_rows(tmp_path, monkeypatch):
         header = win._list_header
         delegate = win.file_list.itemDelegate()
         from PyQt5.QtCore import QPoint
-        number_x, _surface_x, file_x = header.column_offsets()
+        number_x, surface_x, file_x = header.column_offsets()
         viewport = win.file_list.viewport()
 
         def in_viewport(x):                  # header x -> list viewport x
@@ -118,7 +118,9 @@ def test_the_header_columns_line_up_with_the_rows(tmp_path, monkeypatch):
         text_left = delegate.text_left(win.file_list) + delegate.mark_width   # after ✓ / ●
         assert delegate.mark_width > 0
         assert in_viewport(number_x) == text_left
-        assert in_viewport(file_x) == text_left + delegate.primary_column_width() + ui_builder._PART_GAP
+        gap = ui_builder._PART_GAP
+        assert in_viewport(surface_x) == text_left + delegate.primary_column_width() + gap
+        assert in_viewport(file_x) == in_viewport(surface_x) + delegate.surface_width + gap
         # the id column is at least as wide as its header, so titles never overlap
         from PyQt5.QtGui import QFontMetrics
         assert delegate.primary_column_width() >= QFontMetrics(win.file_list.font()).horizontalAdvance(
@@ -128,12 +130,29 @@ def test_the_header_columns_line_up_with_the_rows(tmp_path, monkeypatch):
 
 
 def test_the_surface_row_is_built_but_hidden_in_the_base_window(tmp_path, monkeypatch):
-    win = _make_window(tmp_path, monkeypatch)
+    from labeling_tool.core.window.main_window import MainWindow
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path / "settings")
+    win = MainWindow()
+    win.show()
+    QApplication.processEvents()
     try:
         assert win._surface_row.parent() is not None
         assert not win._surface_row.isVisible()
         assert win.file_list.itemDelegate().surface_width == 0
         assert win.file_list.itemDelegate().delete_width == 0
+        assert win._list_header.surface_label() == ""
+    finally:
+        win.close()
+
+
+def test_the_viewer_window_shows_the_surface_column_trash_and_row(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        delegate = win.file_list.itemDelegate()
+        assert win._surface_row.isVisible()
+        assert delegate.delete_width == 22
+        assert delegate.surface_width > 0
+        assert win._list_header.surface_label() == i18n.tr("list_col_surface")
     finally:
         win.close()
 
@@ -1626,4 +1645,317 @@ def test_ctrl_s_confirms_repair_area_points(tmp_path, monkeypatch):
         _ctrl(win, Qt.Key_S)
         assert len(c.bbox_interaction.boxes) == 1 and not c.bbox_interaction.in_progress_clicks
     finally:
+        win.close()
+
+
+# ---------------------------------------------------------------- surface / delete
+def _settle(rounds=10):
+    for _ in range(rounds):
+        QApplication.processEvents()
+
+
+def _surface(win, row):
+    return win.file_list.item(row).data(ui_builder.SURFACE_ROLE)
+
+
+def test_each_row_shows_its_surface(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        assert _surface(win, 0) == i18n.tr("surface_unknown_short")
+        win._manifest.get(_FILES[0]).surface = "wall"
+        win._reload_data()
+        _settle()
+        assert _surface(win, 0) == i18n.tr("surface_wall")
+        assert not win.file_list.item(0).data(ui_builder.SURFACE_EDITED_ROLE)
+    finally:
+        win.close()
+
+
+def test_the_surface_column_fits_every_language(tmp_path, monkeypatch):
+    from PyQt5.QtGui import QFontMetrics
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        metrics = QFontMetrics(win.file_list.font())
+        width = win.file_list.itemDelegate().surface_width
+        for code in ("ko", "zh", "en"):
+            for key in ("surface_floor", "surface_wall", "surface_ceiling",
+                        "surface_unknown_short", "list_col_surface"):
+                text = i18n.TRANSLATIONS[code][key]
+                assert metrics.horizontalAdvance(text) <= width, (code, key)
+    finally:
+        win.close()
+
+
+def test_the_trash_button_marks_a_photo_for_deletion_and_back(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win.file_list.setCurrentRow(1)
+        _settle()
+        assert win.current_idx == 1
+        win.file_list.itemDelegate().delete_clicked.emit(0)
+        entry = win._manifest.get(_FILES[0])
+        assert entry.delete_pending
+        assert Manifest.load(win._ws.manifest_path).get(_FILES[0]).delete_pending
+        assert win.file_list.item(0).data(ui_builder.DELETE_PENDING_ROLE)
+        assert _mark(win, 0) == "pending"
+        assert win.current_idx == 1
+        win.file_list.itemDelegate().delete_clicked.emit(0)
+        assert not entry.delete_pending
+        assert not Manifest.load(win._ws.manifest_path).get(_FILES[0]).delete_pending
+        assert not win.file_list.item(0).data(ui_builder.DELETE_PENDING_ROLE)
+        assert _mark(win, 0) is None
+        assert win.current_idx == 1
+    finally:
+        win.close()
+
+
+def test_choosing_a_surface_edits_the_current_photo_and_back(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        entry = win._manifest.get(_FILES[0])
+        entry.surface = "wall"
+        win._reload_data()
+        _settle()
+        win._surface_row.buttons["floor"].click()
+        assert entry.surface_edit == "floor"
+        assert Manifest.load(win._ws.manifest_path).get(_FILES[0]).surface_edit == "floor"
+        assert win._surface_row.buttons["floor"].isChecked()
+        assert win._surface_row.buttons["floor"].property("edited")
+        assert _surface(win, 0) == i18n.tr("surface_floor")
+        assert win.file_list.item(0).data(ui_builder.SURFACE_EDITED_ROLE)
+        assert _mark(win, 0) == "pending"
+        win._on_surface_chosen("wall")                     # the server's value: undo
+        assert entry.surface_edit is None
+        assert win._surface_row.buttons["wall"].isChecked()
+        assert not win._surface_row.buttons["wall"].property("edited")
+        assert _surface(win, 0) == i18n.tr("surface_wall")
+        assert not win.file_list.item(0).data(ui_builder.SURFACE_EDITED_ROLE)
+        assert _mark(win, 0) is None
+    finally:
+        win.close()
+
+
+def test_the_surface_row_follows_the_current_photo(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        second = win._manifest.get(_FILES[1])
+        second.surface, second.tilt_deg, second.tilt_source = "ceiling", 12.6, "manual"
+        win.file_list.setCurrentRow(1)
+        _settle()
+        row = win._surface_row
+        assert row.isEnabled()
+        assert row.buttons["ceiling"].isChecked()
+        assert row.tilt.text() == i18n.tr("tilt_deg", deg=13)
+        assert row.tilt.toolTip() == i18n.tr("tilt_manual_tip")
+        win.file_list.setCurrentRow(0)
+        _settle()
+        assert not any(b.isChecked() for b in row.buttons.values())
+        assert row.tilt.text() == i18n.tr("tilt_none")
+    finally:
+        win.close()
+
+
+def test_a_failed_manifest_write_is_reported_not_raised(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        def broken(_path):
+            raise OSError("disk full")
+        monkeypatch.setattr(win._manifest, "save", broken)
+        win._on_delete_clicked(0)
+        assert win._manifest.get(_FILES[0]).delete_pending
+        assert "disk full" in win.status.currentMessage()
+        win._on_surface_chosen("floor")
+        assert "disk full" in win.status.currentMessage()
+    finally:
+        win.close()
+
+
+def test_surface_texts_follow_the_language(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._manifest.get(_FILES[0]).surface = "ceiling"
+        win._reload_data()
+        _settle()
+        for code in ("en", "zh", "ko"):
+            i18n.set_language(code)
+            assert _surface(win, 0) == i18n.tr("surface_ceiling")
+            assert win._surface_row.label.text() == i18n.tr("surface_label")
+            assert win._list_header.surface_label() == i18n.tr("list_col_surface")
+    finally:
+        i18n.set_language("ko")
+        win.close()
+
+
+class _FakeSignal:
+    def connect(self, *_a):
+        pass
+
+
+def _fake_worker(monkeypatch):
+    """Record each UploadWorker the window builds instead of running one."""
+    from labeling_tool.ui import main_window as viewer_module
+    made = []
+
+    class FakeWorker:
+        def __init__(self, client, **kwargs):
+            self.kwargs = kwargs
+            self.progress = self.done = self.error = _FakeSignal()
+            made.append(self)
+
+        def start(self):
+            pass
+    monkeypatch.setattr(viewer_module, "UploadWorker", FakeWorker)
+    return made
+
+
+def test_upload_with_only_deletes_asks_first(tmp_path, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._client = object()
+        made = _fake_worker(monkeypatch)
+        asked = []
+        monkeypatch.setattr(win, "_confirm_deletes", lambda d: asked.append(d) or False)
+        win._on_delete_clicked(1)
+        win._on_upload()
+        assert asked == [[{"timestamp": 2}]]
+        assert made == []                                  # cancelled: nothing sent
+        monkeypatch.setattr(win, "_confirm_deletes", lambda d: True)
+        win._on_upload()
+        assert len(made) == 1
+        assert made[0].kwargs["specs"] == []
+        assert made[0].kwargs["deletes"] == [{"timestamp": 2}]
+        assert list(made[0].kwargs["surface_updates"]) == []
+    finally:
+        win.close()
+
+
+def test_upload_with_only_a_surface_change_sends_it(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._client = object()
+        made = _fake_worker(monkeypatch)
+        monkeypatch.setattr(win, "_confirm_deletes",
+                            lambda d: _unexpected("no delete to confirm"))
+        win._on_surface_chosen("floor")
+        win._on_upload()
+        assert len(made) == 1
+        assert made[0].kwargs["specs"] == []
+        assert made[0].kwargs["surface_updates"] == [{"timestamp": 1, "surface": "floor"}]
+        assert list(made[0].kwargs["deletes"]) == []
+    finally:
+        win.close()
+
+
+def _unexpected(msg):
+    raise AssertionError(msg)
+
+
+def test_a_photo_marked_for_deletion_is_not_uploaded_as_an_edit(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._client = object()
+        made = _fake_worker(monkeypatch)
+        monkeypatch.setattr(win, "_confirm_deletes", lambda d: True)
+        _stroke(win)                                       # photo 1 edited ...
+        win._save_all_artifacts(silent=True)
+        win.file_list.setCurrentRow(1)
+        _settle()
+        _stroke(win)                                       # ... and photo 2
+        win._save_all_artifacts(silent=True)
+        win._on_delete_clicked(0)                          # photo 1 goes
+        win._on_upload()
+        assert [s["filename"] for s in made[0].kwargs["specs"]] == [_FILES[1]]
+        assert made[0].kwargs["deletes"] == [{"timestamp": 1}]
+    finally:
+        win.close()
+
+
+def test_upload_without_any_edit_still_says_so(tmp_path, monkeypatch):
+    shown = []
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._client = object()
+        made = _fake_worker(monkeypatch)
+        monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: shown.append(a))
+        win._on_upload()
+        assert made == [] and len(shown) == 1
+        assert win.status.currentMessage() == i18n.tr("vmw_status_no_edits")
+    finally:
+        win.close()
+
+
+def test_a_range_view_uploads_only_the_listed_photos_edits(tmp_path, monkeypatch):
+    win = _range_window(tmp_path, monkeypatch)
+    try:
+        win._client = object()
+        made = _fake_worker(monkeypatch)
+        monkeypatch.setattr(win, "_confirm_deletes", lambda d: True)
+        outside = win._manifest.get(_SIX[0])               # not listed
+        outside.delete_pending = True
+        outside.surface_edit = "wall"
+        win._on_delete_clicked(0)                          # _SIX[1], ts 2
+        win._on_upload()
+        assert made[0].kwargs["deletes"] == [{"timestamp": 2}]
+        assert made[0].kwargs["surface_updates"] == []
+    finally:
+        win.close()
+
+
+def test_the_delete_confirmation_lists_numbers_and_has_two_buttons(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch, files=tuple(f"p{n:02d}.jpg" for n in range(1, 24)))
+    try:
+        dels = [{"timestamp": n} for n in range(1, 24)]
+        box, ok = win._build_delete_confirm(dels)
+        try:
+            text = box.text()
+            assert text.startswith(i18n.tr("delete_confirm_msg", count=23, numbers="")
+                                   .split("\n")[0])
+            assert "45-1, 45-2" in text and "45-20" in text and "45-21" not in text
+            assert i18n.tr("delete_confirm_more", n=3) in text
+            assert box.windowTitle() == i18n.tr("delete_confirm_title")
+            texts = sorted(b.text() for b in box.buttons())
+            assert texts == sorted([i18n.tr("delete_confirm_ok"),
+                                    i18n.tr("delete_confirm_cancel")])
+            assert ok.text() == i18n.tr("delete_confirm_ok")
+            assert box.defaultButton() is not ok           # Enter does not delete
+        finally:
+            box.deleteLater()
+    finally:
+        win.close()
+
+
+def test_confirm_deletes_returns_the_choice(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        for choose_ok in (True, False):
+            def fake_exec(box, _choose=choose_ok):
+                target = next(b for b in box.buttons()
+                              if (b.text() == i18n.tr("delete_confirm_ok")) == _choose)
+                target.click()
+                return 0
+            monkeypatch.setattr(QMessageBox, "exec_", fake_exec)
+            assert win._confirm_deletes([{"timestamp": 1}]) is choose_ok
+    finally:
+        win.close()
+
+
+def test_the_surface_row_never_makes_the_panel_scroll_in_a_900px_window(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win.resize(1400, 900)
+        scroll = win.findChild(QScrollArea)
+        content = scroll.widget()
+        narrowest = scroll.parentWidget().minimumWidth()
+        assert narrowest <= 340
+        for code in ("ko", "zh", "en"):
+            i18n.set_language(code)
+            for idx in (VIEW, BRUSH, SAM, BBOX):
+                win._tool_picker.setCurrentIndex(idx)
+                _settle()
+                assert win._surface_row.isVisible()
+                assert not scroll.verticalScrollBar().isVisible(), (code, idx)
+                assert content.minimumSizeHint().width() <= narrowest, (code, idx)
+    finally:
+        i18n.set_language("ko")
         win.close()
