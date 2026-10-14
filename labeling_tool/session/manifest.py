@@ -21,6 +21,13 @@ class PhotoEntry:
     scale_source: str = "aruco"
     synced: bool = False
     uploaded_batch_id: str | None = None
+    # surface the server reports for the photo (floor / wall / ceiling)
+    surface: str | None = None
+    tilt_deg: float | None = None
+    tilt_source: str | None = None
+    # local edits not yet uploaded: a changed surface, a delete mark
+    surface_edit: str | None = None
+    delete_pending: bool = False
 
 
 @dataclass
@@ -35,6 +42,9 @@ class Manifest:
 
     def add(self, entry: PhotoEntry) -> None:
         self.photos[entry.filename] = entry
+
+    def remove(self, filename: str) -> None:
+        self.photos.pop(filename, None)
 
     def get(self, filename: str) -> PhotoEntry:
         return self.photos[filename]
@@ -54,6 +64,8 @@ class Manifest:
             else:
                 entry.synced = old.synced
                 entry.uploaded_batch_id = old.uploaded_batch_id
+                entry.surface_edit = old.surface_edit
+                entry.delete_pending = old.delete_pending
         if not self.inspection_name:
             self.inspection_name = previous.inspection_name
 
