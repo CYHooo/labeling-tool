@@ -10,6 +10,7 @@ import time
 
 import requests
 
+from labeling_tool.api.edit_fields import DELETES_KEY, SURFACE_UPDATES_KEY
 from labeling_tool.api.errors import ViewerApiError
 from labeling_tool.logging_setup import vlog
 
@@ -103,13 +104,21 @@ class ViewerApiClient:
 
     # ---- register annotations -------------------------------------
     def register_annotations(self, *, edit_batch_id: str, session_id: int,
-                             items: list[dict]) -> dict:
+                             items: list[dict],
+                             surface_updates: list[dict] | None = None,
+                             deletes: list[dict] | None = None) -> dict:
         url = f"{self.base_url}/api/viewer/register-annotations/"
         payload = {
             "editBatchId": edit_batch_id,
             "sessionId": session_id,
             "items": items,
         }
+        # Only non-empty lists are sent, so a plain mask upload stays
+        # byte-identical to what older servers already accept.
+        if surface_updates:
+            payload[SURFACE_UPDATES_KEY] = surface_updates
+        if deletes:
+            payload[DELETES_KEY] = deletes
         t = time.perf_counter()
         try:
             resp = self._s.post(url, json=payload, timeout=REGISTER_TIMEOUT)

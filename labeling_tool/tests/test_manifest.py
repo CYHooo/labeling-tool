@@ -58,3 +58,46 @@ def test_load_old_manifest_without_inspection_name(tmp_path):
     path.write_text(json.dumps({"sessionId": 7, "base": "https://x",
                                 "fetchedAt": None, "photos": {}}))
     assert Manifest.load(path).inspection_name is None
+
+
+def _entry(fn="a.jpg", ts=1, num=1, **kw):
+    return PhotoEntry(filename=fn, timestamp=ts, photo_id=ts, report_photo_num=num,
+                      px_per_cm=2.0, **kw)
+
+
+def test_new_fields_have_defaults_and_round_trip(tmp_path):
+    m = Manifest(session_id=1, base="")
+    m.add(_entry(surface="wall", tilt_deg=87.0, tilt_source="sensor",
+                 surface_edit="floor", delete_pending=True))
+    m.save(tmp_path / "m.json")
+    e = Manifest.load(tmp_path / "m.json").get("a.jpg")
+    assert (e.surface, e.tilt_deg, e.tilt_source, e.surface_edit, e.delete_pending) == (
+        "wall", 87.0, "sensor", "floor", True)
+
+
+def test_an_old_manifest_loads(tmp_path):
+    import json
+    (tmp_path / "m.json").write_text(json.dumps({"sessionId": 1, "base": "", "photos": {
+        "a.jpg": {"filename": "a.jpg", "timestamp": 1, "photo_id": 1,
+                  "report_photo_num": 1, "px_per_cm": 2.0}}}), encoding="utf-8")
+    e = Manifest.load(tmp_path / "m.json").get("a.jpg")
+    assert e.surface is None and e.surface_edit is None and e.delete_pending is False
+
+
+def test_refetch_keeps_local_edits_and_takes_new_server_values():
+    old = Manifest(session_id=1, base="")
+    old.add(_entry(surface="wall", surface_edit="floor", delete_pending=True))
+    new = Manifest(session_id=1, base="")
+    new.add(_entry(surface="ceiling", tilt_deg=170.0))
+    new.keep_from(old)
+    e = new.get("a.jpg")
+    assert e.surface == "ceiling" and e.tilt_deg == 170.0
+    assert e.surface_edit == "floor" and e.delete_pending is True
+
+
+def test_remove():
+    m = Manifest(session_id=1, base="")
+    m.add(_entry())
+    m.remove("a.jpg")
+    m.remove("a.jpg")                     # absent: no error
+    assert m.filenames_in_order() == []

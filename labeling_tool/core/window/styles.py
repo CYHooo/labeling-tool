@@ -179,6 +179,20 @@ STYLESHEET = """
         QLabel#toolHint { color: #9ea3aa; }
         QFrame#toolRule { color: #3a4048; }
         QPushButton#compactButton { padding: 2px 10px; min-height: 18px; }
+        /* 촬영면 row: narrow buttons so the row fits the 340 px panel; a value
+           changed here is amber, like the hand-measured scale */
+        QPushButton#surfaceButton { padding: 2px 4px; min-height: 20px; }
+        QPushButton#surfaceButton:checked {
+            background-color: #2d6cdf;
+            border-color: #2d6cdf;
+            color: #ffffff;
+        }
+        QPushButton#surfaceButton[edited="true"]:checked {
+            background-color: #b07a20;
+            border-color: #b07a20;
+        }
+        QLabel#surfaceLabel { font-size: 11px; }
+        QLabel#surfaceUnknown, QLabel#tiltLabel { color: #9ea3aa; font-size: 11px; }
         QLabel#scaleLabel {
             color: #66d9e8;
             font-size: 13px;

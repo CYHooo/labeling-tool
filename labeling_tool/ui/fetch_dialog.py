@@ -14,7 +14,9 @@ from labeling_tool.core.i18n import tr
 from labeling_tool.ui import icons
 from labeling_tool.api.client import ViewerApiClient
 from labeling_tool.api.errors import ViewerApiError
+from labeling_tool.api.edit_fields import photo_fields
 from labeling_tool.api.downloader import download_photos
+from labeling_tool.api.photos import fetch_all_photos
 from labeling_tool.ui.dialog_helpers import save_config
 from labeling_tool.session.workspace import Workspace
 from labeling_tool.session.manifest import Manifest, PhotoEntry
@@ -281,6 +283,7 @@ class FetchDialog(QDialog):
                 report_photo_num=int(p.get("reportPhotoNum", 0)),
                 px_per_cm=float(p.get("pxPerCm") or 0.0),
                 scale_source="aruco",
+                **photo_fields(p),
             ))
 
         self.progress.setVisible(True)
@@ -333,13 +336,4 @@ class FetchDialog(QDialog):
     def _fetch_all_photos(client: ViewerApiClient, session_id: int) -> list[dict]:
         """Fetch the full photo list (metadata, paginated). The download range
         is applied client-side by filter_photos_by_range."""
-        out: list[dict] = []
-        offset, limit = 0, 100
-        while True:
-            page = client.list_photos(session_id, offset=offset, limit=limit)
-            out.extend(page["photos"])
-            total = page.get("total", len(out))
-            offset += limit
-            if offset >= total or not page["photos"]:
-                break
-        return out
+        return fetch_all_photos(client, session_id)

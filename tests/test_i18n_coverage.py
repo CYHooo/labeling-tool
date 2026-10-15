@@ -29,6 +29,7 @@ ENGLISH_LEFTOVER_ALLOWLIST: dict[str, set[str]] = {}
 # regression guard that keeps them migrated.
 UI_MODULES = [
     "labeling_tool/core/window/ui_builder.py",
+    "labeling_tool/core/window/surface_row.py",
     "labeling_tool/core/window/main_window.py",
     "labeling_tool/ui/login_dialog.py",
     "labeling_tool/ui/main_window.py",
@@ -147,3 +148,10 @@ def test_ui_module_guard_catches_cjk_in_fstring(tmp_path):
     offenders = _cjk_literals(test_module)
     assert offenders, "Guard should catch CJK inside an f-string"
     assert "업로드" in str(offenders)
+
+
+def test_the_english_delete_question_reads_right_for_one_photo():
+    # "{count} photos" says "1 photos": the count goes after a colon instead.
+    text = TRANSLATIONS["en"]["delete_confirm_msg"].format(count=1, numbers="7-1")
+    assert "1 photos" not in text
+    assert text.startswith("Photos to delete on the server: 1\n7-1\n")

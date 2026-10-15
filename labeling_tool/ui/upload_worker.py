@@ -36,7 +36,8 @@ class UploadWorker(QThread):
 
     def __init__(self, client, *, session_id: int, specs: list,
                  labeling_dir: str, edit_batch_id: str,
-                 class_registry: ClassRegistry | None = None, parent=None):
+                 class_registry: ClassRegistry | None = None,
+                 surface_updates=(), deletes=(), parent=None):
         super().__init__(parent)
         self._client = client
         self._session_id = session_id
@@ -44,6 +45,8 @@ class UploadWorker(QThread):
         self._labeling_dir = labeling_dir
         self._batch_id = edit_batch_id
         self._class_registry = class_registry or ClassRegistry()
+        self._surface_updates = list(surface_updates)
+        self._deletes = list(deletes)
         self.unknown_classes: list[int] = []
 
     @property
@@ -125,20 +128,24 @@ class UploadWorker(QThread):
         try:
             t0 = time.perf_counter()
             items, cache = self._build_items()
-            if not items:
+            if not (items or self._surface_updates or self._deletes):
                 self.done.emit({"uploaded": 0, "failed": [],
                                 "timestamps": [], "batch_id": self._batch_id,
-                                "unknown_classes": self.unknown_classes})
+                                "unknown_classes": self.unknown_classes,
+                                "deleted_timestamps": [],
+                                "surface_timestamps": []})
                 return
             result = upload_session(
                 self._client, session_id=self._session_id, items=items,
                 bytes_for=lambda ts: cache[ts],
                 edit_batch_id=self._batch_id,
-                progress=lambda d, t: self.progress.emit(d, t, "upload"))
+                progress=lambda d, t: self.progress.emit(d, t, "upload"),
+                surface_updates=self._surface_updates, deletes=self._deletes)
             # Read-back verify against the LIVE server (authoritative): confirm
             # each photo's annotation actually persisted, and write a per-photo
             # table the user can review. Uses only V1 — no server changes.
-            self._verify_upload(items, result)
+            if items:
+                self._verify_upload(items, result)
             # Mark only server-CONFIRMED photos as synced (read-back is the
             # authority; falls back to all if verify couldn't run).
             result["timestamps"] = result.get("confirmed_timestamps",
