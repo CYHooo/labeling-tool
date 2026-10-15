@@ -58,17 +58,19 @@ SECONDARY_TEXT_ROLE = Qt.UserRole + 1
 MARK_ROLE = Qt.UserRole + 2
 _MARKS = {"uploaded": ("✓", QColor(92, 200, 122)),
           "pending": ("●", QColor(240, 181, 74))}
-# Item data roles for the Viewer window's surface column and delete button
-# (drawn only when the delegate's surface_width / delete_width are set):
-# the surface text shown in the "면" column (e.g. "벽"), whether that value
-# was changed here (amber), and whether the photo is marked for deletion
-# (struck-through red file name + "삭제 예정", red trash icon).
+# Item data roles for the Viewer window's surface column and the delegate's
+# generic delete button (drawn only when surface_width / delete_width are
+# set): the surface text shown in the "면" column (e.g. "벽"), whether that
+# value was changed here (amber), and whether the photo is marked for
+# deletion (struck-through red file name + "삭제 예정", red trash icon).
+# The Viewer keeps delete_width at 0 and never sets DELETE_PENDING_ROLE:
+# deleting photos was taken out of the tool (2026-10-15).
 SURFACE_ROLE = Qt.UserRole + 3
 SURFACE_EDITED_ROLE = Qt.UserRole + 4
 DELETE_PENDING_ROLE = Qt.UserRole + 5
-# The photo is no longer on the server (someone else deleted it): the row
-# shows "서버에 없음" in grey where "삭제 예정" would be, and is never drawn
-# as a pending delete.
+# The photo is no longer on the server (removed there by other means): the
+# row shows "서버에 없음" in grey after its file name (with or without a
+# delete column), and is never drawn as a pending delete.
 SERVER_MISSING_ROLE = Qt.UserRole + 6
 _SURFACE_EDITED_COLOR = QColor("#e0a040")
 _DELETE_COLOR = QColor("#e05a5a")
@@ -227,7 +229,9 @@ class TwoPartItemDelegate(QStyledItemDelegate):
         painter.save()
         painter.setFont(option.font)
         selected = bool(option.state & QStyle.State_Selected)
-        missing = self.delete_width > 0 and bool(index.data(SERVER_MISSING_ROLE))
+        # "서버에 없음" shows with or without the trash column (the Viewer
+        # list has none since deleting photos was taken out, 2026-10-15)
+        missing = bool(index.data(SERVER_MISSING_ROLE))
         pending = (self.delete_width > 0 and not missing
                    and bool(index.data(DELETE_PENDING_ROLE)))
         if self.mark_width:
