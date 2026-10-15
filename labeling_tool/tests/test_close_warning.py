@@ -270,6 +270,26 @@ def test_the_busy_notice_is_not_modal(tmp_path, monkeypatch, close_prompts):
         win.close()
 
 
+def test_the_busy_notice_shows_once_and_goes_when_the_upload_ends(tmp_path, monkeypatch, close_prompts):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+        monkeypatch.setattr(win, "_start_photo_refresh", lambda: None)
+
+        def shown():
+            return [b for b in win.findChildren(QMessageBox) if b.isVisible()]
+        close_prompts.real_busy(win)
+        close_prompts.real_busy(win)              # X again: still one box
+        assert len(shown()) == 1
+        win._on_upload_done(_result())
+        assert shown() == []
+        close_prompts.real_busy(win)
+        win._on_upload_error("boom")
+        assert shown() == []
+    finally:
+        win.close()
+
+
 def test_closing_while_an_upload_runs_is_refused(tmp_path, monkeypatch, close_prompts):
     win = _make_window(tmp_path, monkeypatch)
     try:

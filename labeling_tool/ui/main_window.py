@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 
+from PyQt5 import sip
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QApplication, QPushButton, QMessageBox, QProgressBar, QWidget, QHBoxLayout, QLabel,
@@ -544,12 +545,21 @@ class ViewerMainWindow(CoreMainWindow):
     def _tell_upload_running(self) -> None:
         """Not modal: a modal box would run a nested event loop inside the
         refused close, and an upload finishing in it could not close the
-        window ("upload and close")."""
+        window ("upload and close"). One box at a time; it goes when the
+        upload ends."""
+        self._close_busy_notice()
         box = QMessageBox(QMessageBox.Information,
                           self.tr_("close_upload_running_title"),
                           self.tr_("close_upload_running_msg"), parent=self)
         box.setAttribute(Qt.WA_DeleteOnClose)
+        self._busy_notice = box
         box.open()
+
+    def _close_busy_notice(self) -> None:
+        box = getattr(self, "_busy_notice", None)
+        self._busy_notice = None
+        if box is not None and not sip.isdeleted(box):
+            box.close()
 
     def _on_upload(self):
         if self._client is None:
@@ -637,6 +647,7 @@ class ViewerMainWindow(CoreMainWindow):
         self._upload_bar.setVisible(False)
         self.btn_upload.setEnabled(True)
         self._upload_worker = None
+        self._close_busy_notice()
         close_after = getattr(self, "_close_after_upload", False)
         self._close_after_upload = False      # cleared even if the next line raises
         self._finish_upload(result)
@@ -648,6 +659,7 @@ class ViewerMainWindow(CoreMainWindow):
 
     def _on_upload_error(self, msg):
         self._close_after_upload = False      # a failed upload never closes
+        self._close_busy_notice()
         self._saved_during_upload = None
         self._upload_bar.setVisible(False)
         self.btn_upload.setEnabled(True)
