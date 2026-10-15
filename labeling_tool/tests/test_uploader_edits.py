@@ -77,19 +77,30 @@ def test_surface_only():
 
 
 def test_mixed_batches():
+    # deletes first, in their own calls; then the item batches
     c = EditClient()
     _run(c, items=[_item(i) for i in range(1, 41)], deletes=_dels(150))
-    assert len(c.registers) == 2
-    assert [len(x["items"]) for x in c.registers] == [33, 7]
-    assert [len(x["deletes"]) for x in c.registers] == [100, 50]
-    assert [x["id"] for x in c.registers] == ["b-0", "b-1"]
+    assert len(c.registers) == 4
+    assert [len(x["items"]) for x in c.registers] == [0, 0, 33, 7]
+    assert [len(x["deletes"] or []) for x in c.registers] == [100, 50, 0, 0]
+    assert [x["id"] for x in c.registers] == ["b-d0", "b-d1", "b-0", "b-1"]
 
 
 def test_more_edit_batches_than_item_batches():
     c = EditClient()
     _run(c, items=[_item(1)], deletes=_dels(250))
-    assert [len(x["items"]) for x in c.registers] == [1, 0, 0]
+    assert [len(x["items"]) for x in c.registers] == [0, 0, 0, 1]
+    assert [len(x["deletes"] or []) for x in c.registers] == [100, 100, 50, 0]
     assert len(c.presigned_calls) == 1
+
+
+def test_more_surface_batches_than_item_batches():
+    c = EditClient()
+    surface = [{"timestamp": 500 + i, "surface": "wall"} for i in range(150)]
+    _run(c, items=[_item(1)], surface=surface)
+    assert [x["id"] for x in c.registers] == ["b-0", "b-1"]
+    assert [len(x["items"]) for x in c.registers] == [1, 0]
+    assert [len(x["surface_updates"]) for x in c.registers] == [100, 50]
 
 
 def test_skipped_and_object_formats_count_as_deleted():
@@ -182,7 +193,7 @@ def test_worker_uploads_edits_without_items(tmp_path):
     c = EditClient()
     res = _run_worker(tmp_path, c, deletes=_dels(2),
                       surface_updates=[{"timestamp": 5, "surface": "floor"}])
-    assert len(c.registers) == 1
+    assert [x["id"] for x in c.registers] == ["b-d0", "b-0"]
     assert res[0]["deleted_timestamps"] == [1000, 1001]
     assert res[0]["surface_timestamps"] == [5]
     assert res[0]["failed"] == []
@@ -215,6 +226,244 @@ def test_post_register_failure_is_not_in_both_lists():
             r["updatedPhotoCount"] = "many"
             return r
     r = _run(BadCount(), items=[_item(1)], deletes=_dels(1))
+    # the delete went first in its own call; the item batch failed after
     assert len(r["failed"]) == 1
-    assert r["failed"][0]["delete_timestamps"] == [1000]
+    assert r["failed"][0]["timestamps"] == [1]
+    assert r["failed"][0]["delete_timestamps"] == []
+    assert r["deleted_timestamps"] == [1000]
+
+
+# ---------------------------------------------------------------- v1.0.16 server shape
+class V1016Client(EditClient):
+    """Answers like the deployed v1.0.16 server: surfaceUpdated lists the
+    surfaces actually changed, skipped is [{kind, timestamp, reason}], and
+    updatedPhotoCount counts saved items + changed surfaces (no duplicates)."""
+
+    def __init__(self, missing=(), **kw):
+        super().__init__(**kw)
+        self.missing = set(missing)
+
+    def register_annotations(self, *, edit_batch_id, session_id, items,
+                             surface_updates=None, deletes=None):
+        self.registers.append({"id": edit_batch_id, "items": items,
+                               "surface_updates": surface_updates,
+                               "deletes": deletes})
+        skipped = []
+        saved, changed, deleted = set(), [], []
+        for kind, rows in (("items", items), ("surfaceUpdates", surface_updates or []),
+                           ("deletes", deletes or [])):
+            for r in rows:
+                ts = r["timestamp"]
+                if ts in self.missing:
+                    skipped.append({"kind": kind, "timestamp": ts,
+                                    "reason": "PHOTO_NOT_FOUND"})
+                elif kind == "items":
+                    saved.add(ts)
+                elif kind == "surfaceUpdates":
+                    changed.append(ts)
+                else:
+                    deleted.append(ts)
+        return {"sessionId": session_id, "status": "saved",
+                "updatedPhotoCount": len(saved | set(changed)),
+                "surfaceUpdated": changed, "deleted": deleted, "skipped": skipped}
+
+
+def test_surface_changes_count_only_when_the_server_lists_them():
+    c = V1016Client(missing={2})
+    res = _run(c, surface=[{"timestamp": 1, "surface": "wall"},
+                           {"timestamp": 2, "surface": "floor"}])
+    assert res["surface_timestamps"] == [1]
+    assert res["skipped_timestamps"] == [2]
+    assert res["failed"] == []
+
+
+def test_only_skipped_deletes_count_as_deleted():
+    # a photo someone else deleted: our mask edit is skipped, the photo is
+    # NOT reported as deleted (its local files must stay), but it is listed
+    c = V1016Client(missing={5, 9})
+    res = _run(c, items=[_item(5), _item(6)], deletes=[{"timestamp": 9}])
+    assert res["deleted_timestamps"] == [9]
+    assert sorted(res["skipped_timestamps"]) == [5]
+    assert res["confirmed_timestamps"] == [6]       # 5 was not saved
+    assert res["anomalies"] == []                   # skipped is not an anomaly
+
+
+def test_a_photo_with_mask_and_surface_counts_once():
+    c = V1016Client()
+    res = _run(c, items=[_item(1)], surface=[{"timestamp": 1, "surface": "wall"}])
+    assert res["confirmed_timestamps"] == [1] and res["anomalies"] == []
+    assert res["surface_timestamps"] == [1]
+
+
+def test_an_older_server_without_surface_updated_keeps_the_sent_rule():
+    # EditClient answers without "surfaceUpdated": a successful batch confirms
+    # what it sent (the earlier contract), minus skipped surfaces
+    res = _run(EditClient(), surface=[{"timestamp": 3, "surface": "wall"}])
+    assert res["surface_timestamps"] == [3]
+
+
+# ---------------------------------------------------------------- photos gone before presign
+from labeling_tool.api.errors import ViewerApiError
+
+
+class PresignMissingClient(V1016Client):
+    """Like the live v1.0.16 server: presign for a deleted photo answers 404
+    PHOTO_NOT_FOUND naming the FIRST missing timestamp and issues no URLs."""
+
+    def __init__(self, missing=(), **kw):
+        super().__init__(missing=missing, **kw)
+
+    def request_presigned(self, session_id, files):
+        for f in files:
+            if f["timestamp"] in self.missing:
+                self.presigned_calls.append(files)
+                raise ViewerApiError("PHOTO_NOT_FOUND", "photo not found", 404,
+                                     {"timestamp": f["timestamp"]})
+        return super().request_presigned(session_id, files)
+
+
+def test_a_photo_missing_at_presign_is_dropped_and_the_rest_upload():
+    c = PresignMissingClient(missing={2})
+    res = _run(c, items=[_item(1), _item(2), _item(3)])
+    assert res["failed"] == []
+    assert res["skipped_timestamps"] == [2]
+    assert sorted(res["confirmed_timestamps"]) == [1, 3]
+    assert res["uploaded"] == 2
+    assert [it["timestamp"] for it in c.registers[0]["items"]] == [1, 3]
+    assert len(c.presigned_calls) == 2
+    assert {f["timestamp"] for f in c.presigned_calls[-1]} == {1, 3}
+    assert len(c.puts) == 6
+
+
+def test_every_photo_missing_at_presign_still_registers_the_edits():
+    c = PresignMissingClient(missing={1, 2})
+    res = _run(c, items=[_item(1), _item(2)],
+               surface=[{"timestamp": 7, "surface": "wall"}],
+               deletes=[{"timestamp": 9}])
+    assert res["failed"] == []
+    assert sorted(res["skipped_timestamps"]) == [1, 2]
+    assert len(c.registers) == 2                     # the delete, then the edits
+    assert c.registers[0]["deletes"] == [{"timestamp": 9}]
+    reg = c.registers[1]
+    assert reg["items"] == []
+    assert reg["surface_updates"] == [{"timestamp": 7, "surface": "wall"}]
+    assert reg["deletes"] is None
+    assert res["surface_timestamps"] == [7] and res["deleted_timestamps"] == [9]
+    assert c.puts == []
+
+
+def test_every_photo_missing_with_no_edits_makes_no_register():
+    c = PresignMissingClient(missing={1})
+    res = _run(c, items=[_item(1)])
+    assert res["failed"] == [] and res["skipped_timestamps"] == [1]
+    assert c.registers == [] and res["uploaded"] == 0
+
+
+def test_another_presign_error_still_fails_the_batch():
+    class Broken(EditClient):
+        def request_presigned(self, session_id, files):
+            raise ViewerApiError("FORBIDDEN", "no", 403, {})
+    c = Broken()
+    res = _run(c, items=[_item(1)])
+    assert len(res["failed"]) == 1 and res["skipped_timestamps"] == []
+    assert c.registers == []
+
+
+def test_photo_not_found_for_a_timestamp_outside_the_batch_fails_the_batch():
+    class Odd(EditClient):
+        def request_presigned(self, session_id, files):
+            self.presigned_calls.append(files)
+            raise ViewerApiError("PHOTO_NOT_FOUND", "x", 404, {"timestamp": 555})
+    c = Odd()
+    res = _run(c, items=[_item(1)])
+    assert len(res["failed"]) == 1 and res["skipped_timestamps"] == []
+    assert len(c.presigned_calls) == 1
+
+
+# ---------------------------------------------------------------- review minors
+def test_anomaly_bound_counts_changed_surfaces_too():
+    class Short(V1016Client):
+        def register_annotations(self, **kw):
+            r = super().register_annotations(**kw)
+            r["updatedPhotoCount"] = 1      # saved {1} + surface {2} = 2
+            return r
+    res = _run(Short(), items=[_item(1)], surface=[{"timestamp": 2, "surface": "wall"}])
+    assert len(res["anomalies"]) == 1
+    assert res["confirmed_timestamps"] == []
+
+
+def test_anomaly_bound_ignores_surface_on_a_saved_photo():
+    class Exact(V1016Client):
+        def register_annotations(self, **kw):
+            r = super().register_annotations(**kw)
+            r["updatedPhotoCount"] = 1
+            return r
+    res = _run(Exact(), items=[_item(1)], surface=[{"timestamp": 1, "surface": "wall"}])
+    assert res["anomalies"] == [] and res["confirmed_timestamps"] == [1]
+
+
+def test_unkinded_skip_logs_a_warning(monkeypatch):
+    import labeling_tool.api.uploader as up
+    warnings = []
+
+    class Log:
+        def warning(self, msg, *a):
+            warnings.append(msg % a)
+
+        def exception(self, *a):
+            pass
+    monkeypatch.setattr(up, "vlog", lambda: Log())
+
+    class Bare(EditClient):
+        def register_annotations(self, **kw):
+            r = super().register_annotations(**kw)
+            r["skipped"] = [1000]
+            r["deleted"] = []
+            return r
+    res = _run(Bare(), deletes=_dels(1))
+    assert res["deleted_timestamps"] == [1000]
+    assert any("without a kind" in w for w in warnings)
+
+
+# ---------------------------------------------------------------- deletes first
+def test_deletes_go_first_in_their_own_register_calls():
+    events = []
+
+    class Ordered(EditClient):
+        def request_presigned(self, session_id, files):
+            events.append("presign")
+            return super().request_presigned(session_id, files)
+
+        def register_annotations(self, **kw):
+            events.append(kw["edit_batch_id"])
+            return super().register_annotations(**kw)
+    c = Ordered()
+    r = _run(c, items=[_item(i) for i in range(1, 41)], deletes=_dels(150),
+             surface=[{"timestamp": 7, "surface": "floor"}])
+    assert events == ["b-d0", "b-d1", "presign", "b-0", "presign", "b-1"]
+    d0, d1, i0, i1 = c.registers
+    assert (d0["items"], len(d0["deletes"]), d0["surface_updates"]) == ([], 100, None)
+    assert (d1["items"], len(d1["deletes"]), d1["surface_updates"]) == ([], 50, None)
+    assert i0["deletes"] is None and i1["deletes"] is None
+    assert i0["surface_updates"] == [{"timestamp": 7, "surface": "floor"}]
+    assert [len(x["items"]) for x in (i0, i1)] == [33, 7]
+    assert r["deleted_timestamps"] == [d["timestamp"] for d in _dels(150)]
+
+
+def test_a_failed_delete_batch_does_not_stop_the_items():
+    c = EditClient(fail_call=0)
+    r = _run(c, items=[_item(1)], deletes=_dels(2))
+    assert len(r["failed"]) == 1
+    assert r["failed"][0]["delete_timestamps"] == [1000, 1001]
+    assert r["failed"][0]["timestamps"] == []
     assert r["deleted_timestamps"] == []
+    assert r["confirmed_timestamps"] == [1]
+
+
+def test_delete_batches_do_not_move_the_progress_bar():
+    seen = []
+    upload_session(EditClient(), session_id=1, items=[_item(1)], bytes_for=_bytes,
+                   edit_batch_id="b", progress=lambda d, t: seen.append((d, t)),
+                   deletes=_dels(150))
+    assert seen and all(t == 1 for _, t in seen)
+    assert seen[-1] == (1, 1)

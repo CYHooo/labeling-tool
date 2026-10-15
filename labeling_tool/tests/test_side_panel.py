@@ -2604,3 +2604,134 @@ def test_a_restored_width_is_capped_to_a_third_of_the_window(tmp_path, monkeypat
         assert 400 <= _list_width(win) <= 1400 // 3
     finally:
         win.close()
+
+
+def test_photos_skipped_by_the_server_are_reported_and_kept(tmp_path, monkeypatch):
+    # v1.0.16: someone else deleted photo 2; our edit for it was skipped. The
+    # photo stays on this PC (nothing deleted locally) and the user is told.
+    win = _three(tmp_path, monkeypatch)
+    try:
+        shown = _capture_info(monkeypatch)
+        win._finish_upload(_result(timestamps=[1], uploaded=1, skipped_timestamps=[2]))
+        skipped = i18n.tr("upload_skipped_summary", n=1)
+        assert skipped in win.status.currentMessage()
+        for code in ("ko", "zh", "en"):       # no promise that a re-fetch fixes it
+            text = i18n.TRANSLATIONS[code]["upload_skipped_summary"]
+            assert "가져오" not in text and "获取" not in text and "fetch" not in text
+        assert _THREE[1] in win.image_files and _THREE[1] in win._manifest.photos
+    finally:
+        win.close()
+
+
+def test_the_worker_does_not_verify_photos_the_server_skipped(tmp_path, monkeypatch):
+    from labeling_tool.ui import upload_worker as UW
+    seen = []
+    monkeypatch.setattr("labeling_tool.api.verify.verify_registered",
+                        lambda client, sid, items: seen.extend(i["timestamp"] for i in items) or [])
+    w = UW.UploadWorker.__new__(UW.UploadWorker)
+    w._client, w._session_id = object(), 1
+    w._labeling_dir = str(tmp_path / "Labeling")
+    w._verify_upload([{"timestamp": 1}, {"timestamp": 2}],
+                     {"skipped_timestamps": [2]})
+    assert seen == [1]
+
+
+# ---------------------------------------------------------------- photos gone from the server
+def test_a_skipped_photo_is_marked_not_on_the_server(tmp_path, monkeypatch):
+    win = _three(tmp_path, monkeypatch)
+    try:
+        _capture_info(monkeypatch)
+        win._manifest.get(_THREE[1]).surface_edit = "wall"
+        win._finish_upload(_result(timestamps=[1], uploaded=1, skipped_timestamps=[2]))
+        assert win._manifest.get(_THREE[1]).server_missing is True
+        assert Manifest.load(win._ws.manifest_path).get(_THREE[1]).server_missing
+        item = win.file_list.item(1)
+        assert item.data(ui_builder.SERVER_MISSING_ROLE) is True
+        assert _mark(win, 1) is None                       # not pending
+        assert i18n.tr("server_missing_tip") in item.toolTip()
+        assert _THREE[1] in item.toolTip()
+        assert not win.file_list.item(0).data(ui_builder.SERVER_MISSING_ROLE)
+        assert (win._ws.origin_dir / _THREE[1]).exists()    # local files stay
+    finally:
+        win.close()
+
+
+def test_a_missing_photo_hides_its_delete_mark(tmp_path, monkeypatch):
+    win = _three(tmp_path, monkeypatch)
+    try:
+        entry = win._manifest.get(_THREE[1])
+        entry.delete_pending = True
+        entry.server_missing = True
+        win._refresh_list_row(1)
+        assert not win.file_list.item(1).data(ui_builder.DELETE_PENDING_ROLE)
+    finally:
+        win.close()
+
+
+def test_a_failed_save_of_the_missing_flag_is_reported(tmp_path, monkeypatch):
+    win = _three(tmp_path, monkeypatch)
+    try:
+        _capture_info(monkeypatch)
+
+        def broken(_path):
+            raise OSError("disk full")
+        monkeypatch.setattr(win._manifest, "save", broken)
+        win._finish_upload(_result(skipped_timestamps=[2]))
+        assert win._manifest.get(_THREE[1]).server_missing is True
+    finally:
+        win.close()
+
+
+def test_missing_photos_are_left_out_of_the_next_upload(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._client = object()
+        made = _fake_worker(monkeypatch)
+        monkeypatch.setattr(win, "_confirm_deletes", lambda d: True)
+        _stroke(win)                                       # photo 1 edited
+        win._save_all_artifacts(silent=True)
+        win.file_list.setCurrentRow(1)
+        _settle()
+        _stroke(win)                                       # photo 2 edited
+        win._save_all_artifacts(silent=True)
+        win._on_surface_chosen("floor")                    # photo 2 surface
+        win._on_delete_clicked(0)                          # photo 1 delete
+        for fn in _FILES[:2]:
+            win._manifest.get(fn).server_missing = True
+        monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+        win._on_upload()
+        assert made == []                                  # nothing left to send
+        assert win.status.currentMessage() == i18n.tr("vmw_status_no_edits")
+    finally:
+        win.close()
+
+
+def test_a_missing_photo_does_not_block_the_others(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._client = object()
+        made = _fake_worker(monkeypatch)
+        _stroke(win)
+        win._save_all_artifacts(silent=True)
+        win.file_list.setCurrentRow(1)
+        _settle()
+        _stroke(win)
+        win._save_all_artifacts(silent=True)
+        win._manifest.get(_FILES[0]).server_missing = True
+        win._on_upload()
+        assert [s["filename"] for s in made[0].kwargs["specs"]] == [_FILES[1]]
+    finally:
+        win.close()
+
+
+def test_the_refresh_clears_the_missing_mark(tmp_path, monkeypatch):
+    win = _three(tmp_path, monkeypatch)
+    try:
+        win._manifest.get(_THREE[1]).server_missing = True
+        win._refresh_list_row(1)
+        win._on_photo_refresh_done([{"timestamp": 2, "reportPhotoNum": 2}])
+        assert win._manifest.get(_THREE[1]).server_missing is False
+        assert not win.file_list.item(1).data(ui_builder.SERVER_MISSING_ROLE)
+        assert win.file_list.item(1).toolTip() == _THREE[1]
+    finally:
+        win.close()

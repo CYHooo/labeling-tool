@@ -28,6 +28,10 @@ class PhotoEntry:
     # local edits not yet uploaded: a changed surface, a delete mark
     surface_edit: str | None = None
     delete_pending: bool = False
+    # the server no longer has the photo (someone else deleted it): it is
+    # left out of uploads, its local files stay (an AI re-run may bring it
+    # back); cleared when the server lists it again
+    server_missing: bool = False
 
 
 @dataclass
@@ -56,7 +60,8 @@ class Manifest:
     def keep_from(self, previous: "Manifest") -> None:
         """Fold in the manifest this fetch replaces: photos outside the new
         range stay listed (their label edits are still on disk), and photos
-        fetched again keep their upload record."""
+        fetched again keep their upload record. A photo fetched again is
+        on the server, so its server_missing stays False."""
         for name, old in previous.photos.items():
             entry = self.photos.get(name)
             if entry is None:
@@ -75,6 +80,17 @@ class Manifest:
             if e is not None:
                 e.synced = True
                 e.uploaded_batch_id = batch_id
+
+    def mark_server_missing(self, timestamps) -> list[str]:
+        """Flag the photos with these timestamps as gone from the server.
+        Returns the filenames newly flagged."""
+        wanted = {int(t) for t in timestamps}
+        changed = []
+        for fn, e in self.photos.items():
+            if int(e.timestamp) in wanted and not e.server_missing:
+                e.server_missing = True
+                changed.append(fn)
+        return changed
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

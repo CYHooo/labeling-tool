@@ -305,3 +305,39 @@ def test_the_header_columns_make_room_for_the_surface_column():
         assert file_x == surface_x + 30 + gap
     finally:
         box.close()
+
+
+def test_a_row_not_on_the_server_is_grey_not_red():
+    view = _list(rows=(("45-1", "stitched_100.jpg", "벽", False, True),))
+    try:
+        delegate = view.itemDelegate()
+        delegate.surface_width = 30
+        delegate.delete_width = 20
+        view.item(0).setData(ui_builder.SERVER_MISSING_ROLE, True)
+        view.setCurrentRow(-1)
+        view.clearSelection()
+        view.viewport().update()
+        _settle()
+        assert _red_pixels(view, 0) == 0          # not drawn as a delete
+    finally:
+        view.close()
+
+
+def test_the_missing_label_takes_the_delete_label_slot(monkeypatch):
+    drawn = []
+    real = ui_builder.layout_pending_row
+
+    def spy(nm, lm, name, label, width):
+        drawn.append(label)
+        return real(nm, lm, name, label, width)
+    monkeypatch.setattr(ui_builder, "layout_pending_row", spy)
+    view = _list(rows=(("45-1", "stitched_100.jpg", "벽", False, False),))
+    try:
+        delegate = view.itemDelegate()
+        delegate.delete_width = 20
+        view.item(0).setData(ui_builder.SERVER_MISSING_ROLE, True)
+        view.viewport().repaint()
+        _settle()
+        assert i18n.tr("server_missing_label") in drawn
+    finally:
+        view.close()

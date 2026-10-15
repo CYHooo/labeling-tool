@@ -101,3 +101,42 @@ def test_remove():
     m.remove("a.jpg")
     m.remove("a.jpg")                     # absent: no error
     assert m.filenames_in_order() == []
+
+
+# ---------------------------------------------------------------- server_missing
+def _photo(n, **kw):
+    return PhotoEntry(filename=f"stitched_{n}.jpg", timestamp=n, photo_id=n,
+                      report_photo_num=n, px_per_cm=10.0, **kw)
+
+
+def test_server_missing_defaults_false_and_old_manifests_load(tmp_path):
+    import json
+    path = tmp_path / "manifest.json"
+    mf = Manifest(session_id=1, base="")
+    mf.add(_photo(1))
+    mf.save(path)
+    data = json.loads(path.read_text())
+    del data["photos"]["stitched_1.jpg"]["server_missing"]   # an older manifest
+    path.write_text(json.dumps(data))
+    assert Manifest.load(path).get("stitched_1.jpg").server_missing is False
+
+
+def test_server_missing_round_trips(tmp_path):
+    path = tmp_path / "manifest.json"
+    mf = Manifest(session_id=1, base="")
+    mf.add(_photo(1))
+    assert mf.mark_server_missing([1, 99]) == ["stitched_1.jpg"]
+    assert mf.mark_server_missing([1]) == []          # already marked
+    mf.save(path)
+    assert Manifest.load(path).get("stitched_1.jpg").server_missing is True
+
+
+def test_keep_from_a_photo_listed_again_is_not_missing():
+    old = Manifest(session_id=1, base="")
+    old.add(_photo(1, server_missing=True))
+    old.add(_photo(2, server_missing=True))
+    new = Manifest(session_id=1, base="")
+    new.add(_photo(1))
+    new.keep_from(old)
+    assert new.get("stitched_1.jpg").server_missing is False
+    assert new.get("stitched_2.jpg").server_missing is True

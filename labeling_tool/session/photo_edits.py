@@ -40,14 +40,18 @@ def has_pending_edit(entry) -> bool:
 
 
 def surface_updates(entries) -> list[dict]:
+    """Surface changes to send; a photo the server no longer has sends none."""
     return [{"timestamp": int(e.timestamp), "surface": e.surface_edit}
             for e in sorted(entries, key=lambda e: e.timestamp)
-            if e.surface_edit is not None and not e.delete_pending]
+            if e.surface_edit is not None and not e.delete_pending
+            and not getattr(e, "server_missing", False)]
 
 
 def deletes(entries) -> list[dict]:
+    """Deletes to send; a photo the server no longer has sends none."""
     return [{"timestamp": int(e.timestamp)}
-            for e in sorted(entries, key=lambda e: e.timestamp) if e.delete_pending]
+            for e in sorted(entries, key=lambda e: e.timestamp)
+            if e.delete_pending and not getattr(e, "server_missing", False)]
 
 
 # PhotoEntry field -> its key in the server's photo list
@@ -58,7 +62,8 @@ def apply_photo_refresh(manifest, photos: list[dict]) -> bool:
     """Take the server's photo numbers and surface fields for the photos the
     manifest has (matched by timestamp). Photos the server did not list stay
     as they are (never removed here), and local edits are left alone. Surface
-    fields the entry does not carry are kept.
+    fields the entry does not carry are kept. A listed photo is on the
+    server, so its server_missing flag is cleared.
     True if anything changed."""
     by_ts = {}
     for p in photos or []:
@@ -77,6 +82,8 @@ def apply_photo_refresh(manifest, photos: list[dict]) -> bool:
         # key must not wipe a surface the user just uploaded.
         fields = {name: value for name, value in photo_fields(p).items()
                   if _REFRESH_KEYS[name] in p}
+        if getattr(entry, "server_missing", False):
+            fields["server_missing"] = False
         num = p.get("reportPhotoNum")
         if isinstance(num, int) and not isinstance(num, bool):
             fields["report_photo_num"] = num

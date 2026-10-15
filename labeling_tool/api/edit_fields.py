@@ -15,6 +15,9 @@ SURFACE_UPDATES_KEY = "surfaceUpdates"
 DELETES_KEY = "deletes"
 DELETED_KEY = "deleted"
 SKIPPED_KEY = "skipped"
+SURFACE_UPDATED_KEY = "surfaceUpdated"
+# skipped[].kind values (v1.0.16): which list the missing photo came from
+SKIP_ITEMS, SKIP_SURFACE, SKIP_DELETES = "items", "surfaceUpdates", "deletes"
 
 # Most surfaceUpdates / deletes entries in one register-annotations call.
 EDIT_LIST_LIMIT = 100
@@ -59,4 +62,19 @@ def timestamps_in(response, key: str) -> list[int]:
         ts = item.get("timestamp") if isinstance(item, dict) else item
         if isinstance(ts, int) and not isinstance(ts, bool):
             out.append(ts)
+    return out
+
+
+def skipped_by_kind(response) -> dict[str, list[int]]:
+    """v1.0.16 `skipped` = [{kind, timestamp, reason}] -> {kind: [ts, ...]}.
+    A bare timestamp (pre-release shape) has no kind and is filed under
+    None; callers decide what an unkinded skip means."""
+    out: dict = {}
+    if not isinstance(response, dict) or not isinstance(response.get(SKIPPED_KEY), list):
+        return out
+    for item in response[SKIPPED_KEY]:
+        kind = item.get("kind") if isinstance(item, dict) else None
+        ts = item.get("timestamp") if isinstance(item, dict) else item
+        if isinstance(ts, int) and not isinstance(ts, bool):
+            out.setdefault(kind if isinstance(kind, str) else None, []).append(ts)
     return out
