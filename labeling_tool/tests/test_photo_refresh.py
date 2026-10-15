@@ -155,3 +155,27 @@ def test_the_worker_tells_its_generation():
 def test_the_worker_reports_only_through_finished():
     from labeling_tool.ui.photo_refresh_worker import PhotoRefreshSignals
     assert not hasattr(PhotoRefreshSignals, "done")
+
+
+# ---------------------------------------------------------------- server_missing
+def test_a_listed_photo_is_no_longer_missing():
+    m = _manifest(1, 2)
+    m.get("stitched_1.jpg").server_missing = True
+    m.get("stitched_2.jpg").server_missing = True
+    changed = E.apply_photo_refresh(m, [{"timestamp": 1, "reportPhotoNum": 1}])
+    assert changed is True
+    assert m.get("stitched_1.jpg").server_missing is False
+    assert m.get("stitched_2.jpg").server_missing is True
+
+
+def test_missing_photos_send_no_edits():
+    m = _manifest(1, 2, 3)
+    for n in (1, 2, 3):
+        e = m.get(f"stitched_{n}.jpg")
+        e.surface_edit = "wall"
+    m.get("stitched_3.jpg").delete_pending = True
+    m.get("stitched_2.jpg").server_missing = True
+    m.get("stitched_3.jpg").server_missing = True
+    entries = list(m.photos.values())
+    assert E.surface_updates(entries) == [{"timestamp": 1, "surface": "wall"}]
+    assert E.deletes(entries) == []
