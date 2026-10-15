@@ -17,7 +17,8 @@ from PyQt5.QtWidgets import (
 from labeling_tool.ui import icons
 from labeling_tool.core.i18n import TRANSLATIONS
 from labeling_tool.core.window.ui_builder import (
-    DELETE_PENDING_ROLE, MARK_ROLE, SURFACE_EDITED_ROLE, SURFACE_ROLE,
+    DELETE_PENDING_ROLE, MARK_ROLE, SERVER_MISSING_ROLE, SURFACE_EDITED_ROLE,
+    SURFACE_ROLE,
 )
 from labeling_tool.core.window.main_window import MainWindow as CoreMainWindow
 from labeling_tool.core.bbox import load_scale_info
@@ -143,7 +144,13 @@ class ViewerMainWindow(CoreMainWindow):
             return
         item.setData(SURFACE_ROLE, self._surface_text(entry))
         item.setData(SURFACE_EDITED_ROLE, entry.surface_edit is not None)
-        item.setData(DELETE_PENDING_ROLE, bool(entry.delete_pending))
+        # a photo gone from the server sends nothing: its delete mark is
+        # not shown, "서버에 없음" is
+        missing = bool(entry.server_missing)
+        item.setData(SERVER_MISSING_ROLE, missing)
+        item.setData(DELETE_PENDING_ROLE, bool(entry.delete_pending) and not missing)
+        item.setToolTip(f"{filename}\n{self.tr_('server_missing_tip')}"
+                        if missing else filename)
 
     def _refresh_list_colors(self):
         super()._refresh_list_colors()
@@ -429,8 +436,8 @@ class ViewerMainWindow(CoreMainWindow):
         """✓ uploaded and unchanged since; ● changed and not (re)uploaded."""
         entry = (self._manifest.photos.get(filename)
                  if self._manifest is not None else None)
-        if entry is None:
-            return None
+        if entry is None or entry.server_missing:
+            return None          # gone from the server: nothing will be sent
         if self._edited.get(filename) or has_pending_edit(entry) or (
                 not entry.synced and self._has_labeling_file(filename)):
             return "pending"
@@ -537,14 +544,16 @@ class ViewerMainWindow(CoreMainWindow):
         self._save_all_artifacts(silent=True, only_if_edited=True)
         # Surface changes and deletes of the listed photos ride along (a
         # range view sends only its photos'); a photo marked for deletion
-        # is not uploaded as an edit.
+        # is not uploaded as an edit, and a photo the server no longer has
+        # sends nothing.
         listed = set(self.image_files)
         edit_entries = [self._manifest.get(fn)
                         for fn in self._manifest.filenames_in_order() if fn in listed]
         surface = surface_updates(edit_entries)
         dels = deletes(edit_entries)
         filenames = [fn for fn in self._edited_filenames()
-                     if not self._manifest.get(fn).delete_pending]
+                     if not (self._manifest.get(fn).delete_pending
+                             or self._manifest.get(fn).server_missing)]
         if not (filenames or surface or dels):
             self.status.showMessage(self.tr_("vmw_status_no_edits"))
             QMessageBox.information(self, self.tr_("vmw_none_title"),
@@ -637,11 +646,11 @@ class ViewerMainWindow(CoreMainWindow):
                      if self._manifest.get(fn).timestamp in synced_ts
                      and fn not in resaved]
             self._manifest.mark_synced(files, batch_id=result.get("batch_id", ""))
-            self._manifest.save(self._ws.manifest_path)
+            self._save_manifest()
             self._refresh_list_colors()
 
         n_deleted, n_surface = self._apply_upload_edits(result)
-        n_skipped = len(result.get("skipped_timestamps") or ())
+        n_skipped = self._mark_server_missing(result.get("skipped_timestamps") or ())
         summary = " · ".join(
             ([self.tr_("upload_deleted_summary", n=n_deleted)] if n_deleted else [])
             + ([self.tr_("upload_surface_summary", n=n_surface)] if n_surface else [])
@@ -736,6 +745,17 @@ class ViewerMainWindow(CoreMainWindow):
             self.file_list.viewport().update()
             self._refresh_surface_row()
         return len(gone), n_surface
+
+    def _mark_server_missing(self, timestamps) -> int:
+        """Photos the server skipped are gone there (deleted by someone
+        else): flag them so later uploads leave them out. Their local files
+        stay. Returns how many photos were skipped."""
+        timestamps = [int(t) for t in timestamps]
+        if timestamps and self._manifest.mark_server_missing(timestamps):
+            self._save_manifest()
+            self._refresh_list_colors()
+            self.file_list.viewport().update()
+        return len(timestamps)
 
     def _apply_sent_surfaces(self, timestamps, by_ts, snapshot) -> int:
         """A surface change the server took becomes the photo's surface. A

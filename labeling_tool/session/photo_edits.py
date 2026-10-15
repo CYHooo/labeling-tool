@@ -44,14 +44,14 @@ def surface_updates(entries) -> list[dict]:
     return [{"timestamp": int(e.timestamp), "surface": e.surface_edit}
             for e in sorted(entries, key=lambda e: e.timestamp)
             if e.surface_edit is not None and not e.delete_pending
-            and not e.server_missing]
+            and not getattr(e, "server_missing", False)]
 
 
 def deletes(entries) -> list[dict]:
     """Deletes to send; a photo the server no longer has sends none."""
     return [{"timestamp": int(e.timestamp)}
             for e in sorted(entries, key=lambda e: e.timestamp)
-            if e.delete_pending and not e.server_missing]
+            if e.delete_pending and not getattr(e, "server_missing", False)]
 
 
 # PhotoEntry field -> its key in the server's photo list
@@ -82,7 +82,8 @@ def apply_photo_refresh(manifest, photos: list[dict]) -> bool:
         # key must not wipe a surface the user just uploaded.
         fields = {name: value for name, value in photo_fields(p).items()
                   if _REFRESH_KEYS[name] in p}
-        fields["server_missing"] = False
+        if getattr(entry, "server_missing", False):
+            fields["server_missing"] = False
         num = p.get("reportPhotoNum")
         if isinstance(num, int) and not isinstance(num, bool):
             fields["report_photo_num"] = num

@@ -66,6 +66,10 @@ _MARKS = {"uploaded": ("✓", QColor(92, 200, 122)),
 SURFACE_ROLE = Qt.UserRole + 3
 SURFACE_EDITED_ROLE = Qt.UserRole + 4
 DELETE_PENDING_ROLE = Qt.UserRole + 5
+# The photo is no longer on the server (someone else deleted it): the row
+# shows "서버에 없음" in grey where "삭제 예정" would be, and is never drawn
+# as a pending delete.
+SERVER_MISSING_ROLE = Qt.UserRole + 6
 _SURFACE_EDITED_COLOR = QColor("#e0a040")
 _DELETE_COLOR = QColor("#e05a5a")
 _SECONDARY_COLOR = QColor(140, 140, 140)
@@ -84,8 +88,8 @@ def elide_file_name(metrics: QFontMetrics, name: str, width: int) -> str:
 
 def layout_pending_row(name_metrics: QFontMetrics, label_metrics: QFontMetrics,
                        name: str, label: str, width: int) -> tuple[str, int]:
-    """(name to draw, x of the delete_pending_label text) for a row marked for
-    deletion. The label always wins: when the name has no room for more
+    """(name to draw, x of the label text) for a row with a label after its
+    name: delete_pending_label (marked for deletion) or server_missing_label. The label always wins: when the name has no room for more
     than "…" it is left out, so the label never slides under the trash
     button."""
     room = width - label_metrics.horizontalAdvance(label) - _PART_GAP
@@ -123,7 +127,9 @@ class TwoPartItemDelegate(QStyledItemDelegate):
                      release are swallowed as well: otherwise a shaky click
                      starts a drag-selection that switches the photo.
                      DELETE_PENDING_ROLE rows are drawn red with the file
-                     name struck through."""
+                     name struck through; SERVER_MISSING_ROLE rows show a
+                     grey server_missing_label in that label's place
+                     (and are never drawn as pending)."""
 
     delete_clicked = pyqtSignal(int)
 
@@ -221,7 +227,9 @@ class TwoPartItemDelegate(QStyledItemDelegate):
         painter.save()
         painter.setFont(option.font)
         selected = bool(option.state & QStyle.State_Selected)
-        pending = self.delete_width > 0 and bool(index.data(DELETE_PENDING_ROLE))
+        missing = self.delete_width > 0 and bool(index.data(SERVER_MISSING_ROLE))
+        pending = (self.delete_width > 0 and not missing
+                   and bool(index.data(DELETE_PENDING_ROLE)))
         if self.mark_width:
             kind = index.data(MARK_ROLE)
             mark = _MARKS.get(kind)
@@ -280,12 +288,16 @@ class TwoPartItemDelegate(QStyledItemDelegate):
             small.setPointSizeF(max(option.font.pointSizeF() - 1.5, 6.0))
         else:                                   # pixel-sized font
             small.setPixelSize(max(option.font.pixelSize() - 2, 8))
-        if pending:
-            label = i18n.tr("delete_pending_label")
+        if pending or missing:
+            label = i18n.tr("delete_pending_label" if pending else "server_missing_label")
             name_font = QFont(small)
-            name_font.setStrikeOut(True)
+            name_font.setStrikeOut(pending)
             painter.setFont(name_font)
-            painter.setPen(text_colour)
+            if pending:
+                painter.setPen(text_colour)
+            else:
+                painter.setPen(_SECONDARY_SELECTED_COLOR if selected
+                               else _SECONDARY_COLOR)
             elided, label_offset = layout_pending_row(
                 painter.fontMetrics(), QFontMetrics(small), secondary, label, rest.width())
             painter.drawText(rest, Qt.AlignLeft | Qt.AlignVCenter, elided)
