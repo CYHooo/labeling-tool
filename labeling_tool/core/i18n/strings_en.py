@@ -346,6 +346,13 @@ STRINGS = {
     "vmw_done_title":                  "Done",
     "vmw_done_msg":
         "{count} photo(s) uploaded and server-verified.{report_line}",
+    "close_unuploaded_title":          "Photos not uploaded",
+    "close_unuploaded_msg":            "{n} photo(s) have not been uploaded.\nYour changes stay on this PC if you close.\nUpload them before closing?",
+    "close_unuploaded_btn_upload":     "Upload and close",
+    "close_unuploaded_btn_close":      "Close",
+    "close_unuploaded_btn_cancel":     "Cancel",
+    "close_upload_running_title":      "Uploading",
+    "close_upload_running_msg":        "Close the window after the upload finishes.",
     "vmw_report_line":                 "\nVerification report (CSV): {report}",
     "vmw_err_unrecorded":              "(cause not recorded)",
     "vmw_part_failed_batches":

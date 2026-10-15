@@ -31,6 +31,7 @@
 | edit tools | **편집 도구**: **보기** · **브러시** · **SAM** · **보수 구역** | 编辑工具：查看 · 画笔 · SAM · 修补区域 | Edit tools: View · Brush · SAM · Repair area | 2×2 工具按钮，选中的工具即编辑模式；`보기` = 不编辑。另一组 **표시 · 축척** / 显示 · 比例尺 / Display · Scale |
 | job info | **작업 정보** | 任务信息 | Job info | 标注窗口左栏（图片列表栏）顶部两行：`작업 {id} · {n}장`，下一行 `{점검명}`（过长时右侧省略，悬停显示全文）；图片列表表头 `번호` / `파일 이름`，列表项 `<작업 ID>-<사진 번호>` + 文件名 |
 | upload | **업로드** | 上传 | Upload | 音译已通用 |
+| close with photos not uploaded | **업로드하지 않은 사진** · 버튼 **업로드 후 닫기** / **닫기** / **취소** | 未上传的照片 · 上传后关闭 / 关闭 / 取消 | Photos not uploaded · Upload and close / Close / Cancel | 关闭标注窗口时列表里还有 ● 时询问：`업로드하지 않은 사진이 {n}장 있습니다.` + `닫아도 수정 내용은 이 PC에 남습니다. 닫기 전에 업로드할까요?`（有 {n} 张照片尚未上传。关闭后修改内容仍保留在本机。关闭前要上传吗？ / {n} photo(s) have not been uploaded. Your changes stay on this PC if you close. Upload them before closing?）。上传进行中关闭：标题 `업로드 중` / 正在上传 / Uploading，`업로드가 끝난 뒤에 닫아 주세요.` / 请在上传完成后再关闭。/ Close the window after the upload finishes. |
 | download / fetch | **가져오기** | 获取 | Fetch | 从服务器取数据用 `가져오기`；文件下载用 `다운로드` |
 | local（本机已取得的任务） | **로컬 작업** | 本地任务 | Local jobs | 登录界面「라벨링」标签页里的任务列表标题（原独立标签页已合并） |
 | sign in / log out | **로그인** / **로그아웃** | 登录 / 退出登录 | Log in / Log out | 第一页的账号登录；`로그인: {user}` 显示当前用户 |

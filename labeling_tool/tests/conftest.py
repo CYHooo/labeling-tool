@@ -60,3 +60,24 @@ def _ui_settings_in_tmp(tmp_path, monkeypatch):
     Tests that need a particular home patch _settings_home again."""
     from labeling_tool.core import i18n
     monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path / "ui-settings-home")
+
+
+@pytest.fixture(autouse=True)
+def close_prompts(monkeypatch):
+    """Closing a labeling window with photos not uploaded asks the user, and
+    a modal dialog would hang an offscreen run. Every test answers "close"
+    (and the upload-running notice records instead of showing); a test that
+    checks the prompt patches the methods again. The list records each ask
+    as ("ask", count) or ("busy", None); .real is the unstubbed prompt."""
+    from labeling_tool.ui.main_window import ViewerMainWindow
+    asked = _LogStarts()
+    asked.real = ViewerMainWindow._ask_close_unuploaded
+
+    def ask(_self, count):
+        asked.append(("ask", count))
+        return "close"
+
+    monkeypatch.setattr(ViewerMainWindow, "_ask_close_unuploaded", ask)
+    monkeypatch.setattr(ViewerMainWindow, "_tell_upload_running",
+                        lambda _self: asked.append(("busy", None)))
+    return asked
