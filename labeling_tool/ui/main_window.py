@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QApplication, QPushButton, QMessageBox, QProgressBar, QWidget, QHBoxLayout, QLabel,
 )
@@ -488,16 +488,19 @@ class ViewerMainWindow(CoreMainWindow):
             event.ignore()
             self._tell_upload_running()
             return
-        if 0 <= self.current_idx < len(self.image_files):
-            notice = self._confirm_pending_edits()   # what it confirms counts too
-            if notice:
-                self.status.showMessage(notice)
+        # Save the photo on screen before asking: a repair-area change counts
+        # only once saved (that re-opens an uploaded photo), and nothing
+        # waits unsaved behind the question. Unconfirmed SAM / repair-area
+        # points are left alone, so cancel changes nothing; closing (the
+        # base class) or uploading confirms them.
+        self._save_all_artifacts(silent=True, only_if_edited=True,
+                                 async_derived=False)
         count = self._pending_upload_count()
         choice = self._ask_close_unuploaded(count) if count else "close"
         if choice == "upload":
             event.ignore()
             self._close_after_upload = True
-            self._on_upload()
+            self._on_upload()               # confirms what is on screen first
             if getattr(self, "_upload_worker", None) is None:
                 self._close_after_upload = False   # it did not start: stay open
             return
@@ -508,9 +511,17 @@ class ViewerMainWindow(CoreMainWindow):
 
     def _pending_upload_count(self) -> int:
         """Listed photos marked ● -- what an upload from here would send (a
-        range view counts only its photos, as it uploads only those)."""
-        return sum(1 for fn in self.image_files
-                   if self._list_item_mark(fn) == "pending")
+        range view counts only its photos, as it uploads only those) -- plus
+        the photo on screen when unconfirmed edits would make it ●."""
+        count = sum(1 for fn in self.image_files
+                    if self._list_item_mark(fn) == "pending")
+        if 0 <= self.current_idx < len(self.image_files) and self._has_unconfirmed_edits():
+            fn = self.image_files[self.current_idx]
+            entry = self._manifest.photos.get(fn)
+            if (entry is not None and not entry.server_missing
+                    and self._list_item_mark(fn) != "pending"):
+                count += 1
+        return count
 
     def _ask_close_unuploaded(self, count: int) -> str:
         """"upload", "close" or "cancel" (also Esc / the title-bar close)."""
@@ -531,8 +542,14 @@ class ViewerMainWindow(CoreMainWindow):
         return "close" if clicked is close else "cancel"
 
     def _tell_upload_running(self) -> None:
-        QMessageBox.information(self, self.tr_("close_upload_running_title"),
-                                self.tr_("close_upload_running_msg"))
+        """Not modal: a modal box would run a nested event loop inside the
+        refused close, and an upload finishing in it could not close the
+        window ("upload and close")."""
+        box = QMessageBox(QMessageBox.Information,
+                          self.tr_("close_upload_running_title"),
+                          self.tr_("close_upload_running_msg"), parent=self)
+        box.setAttribute(Qt.WA_DeleteOnClose)
+        box.open()
 
     def _on_upload(self):
         if self._client is None:
@@ -620,12 +637,14 @@ class ViewerMainWindow(CoreMainWindow):
         self._upload_bar.setVisible(False)
         self.btn_upload.setEnabled(True)
         self._upload_worker = None
+        close_after = getattr(self, "_close_after_upload", False)
+        self._close_after_upload = False      # cleared even if the next line raises
         self._finish_upload(result)
-        if getattr(self, "_close_after_upload", False):
-            # "upload and close": try again once the result was shown; photos
-            # the server did not take are still ● and are asked about anew
-            self._close_after_upload = False
-            self.close()
+        if close_after:
+            # "upload and close": try again once the result was shown (and
+            # outside this slot); photos the server did not take are still ●
+            # and are asked about anew
+            QTimer.singleShot(0, self.close)
 
     def _on_upload_error(self, msg):
         self._close_after_upload = False      # a failed upload never closes

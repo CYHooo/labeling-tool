@@ -68,10 +68,12 @@ def close_prompts(monkeypatch):
     a modal dialog would hang an offscreen run. Every test answers "close"
     (and the upload-running notice records instead of showing); a test that
     checks the prompt patches the methods again. The list records each ask
-    as ("ask", count) or ("busy", None); .real is the unstubbed prompt."""
+    as ("ask", count) or ("busy", None); .real / .real_busy are the
+    unstubbed prompt and notice."""
     from labeling_tool.ui.main_window import ViewerMainWindow
     asked = _LogStarts()
     asked.real = ViewerMainWindow._ask_close_unuploaded
+    asked.real_busy = ViewerMainWindow._tell_upload_running
 
     def ask(_self, count):
         asked.append(("ask", count))
