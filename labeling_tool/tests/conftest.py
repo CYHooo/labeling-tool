@@ -50,3 +50,13 @@ def _class_cache_in_tmp(tmp_path, monkeypatch):
     in a source checkout: keep every test's cache in its own tmp dir."""
     from labeling_tool.core import classes
     monkeypatch.setattr(classes, "cache_dir", lambda: tmp_path / "label-classes")
+
+
+@pytest.fixture(autouse=True)
+def _ui_settings_in_tmp(tmp_path, monkeypatch):
+    """ui-settings.json (language, image-list column width / collapsed)
+    lives under user_data_home(), the repo root in a source checkout: a
+    window built by a test must never read or write the developer's file.
+    Tests that need a particular home patch _settings_home again."""
+    from labeling_tool.core import i18n
+    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path / "ui-settings-home")

@@ -17,6 +17,7 @@ def register_shortcuts(window: "MainWindow") -> None:
     what is not confirmed); main_window routes them by mode."""
     QShortcut(QKeySequence("A"), window, window.go_prev)
     QShortcut(QKeySequence("D"), window, window.go_next)
+    QShortcut(QKeySequence("L"), window, window._toggle_list_column)
     QShortcut(QKeySequence("S"), window, window._on_brush_save)
     QShortcut(QKeySequence("Ctrl+S"), window, window._on_brush_save)
     QShortcut(QKeySequence("Ctrl+Z"), window, window._on_undo)
@@ -39,7 +40,7 @@ def register_shortcuts(window: "MainWindow") -> None:
 
 class _LetterShortcutsPassThrough(QObject):
     """Lets a number box hand letter keys to the window's single-key
-    shortcuts (A / D / S / B / X ..., [ / ] for the brush size, and Ctrl+Z /
+    shortcuts (A / D / S / B / X / L ..., [ / ] for the brush size, and Ctrl+Z /
     Ctrl+Y for undoing strokes). A focused QSpinBox otherwise claims
     every printable key -- and with an input method (pinyin, hangul) turns
     it into composition -- so after adjusting the brush size the shortcuts

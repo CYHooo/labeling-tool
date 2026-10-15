@@ -23,12 +23,13 @@ STRINGS = {
     "brush_no_image":     "未加载图片",
     "brush_reset":        "Mask 已恢复为加载状态",
     "photo_count":        "{n} 张",
-    "job_info_line":      "任务 {job} · {name} · {count}",
+    "job_info_head":      "任务 {job} · {count}",
     "list_col_number":    "编号",
     "list_col_file":      "文件名",
     "list_col_surface":   "面",
     "group_tools":        "编辑工具",
     "tip_shortcut":       "快捷键：{shortcut}",
+    "tip_named_shortcut": "{name}（{shortcut}）",
     "group_display":      "显示 · 比例尺",
     "tool_view":          "查看",
     "tool_brush":         "画笔",
@@ -48,6 +49,8 @@ STRINGS = {
     "btn_show_range":     "只看范围",
     "photo_count_part":   "{shown} / {total} 张",
     "group_list":         "图片列表",
+    "list_collapse_tip":  "收起图片列表（快捷键：{shortcut}）",
+    "list_expand_tip":    "展开图片列表（快捷键：{shortcut}）",
     "group_hint":         "帮助 / 用法",
     "btn_prev":           "上一张",
     "btn_next":           "下一张",
@@ -60,7 +63,8 @@ STRINGS = {
         "通用   Ctrl+Z=撤销（先撤未确认的点）· Ctrl+Y=重做\n"
         "测量   点已知长度参照物的两端(默认 marker 边 7cm)\n"
         "视图   中键拖动 / Ctrl+拖拽=平移（查看：左键拖动）· 滚轮=缩放\n"
-        "导航   A / D=上/下一张 · S / Ctrl+S=保存 · 切换时自动保存",
+        "导航   A / D=上/下一张 · S / Ctrl+S=保存 · 切换时自动保存\n"
+        "       L=收起/展开图片列表",
     "ready":              "就绪",
     "loaded_n_images":    "共加载 {n} 张图片",
     "warn_select_first":  "请先选择 Origin 和 Detected 文件夹",

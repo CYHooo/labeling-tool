@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from PyQt5.QtCore import Qt, QUrl
+from PyQt5.QtCore import Qt, QTimer, QUrl
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QSplitter,
     QStatusBar, QMessageBox, QApplication, QInputDialog, QListWidgetItem,
@@ -15,6 +15,8 @@ from labeling_tool.core.constants import (
     OUTPUT_DIR_NAME,
     IMAGE_EXTENSIONS, MASK_NAME_SUFFIXES,
 )
+from labeling_tool.core import i18n
+from labeling_tool.core import settings as ui_settings
 from labeling_tool.core.i18n import tr, language_manager
 from labeling_tool.core.mask_io import load_origin_and_layers
 from labeling_tool.core.mask_codec import encode_layers
@@ -28,8 +30,9 @@ from labeling_tool.session import mask_store
 from labeling_tool.core.result import export_result
 from labeling_tool.core.window.styles import STYLESHEET
 from labeling_tool.core.window.ui_builder import (
-    MARK_ROLE, SECONDARY_TEXT_ROLE, TwoPartItemDelegate, build_help_dialog,
-    build_side_panel,
+    LIST_COLUMN_MAX_WIDTH, LIST_COLUMN_MIN_WIDTH, LIST_COLUMN_SHORTCUT,
+    LIST_COLUMN_STRIP_WIDTH, MARK_ROLE, SECONDARY_TEXT_ROLE, TwoPartItemDelegate,
+    build_help_dialog, build_list_column, build_side_panel,
 )
 from labeling_tool.core.window.shortcuts import register_shortcuts
 
@@ -136,13 +139,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(self.tr_("window_title"))
         self._refresh_job_info()
         self._btn_help.setToolTip(self.tr_("group_hint"))
+        self._refresh_list_column_tips()
         if not self._btn_sam_toggle.isEnabled():
             self._tool_picker.setToolToolTip(2, self.tr_("sam_unavailable"))
 
         self._grp_list.setTitle(self.tr_("group_list"))
         self._refresh_list_header()
-        self.btn_prev.setText(self.tr_("btn_prev"))
-        self.btn_next.setText(self.tr_("btn_next"))
         self.btn_save.setText(self.tr_("btn_save"))
         self._refresh_nav_tooltips()
 
@@ -215,8 +217,8 @@ class MainWindow(QMainWindow):
     def _refresh_job_info(self):
         job_id, inspection = self._job_info()
         self._lbl_job_info.set_full_text(self.tr_(
-            "job_info_line", job=job_id, name=inspection,
-            count=self._photo_count_text()))
+            "job_info_head", job=job_id, count=self._photo_count_text()))
+        self._lbl_job_name.set_full_text(inspection)
 
     def _photo_count_text(self) -> str:
         """Photo count in the job line. Overridable."""
@@ -242,8 +244,13 @@ class MainWindow(QMainWindow):
         self.file_list.viewport().update()
 
     def _refresh_nav_tooltips(self):
-        for btn, key in ((self.btn_prev, "A"), (self.btn_next, "D"),
-                         (self.btn_save, "S / Ctrl+S"), (self._btn_undo, "Ctrl+Z"),
+        # previous / next are icon-only: the tooltip names them too
+        for btn, name_key, key in ((self.btn_prev, "btn_prev", "A"),
+                                   (self.btn_next, "btn_next", "D")):
+            btn.setToolTip(self.tr_("tip_named_shortcut",
+                                    name=self.tr_(name_key), shortcut=key))
+            btn.setAccessibleName(self.tr_(name_key))
+        for btn, key in ((self.btn_save, "S / Ctrl+S"), (self._btn_undo, "Ctrl+Z"),
                          (self._btn_redo, "Ctrl+Y / Ctrl+Shift+Z"),
                          (self._btn_sam_commit, "Enter"), (self._btn_sam_cancel, "Esc"),
                          (self._btn_sam_undo, "Ctrl+Z")):
@@ -835,27 +842,146 @@ class MainWindow(QMainWindow):
         self.canvas.bbox_edited.connect(self._on_bbox_edited)
         self.canvas.measure_completed.connect(self._on_measure_completed)
 
+        list_column = build_list_column(self)
         side_panel = build_side_panel(self)
         self.canvas.history_changed.connect(self._refresh_undo_buttons)
         self._refresh_nav_tooltips()
+        self._refresh_list_column_tips()
         self._refresh_tools()
 
+        # [image list | canvas | tools]: only the canvas absorbs window
+        # resizing, so neither side column jumps around on resize.
         splitter = QSplitter(Qt.Horizontal)
+        splitter.addWidget(list_column)
         splitter.addWidget(self.canvas)
         splitter.addWidget(side_panel)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
-        # Give the panel a comfortable starting width; the canvas absorbs all
-        # window resizing so the panel no longer jumps around on resize.
-        splitter.setSizes([1100, 360])
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setStretchFactor(2, 0)
+        # Dragging the list away would hide it untracked: the collapse
+        # button / L fold it into its strip instead.
+        splitter.setCollapsible(0, False)
         self._splitter = splitter
         root.addWidget(splitter)
+        self._init_list_column()
 
         self.status = QStatusBar()
         self.setStatusBar(self.status)
         self.status.showMessage(self.tr_("ready"))
 
         register_shortcuts(self)
+
+    # ------------------------------------------------------------------
+    # Image-list column (left): width and collapsed state, remembered in
+    # ui-settings.json
+    # ------------------------------------------------------------------
+    def _init_list_column(self):
+        home = i18n._settings_home()
+        width = ui_settings.get_list_column_width(home)
+        self._list_width = min(max(width, LIST_COLUMN_MIN_WIDTH), LIST_COLUMN_MAX_WIDTH)
+        self._list_collapsed = False
+        self._list_width_capped = False      # see showEvent
+        collapsed = ui_settings.get_list_column_collapsed(home)
+        self._list_saved_state = (width, collapsed)
+        # Saved a moment after a drag ends rather than on every pixel moved.
+        self._list_save_timer = QTimer(self)
+        self._list_save_timer.setSingleShot(True)
+        self._list_save_timer.setInterval(500)
+        self._list_save_timer.timeout.connect(self._save_list_column_state)
+        self._splitter.splitterMoved.connect(self._on_splitter_moved)
+        self._splitter.setSizes([self._list_width, 1100, 360])
+        if collapsed:
+            self._collapse_list_column()
+
+    def _refresh_list_column_tips(self):
+        self._btn_list_collapse.setToolTip(
+            self.tr_("list_collapse_tip", shortcut=LIST_COLUMN_SHORTCUT))
+        expand_tip = self.tr_("list_expand_tip", shortcut=LIST_COLUMN_SHORTCUT)
+        self._btn_list_expand.setToolTip(expand_tip)
+        self._list_column_strip.setToolTip(expand_tip)
+
+    def _on_splitter_moved(self, _pos: int, index: int):
+        # Only a drag of the list's own handle (1) sets its width; the
+        # tool-panel handle (2) leaves it alone.
+        if index == 1 and not self._list_collapsed:
+            self._list_width = self._splitter.sizes()[0]
+            self._list_save_timer.start()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._list_width_capped:
+            self._list_width_capped = True
+            self._cap_restored_list_width()
+
+    def _cap_restored_list_width(self):
+        """A width saved on a wide screen must not eat a smaller window:
+        at most about a third of the window (within the column's range)."""
+        cap = max(LIST_COLUMN_MIN_WIDTH, min(LIST_COLUMN_MAX_WIDTH, self.width() // 3))
+        if self._list_width > cap:
+            self._list_width = cap
+            if not self._list_collapsed:
+                self._set_list_column_width(cap)
+
+    def _set_list_column_width(self, width: int):
+        """Give the list column `width`, taking it from (or giving it to)
+        the canvas; the tool panel keeps its width."""
+        sizes = self._splitter.sizes()
+        total = sum(sizes)
+        if total <= 0:                       # not laid out yet
+            self._splitter.setSizes([width, 1100, 360])
+            return
+        right = sizes[2]
+        self._splitter.setSizes([width, max(total - width - right, 1), right])
+
+    def _collapse_list_column(self):
+        if self._list_collapsed:
+            return
+        # _list_width stays what the user dragged (or what was restored);
+        # expanding comes back to it.
+        self._list_collapsed = True
+        self._list_column_body.setVisible(False)
+        self._list_column_strip.setVisible(True)
+        self._list_column.setFixedWidth(LIST_COLUMN_STRIP_WIDTH)
+        self._set_list_handle_enabled(False)
+        self._set_list_column_width(LIST_COLUMN_STRIP_WIDTH)
+        self._save_list_column_state()
+
+    def _expand_list_column(self):
+        if not self._list_collapsed:
+            return
+        self._list_collapsed = False
+        self._list_column_strip.setVisible(False)
+        self._list_column_body.setVisible(True)
+        self._list_column.setMinimumWidth(LIST_COLUMN_MIN_WIDTH)
+        self._list_column.setMaximumWidth(LIST_COLUMN_MAX_WIDTH)
+        self._set_list_handle_enabled(True)
+        self._set_list_column_width(self._list_width)
+        self._save_list_column_state()
+
+    def _set_list_handle_enabled(self, enabled: bool):
+        """The list's splitter handle: no resize cursor or drag while the
+        column is collapsed to its strip."""
+        handle = self._splitter.handle(1)
+        handle.setEnabled(enabled)
+        if enabled:
+            handle.unsetCursor()             # back to the splitter's resize cursor
+        else:
+            handle.setCursor(Qt.ArrowCursor)
+
+    def _toggle_list_column(self):
+        if self._list_collapsed:
+            self._expand_list_column()
+        else:
+            self._collapse_list_column()
+
+    def _save_list_column_state(self):
+        """Write the width / collapsed state when it changed (never raises:
+        settings swallows every write error)."""
+        self._list_save_timer.stop()
+        state = (self._list_width, self._list_collapsed)
+        if state != self._list_saved_state:
+            ui_settings.set_list_column_state(*state, i18n._settings_home())
+            self._list_saved_state = state
 
     # ------------------------------------------------------------------
     # Data loading
@@ -1142,4 +1268,5 @@ class MainWindow(QMainWindow):
         self._save_all_artifacts(silent=True, only_if_edited=True,
                                  async_derived=False)
         self._disconnect_language_manager()
+        self._save_list_column_state()
         super().closeEvent(event)

@@ -23,12 +23,13 @@ STRINGS = {
     "brush_no_image":     "No image loaded",
     "brush_reset":        "Mask reset to loaded mask",
     "photo_count":        "Photos: {n}",
-    "job_info_line":      "Job {job} · {name} · {count}",
+    "job_info_head":      "Job {job} · {count}",
     "list_col_number":    "No.",
     "list_col_file":      "File name",
     "list_col_surface":   "Side",
     "group_tools":        "Edit tools",
     "tip_shortcut":       "Shortcut: {shortcut}",
+    "tip_named_shortcut": "{name} ({shortcut})",
     "group_display":      "Display · Scale",
     "tool_view":          "View",
     "tool_brush":         "Brush",
@@ -48,6 +49,8 @@ STRINGS = {
     "btn_show_range":     "Range only",
     "photo_count_part":   "Photos: {shown} / {total}",
     "group_list":         "Image List",
+    "list_collapse_tip":  "Collapse the image list (Shortcut: {shortcut})",
+    "list_expand_tip":    "Expand the image list (Shortcut: {shortcut})",
     "group_hint":         "Help / Usage",
     "btn_prev":           "Previous",
     "btn_next":           "Next",
@@ -60,7 +63,8 @@ STRINGS = {
         "Common  Ctrl+Z undo (unconfirmed points first) · Ctrl+Y redo\n"
         "Measure click the two ends of a known-length reference\n"
         "View    middle-drag / Ctrl+drag pan (View tool: left-drag) · wheel zoom\n"
-        "Nav     A / D prev/next · S / Ctrl+S save · auto-save on switch",
+        "Nav     A / D prev/next · S / Ctrl+S save · auto-save on switch\n"
+        "        L collapse/expand the image list",
     "ready":              "Ready",
     "loaded_n_images":    "Loaded {n} images",
     "warn_select_first":  "Please select Origin and Detected folders first",

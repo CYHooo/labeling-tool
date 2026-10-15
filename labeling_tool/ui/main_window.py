@@ -40,7 +40,6 @@ from labeling_tool.logging_setup import vlog
 _SURFACE_TEXT_KEYS = {"floor": "surface_floor", "wall": "surface_wall",
                       "ceiling": "surface_ceiling"}
 _DELETE_WIDTH = 22               # the trash button at each list row's end
-_SURFACE_ROW_LIST_GIVEBACK = 32  # one list row given up for the surface row
 _DELETE_CONFIRM_MAX_NUMBERS = 20  # photo numbers listed in the confirmation
 
 
@@ -105,11 +104,6 @@ class ViewerMainWindow(CoreMainWindow):
         delegate.delete_clicked.connect(self._on_delete_clicked)
         self._surface_row.surfaceChosen.connect(self._on_surface_chosen)
         self._surface_row.setVisible(True)
-        # The surface row adds a line to the display group; on a 900 px
-        # window the list gives that height back (one row) so
-        # the panel still never scrolls.
-        self.file_list.setMinimumHeight(
-            self.file_list.minimumHeight() - _SURFACE_ROW_LIST_GIVEBACK)
         self._surface_ui_on = True
         self._refresh_list_header()          # surface title + column width
         self._refresh_surface_row()
@@ -352,7 +346,8 @@ class ViewerMainWindow(CoreMainWindow):
 
     # ------------------------------------------------------------ range view
     def _add_range_bar(self):
-        """"Photos 5 ~ 10 (6)  [Show all]" above the list after a range fetch."""
+        """"Photos 5 ~ 10 (6)  [Show all]" above the list (in the list
+        column's list group) after a range fetch."""
         self._range_bar = QWidget()
         row = QHBoxLayout(self._range_bar)
         row.setContentsMargins(0, 0, 0, 2)        # compact: the list keeps its rows
@@ -366,10 +361,6 @@ class ViewerMainWindow(CoreMainWindow):
         row.addWidget(self._btn_range_toggle)
         self._grp_list.layout().insertWidget(0, self._range_bar)
         self._range_bar.setVisible(self._focus is not None)
-        if self._focus is not None:
-            # the bar's row comes out of the list: about three rows minimum
-            # keeps a 900 px window from scrolling (a range is usually short)
-            self.file_list.setMinimumHeight(92)
 
     def _refresh_range_bar(self):
         if self._focus is None:

@@ -1,8 +1,8 @@
-"""Labeling window side panel: one-line job info with a help button, image
-list with a header, one navigation row with a single save, a 2x2 tool
-picker where the selected tool IS the editing mode (its how-to and options
-below it), a display/scale group, and the upload button pinned to the
-bottom."""
+"""Labeling window side columns. Left, collapsible (button / L) and
+resizable: one-line job info with a help button, image list with a header,
+one navigation row with a single save. Right: a 2x2 tool picker where the
+selected tool IS the editing mode (its how-to and options below it), a
+display/scale group, and the upload button pinned to the bottom."""
 import cv2
 import numpy as np
 from PyQt5.QtWidgets import (
@@ -23,10 +23,11 @@ VIEW, BRUSH, SAM, BBOX = range(4)
 
 def _make_window(tmp_path, monkeypatch, *, inspection_name: str | None = "교량 정기점검",
                  sam_available=True, second_photo_scale=2.0, synced=(), files=_FILES,
-                 focus=None):
+                 focus=None, settings_home=None):
     monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: None)
     monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
-    monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path / "settings")
+    home = settings_home if settings_home is not None else tmp_path / "settings"
+    monkeypatch.setattr(i18n, "_settings_home", lambda: home)
     i18n.set_language("ko")
     from labeling_tool.core.sam import predictor as sam_predictor
     monkeypatch.setattr(sam_predictor.MobileSamPredictor, "try_load",
@@ -48,14 +49,34 @@ def _make_window(tmp_path, monkeypatch, *, inspection_name: str | None = "교량
 
 
 # ---------------------------------------------------------------- job info
-def test_job_info_is_one_line_with_a_help_button(tmp_path, monkeypatch):
+def test_job_info_is_two_lines_with_a_help_button(tmp_path, monkeypatch):
+    # line 1: job id and photo count (collapse button left, "?" right);
+    # line 2: the inspection name, elided at the right, full text as tooltip
     win = _make_window(tmp_path, monkeypatch)
     try:
-        expected = i18n.tr("job_info_line", job=45, name="교량 정기점검",
-                           count=i18n.tr("photo_count", n=2))
-        assert win._lbl_job_info.full_text() == expected
-        assert win._lbl_job_info.toolTip() == expected
+        head = i18n.tr("job_info_head", job=45, count=i18n.tr("photo_count", n=2))
+        assert win._lbl_job_info.full_text() == head
+        assert win._lbl_job_name.full_text() == "교량 정기점검"
+        assert win._lbl_job_name.toolTip() == "교량 정기점검"
         assert not win._btn_help.icon().isNull()
+
+        def top(w):
+            return w.mapTo(win, w.rect().topLeft())
+        assert top(win._lbl_job_name).y() > top(win._lbl_job_info).y()
+        assert abs(top(win._btn_help).y() - top(win._lbl_job_info).y()) <= 8
+        assert top(win._btn_list_collapse).x() < top(win._lbl_job_info).x() < top(win._btn_help).x()
+    finally:
+        win.close()
+
+
+def test_a_long_inspection_name_is_elided_at_the_right(tmp_path, monkeypatch):
+    name = "아주 긴 점검 이름 " * 12
+    win = _make_window(tmp_path, monkeypatch, inspection_name=name)
+    try:
+        _settle()
+        shown = win._lbl_job_name.text()
+        assert shown.endswith("…") and name.startswith(shown[:-1])
+        assert win._lbl_job_name.toolTip() == name
     finally:
         win.close()
 
@@ -63,7 +84,7 @@ def test_job_info_is_one_line_with_a_help_button(tmp_path, monkeypatch):
 def test_job_info_without_a_name_shows_a_dash(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch, inspection_name=None)
     try:
-        assert " · — · " in win._lbl_job_info.full_text()
+        assert win._lbl_job_name.full_text() == "—"
     finally:
         win.close()
 
@@ -161,15 +182,17 @@ def test_the_viewer_window_shows_the_surface_column_trash_and_row(tmp_path, monk
 def test_one_navigation_row_with_a_single_save(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch)
     try:
-        assert win.btn_prev.text() == i18n.tr("btn_prev") == "이전 사진"
-        assert win.btn_next.text() == i18n.tr("btn_next") == "다음 사진"
+        # previous / next are icon-only; their tooltips name them and the key
+        assert win.btn_prev.text() == "" and win.btn_next.text() == ""
+        assert win.btn_prev.toolTip() == "이전 사진 (A)"
+        assert win.btn_next.toolTip() == "다음 사진 (D)"
+        assert win.btn_save.text() == i18n.tr("btn_save")
         assert not hasattr(win, "_btn_brush_save")
         saves = [b for b in win.findChildren(QPushButton)
                  if b.isVisible() and b.text() == i18n.tr("btn_save")]
         assert saves == [win.btn_save]
         y = {b.mapTo(win, b.rect().topLeft()).y() for b in (win.btn_prev, win.btn_next, win.btn_save)}
         assert len(y) == 1                                   # same row
-        assert "A" in win.btn_prev.toolTip() and "D" in win.btn_next.toolTip()
         assert "S" in win.btn_save.toolTip()
     finally:
         win.close()
@@ -297,10 +320,10 @@ def test_panel_text_follows_the_language(tmp_path, monkeypatch):
             assert win._grp_display.title() == i18n.tr("group_display")
             assert win._tool_picker.toolText(BRUSH) == i18n.tr("tool_brush")
             assert win._list_header.labels()[1] == i18n.tr("list_col_file")
-            assert win.btn_prev.text() == i18n.tr("btn_prev")
+            assert win.btn_prev.toolTip() == i18n.tr(
+                "tip_named_shortcut", name=i18n.tr("btn_prev"), shortcut="A")
             assert win._lbl_job_info.full_text() == i18n.tr(
-                "job_info_line", job=45, name="교량 정기점검",
-                count=i18n.tr("photo_count", n=2))
+                "job_info_head", job=45, count=i18n.tr("photo_count", n=2))
     finally:
         win.close()
 
@@ -328,15 +351,18 @@ def test_panel_content_fits_the_panel_width_in_every_language(tmp_path, monkeypa
 
 
 def test_the_image_list_takes_the_spare_height(tmp_path, monkeypatch):
+    # The list has its own column: a taller window goes to the list (nearly
+    # all of it); the tool groups on the right are never stretched.
     win = _make_window(tmp_path, monkeypatch)
     try:
         tools = win._grp_tools
         assert tools.height() <= tools.sizeHint().height()      # not stretched
         list_before, tools_before = win.file_list.height(), tools.height()
         win.resize(1400, 1100)
-        QApplication.processEvents()
+        _settle()
         assert tools.height() == tools_before
-        assert win.file_list.height() - list_before >= 150      # most of the 200 px
+        assert win.file_list.height() - list_before >= 180      # nearly all of the 200 px
+        assert win.file_list.minimumHeight() == 120             # no squeeze for the tools
     finally:
         win.close()
 
@@ -470,16 +496,18 @@ def test_the_tools_area_height_follows_the_selected_tool(tmp_path, monkeypatch):
         for idx in (VIEW, BRUSH):
             win._tool_picker.setCurrentIndex(idx)
             QApplication.processEvents()
-            heights[idx] = (win._grp_tools.height(), win.file_list.height())
+            heights[idx] = (win._grp_tools.height(), win.file_list.height(),
+                            win._grp_display.y())
         assert heights[VIEW][0] < heights[BRUSH][0]              # tools shrink
-        assert heights[VIEW][1] > heights[BRUSH][1]              # the list gets it
+        assert heights[VIEW][2] < heights[BRUSH][2]              # display follows them up
+        assert heights[VIEW][1] == heights[BRUSH][1]             # the list (own column) keeps its height
     finally:
         win.close()
 
 
 def test_no_tool_makes_the_panel_scroll_in_a_900px_window(tmp_path, monkeypatch):
-    # The list gives way instead: with the tallest tool page the display
-    # group must still be on screen without scrolling.
+    # With the tallest tool page the display group must still be on screen
+    # without scrolling (the list is in its own column now).
     win = _make_window(tmp_path, monkeypatch)
     try:
         win.resize(1400, 900)
@@ -835,8 +863,8 @@ def test_scale_row_fits_on_one_line_in_every_language(tmp_path, monkeypatch):
     # stays one line and the panel does not widen.
     win = _make_window(tmp_path, monkeypatch)
     try:
-        side = win._splitter.widget(1)
-        win._splitter.setSizes([10_000, 0])                  # panel at its minimum
+        side = win._splitter.widget(2)
+        win._splitter.setSizes([280, 10_000, 0])             # panel at its minimum
         for code in ("ko", "zh", "en"):
             i18n.set_language(code)
             for scale, source in ((2.0, "server"), (28.49, "manual")):
@@ -2313,5 +2341,266 @@ def test_an_older_refresh_result_is_ignored(tmp_path, monkeypatch):
         _settle()
         assert win.file_list.item(2).text() == "45-9"
         assert win._manifest.get(_THREE[2]).report_photo_num == 9
+    finally:
+        win.close()
+
+
+# ---------------------------------------------------------------- left image-list column
+def _list_width(win):
+    return win._splitter.sizes()[0]
+
+
+def test_the_list_has_its_own_column_left_of_the_canvas(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        splitter = win._splitter
+        assert splitter.count() == 3
+        assert splitter.widget(0) is win._list_column
+        assert splitter.widget(1) is win.canvas
+        tools_panel = splitter.widget(2)
+        for w in (win._lbl_job_info, win._btn_help, win._list_header, win.file_list,
+                  win.btn_prev, win.btn_next, win.btn_save, win._range_bar):
+            assert win._list_column.isAncestorOf(w), w
+            assert not tools_panel.isAncestorOf(w), w
+        for w in (win._grp_tools, win._grp_display, win._surface_row, win.btn_upload):
+            assert tools_panel.isAncestorOf(w), w
+        assert _list_width(win) == 280
+    finally:
+        win.close()
+
+
+def test_the_range_bar_sits_above_the_list(tmp_path, monkeypatch):
+    win = _range_window(tmp_path, monkeypatch)
+    try:
+        _settle()
+        assert win._range_bar.isVisible()
+        bar_y = win._range_bar.mapTo(win, win._range_bar.rect().bottomLeft()).y()
+        list_y = win.file_list.mapTo(win, win.file_list.rect().topLeft()).y()
+        assert bar_y < list_y
+        assert win._list_column.isAncestorOf(win._range_bar)
+    finally:
+        win.close()
+
+
+def test_the_list_column_fits_its_narrowest_width_in_every_language(tmp_path, monkeypatch):
+    # Job line, header and the navigation row are never clipped at the
+    # column's minimum width (it cannot be dragged narrower).
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        column = win._list_column
+        for code in ("ko", "en", "zh"):
+            i18n.set_language(code)
+            win._splitter.setSizes([0, 10_000, 360])     # as narrow as it goes
+            _settle()
+            assert column.width() == ui_builder.LIST_COLUMN_MIN_WIDTH == 200, code
+            assert win._list_column_body.minimumSizeHint().width() <= column.width(), code
+            assert win._lbl_job_info.width() > 0, code
+            for btn in (win.btn_prev, win.btn_next, win.btn_save):
+                assert btn.width() >= btn.minimumSizeHint().width(), (code, btn.text())
+    finally:
+        i18n.set_language("ko")
+        win.close()
+
+
+def test_the_tool_groups_are_packed_at_the_top(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        spacing = win._panel_layout.spacing()
+        for idx in (VIEW, BRUSH, SAM, BBOX):
+            win._tool_picker.setCurrentIndex(idx)
+            _settle()
+            tools, display = win._grp_tools, win._grp_display
+            assert tools.height() <= tools.sizeHint().height(), idx
+            assert display.height() <= display.sizeHint().height(), idx
+            assert display.y() - (tools.y() + tools.height()) == spacing, idx
+            assert tools.y() <= win._panel_layout.contentsMargins().top() + 1, idx
+    finally:
+        win.close()
+
+
+def test_the_collapse_button_folds_the_list_into_a_strip_and_back(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._splitter.moveSplitter(330, 1)
+        _settle()
+        assert abs(_list_width(win) - 330) <= 2
+        assert win._btn_list_collapse.isVisible()
+        assert not win._btn_list_expand.isVisible()
+        win._btn_list_collapse.click()
+        _settle()
+        assert _list_width(win) <= 24
+        assert not win.file_list.isVisible()
+        assert win._btn_list_expand.isVisible()
+        win._btn_list_expand.click()
+        _settle()
+        assert abs(_list_width(win) - 330) <= 2
+        assert win.file_list.isVisible()
+        assert not win._btn_list_expand.isVisible()
+    finally:
+        win.close()
+
+
+def test_l_toggles_the_list_and_a_d_still_work_while_collapsed(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        width = _list_width(win)
+        _key(win, Qt.Key_L)
+        _settle()
+        assert _list_width(win) <= 24
+        assert win.current_idx == 0
+        _key(win, Qt.Key_D)
+        assert win.current_idx == 1
+        _key(win, Qt.Key_A)
+        assert win.current_idx == 0
+        _key(win, Qt.Key_L)
+        _settle()
+        assert _list_width(win) == width
+    finally:
+        win.close()
+
+
+def test_l_reaches_the_window_from_the_brush_size_box(tmp_path, monkeypatch):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        _focus_brush_size(win)
+        QTest.keyClick(QApplication.focusWidget(), Qt.Key_L)
+        _settle()
+        assert _list_width(win) <= 24
+    finally:
+        win.close()
+
+
+def test_the_list_width_and_collapse_are_restored_in_a_new_window(tmp_path, monkeypatch):
+    from labeling_tool.core import settings
+    home = tmp_path / "settings"
+    win = _make_window(tmp_path / "first", monkeypatch, settings_home=home)
+    try:
+        win._splitter.moveSplitter(350, 1)
+        _settle()
+    finally:
+        win.close()
+    assert settings.get_list_column_width(home) == 350
+    assert settings.get_list_column_collapsed(home) is False
+
+    win = _make_window(tmp_path / "second", monkeypatch, settings_home=home)
+    try:
+        _settle()
+        assert abs(_list_width(win) - 350) <= 2
+        win._btn_list_collapse.click()
+        _settle()
+    finally:
+        win.close()
+    assert settings.get_list_column_collapsed(home) is True
+
+    win = _make_window(tmp_path / "third", monkeypatch, settings_home=home)
+    try:
+        _settle()
+        assert _list_width(win) <= 24
+        assert win._btn_list_expand.isVisible()
+        win._btn_list_expand.click()
+        _settle()
+        assert abs(_list_width(win) - 350) <= 2
+    finally:
+        win.close()
+
+
+def test_the_collapse_tooltips_follow_the_language(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        for code in ("en", "zh", "ko"):
+            i18n.set_language(code)
+            assert win._btn_list_collapse.toolTip() == i18n.tr("list_collapse_tip", shortcut="L")
+            assert win._btn_list_expand.toolTip() == i18n.tr("list_expand_tip", shortcut="L")
+            assert "L" in win._btn_list_collapse.toolTip()
+    finally:
+        i18n.set_language("ko")
+        win.close()
+
+
+def test_the_nav_row_fits_the_default_width_in_every_language(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        for code in ("ko", "en", "zh"):
+            i18n.set_language(code)
+            _settle()
+            assert _list_width(win) == 280, code
+            for btn in (win.btn_prev, win.btn_next, win.btn_save):
+                assert btn.width() >= btn.minimumSizeHint().width(), (code, btn.toolTip())
+    finally:
+        i18n.set_language("ko")
+        win.close()
+
+
+def test_clicking_anywhere_on_the_strip_expands_the_list(tmp_path, monkeypatch):
+    from PyQt5.QtCore import QPoint, Qt
+    from PyQt5.QtTest import QTest
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._collapse_list_column()
+        _settle()
+        strip = win._list_column_strip
+        assert strip.cursor().shape() == Qt.PointingHandCursor
+        assert strip.toolTip() == i18n.tr("list_expand_tip", shortcut="L")
+        assert not win._lbl_list_strip_icon.pixmap().isNull()      # a visible list icon
+        QTest.mouseClick(strip, Qt.LeftButton, pos=QPoint(strip.width() // 2,
+                                                          strip.height() - 20))
+        _settle()
+        assert _list_width(win) == 280
+        assert win.file_list.isVisible()
+    finally:
+        win.close()
+
+
+def test_the_list_handle_is_disabled_while_collapsed(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        handle = win._splitter.handle(1)
+        assert handle.isEnabled()
+        win._collapse_list_column()
+        _settle()
+        assert not handle.isEnabled()
+        win._expand_list_column()
+        _settle()
+        assert handle.isEnabled()
+    finally:
+        win.close()
+
+
+def test_only_a_drag_of_the_list_handle_changes_the_saved_width(tmp_path, monkeypatch):
+    from labeling_tool.core import settings
+    home = tmp_path / "settings"
+    win = _make_window(tmp_path, monkeypatch, settings_home=home)
+    try:
+        win._splitter.moveSplitter(330, 1)
+        _settle()
+        assert win._list_width == 330
+        sizes = win._splitter.sizes()
+        win._splitter.moveSplitter(sizes[0] + sizes[1] - 40, 2)    # the tool-panel handle
+        _settle()
+        assert win._list_width == 330
+        win._collapse_list_column()
+        _settle()
+        assert win._list_width == 330
+        win._expand_list_column()
+        _settle()
+        assert _list_width(win) == 330
+    finally:
+        win.close()
+    assert settings.get_list_column_width(home) == 330
+
+
+def test_a_restored_width_is_capped_to_a_third_of_the_window(tmp_path, monkeypatch):
+    from labeling_tool.core import settings
+    home = tmp_path / "settings"
+    settings.set_list_column_state(600, False, home)
+    win = _make_window(tmp_path, monkeypatch, settings_home=home)
+    try:
+        _settle()
+        assert win._list_width == 1400 // 3
+        # (the canvas's 600 px minimum and the tool panel may leave a bit less)
+        assert 400 <= _list_width(win) <= 1400 // 3
     finally:
         win.close()

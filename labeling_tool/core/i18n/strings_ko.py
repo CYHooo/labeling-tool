@@ -28,12 +28,13 @@ STRINGS = {
     "brush_no_image":     "이미지가 로드되지 않음",
     "brush_reset":        "마스크가 로드된 상태로 복원됨",
     "photo_count":        "{n}장",
-    "job_info_line":      "작업 {job} · {name} · {count}",
+    "job_info_head":      "작업 {job} · {count}",
     "list_col_number":    "번호",
     "list_col_file":      "파일 이름",
     "list_col_surface":   "면",
     "group_tools":        "편집 도구",
     "tip_shortcut":       "단축키: {shortcut}",
+    "tip_named_shortcut": "{name} ({shortcut})",
     "group_display":      "표시 · 축척",
     "tool_view":          "보기",
     "tool_brush":         "브러시",
@@ -53,6 +54,8 @@ STRINGS = {
     "btn_show_range":     "범위만 보기",
     "photo_count_part":   "{shown} / {total}장",
     "group_list":         "이미지 목록",
+    "list_collapse_tip":  "이미지 목록 접기 (단축키: {shortcut})",
+    "list_expand_tip":    "이미지 목록 펼치기 (단축키: {shortcut})",
     "group_hint":         "도움말 / 사용법",
     "btn_prev":           "이전 사진",
     "btn_next":           "다음 사진",
@@ -65,7 +68,8 @@ STRINGS = {
         "공통    Ctrl+Z=실행 취소 (확정 전 점부터) · Ctrl+Y=다시 실행\n"
         "측정    알려진 길이 기준의 양 끝을 클릭 (기본 마커변 7cm)\n"
         "화면    휠 버튼 드래그 / Ctrl+드래그=이동 (보기: 왼쪽 드래그) · 휠=확대/축소\n"
-        "탐색    A / D=이전/다음 · S / Ctrl+S=저장 · 전환 시 자동저장",
+        "탐색    A / D=이전/다음 · S / Ctrl+S=저장 · 전환 시 자동저장\n"
+        "        L=이미지 목록 접기/펼치기",
     "ready":              "준비 완료",
     "loaded_n_images":    "이미지 {n}장 로드됨",
     "warn_select_first":  "먼저 Origin과 Detected 폴더를 선택하세요",
