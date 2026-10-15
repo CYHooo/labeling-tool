@@ -18,8 +18,11 @@ from labeling_tool.api.edit_fields import (
     DELETED_KEY, EDIT_LIST_LIMIT, SKIP_DELETES, SKIP_ITEMS, SKIP_SURFACE,
     SURFACE_UPDATED_KEY, skipped_by_kind, timestamps_in)
 
+from labeling_tool.api.errors import ViewerApiError
 from labeling_tool.session import naming
 from labeling_tool.logging_setup import vlog
+
+PHOTO_NOT_FOUND = "PHOTO_NOT_FOUND"
 
 FILES_PER_PHOTO = 3          # mask + high + repair15 (V2/V3)
 V2_FILE_LIMIT = 100          # api-reference v1.0.8: V2 files array max 100
@@ -51,6 +54,57 @@ def _merge(into: list[int], more) -> None:
             into.append(ts)
 
 
+def _files_for(timestamps, batch_bytes) -> list[dict]:
+    """The presigned request: 3 files per photo (mask / high / 15)."""
+    files = []
+    for ts in timestamps:
+        blobs = batch_bytes[ts]
+        for fname, kind in ((naming.mask_filename(ts), "mask"),
+                            (naming.high_filename(ts), "high"),
+                            (naming.repair15_filename(ts), "repair15")):
+            files.append({"filename": fname, "timestamp": ts,
+                          "contentType": "image/png",
+                          "sizeBytes": len(blobs[kind])})
+    return files
+
+
+def _missing_photo(exc, timestamps) -> int | None:
+    """The timestamp a presign PHOTO_NOT_FOUND names, if it is one of
+    `timestamps`; None for any other error."""
+    if not isinstance(exc, ViewerApiError) or exc.code != PHOTO_NOT_FOUND:
+        return None
+    ts = exc.details.get("timestamp") if isinstance(exc.details, dict) else None
+    if isinstance(ts, int) and not isinstance(ts, bool) and ts in timestamps:
+        return ts
+    return None
+
+
+def _presign(client, session_id, timestamps, batch_bytes):
+    """Presigned URLs for `timestamps`, dropping photos the server no longer
+    has. The live server rejects the WHOLE request with 404 PHOTO_NOT_FOUND
+    naming the first missing photo, so each such photo is dropped and the
+    rest asked again (at most once per photo). Returns (url_by_name,
+    remaining timestamps, dropped timestamps); any other error is raised."""
+    remaining = list(timestamps)
+    dropped: list[int] = []
+    while remaining:
+        try:
+            presigned = client.request_presigned(
+                session_id, _files_for(remaining, batch_bytes))
+        except ViewerApiError as exc:
+            ts = _missing_photo(exc, remaining)
+            if ts is None:
+                raise
+            vlog().warning("UPLOAD: photo %s is not on the server (presign "
+                           "PHOTO_NOT_FOUND); left out of this batch", ts)
+            remaining.remove(ts)
+            dropped.append(ts)
+            continue
+        return ({u["filename"]: u for u in presigned["urls"]},
+                remaining, dropped)
+    return {}, remaining, dropped
+
+
 def upload_session(client, *, session_id: int, items: list[dict],
                    bytes_for: BytesFn,
                    edit_batch_id: str,
@@ -78,7 +132,10 @@ def upload_session(client, *, session_id: int, items: list[dict],
     deleted_timestamps merges the server's `deleted` and the `skipped` deletes
     (both mean the photo is gone). surface_timestamps follows the server's
     `surfaceUpdated` (v1.0.16). skipped_timestamps lists mask / surface edits
-    for photos the server no longer has (deleted by someone else). A failed
+    for photos the server no longer has (deleted by someone else): those
+    register `skipped`, and items presign rejects with PHOTO_NOT_FOUND (they
+    are dropped and the rest of the batch goes on; with no item left, the
+    batch registers only its surface updates / deletes). A failed
     entry also lists the batch's "surface_timestamps" / "delete_timestamps".
 
     A batch where the server's updatedPhotoCount is LESS than the photos sent
@@ -117,23 +174,14 @@ def upload_session(client, *, session_id: int, items: list[dict],
         # Read each photo's 3 blobs once; reuse for sizeBytes + PUT.
         batch_bytes = {ts: bytes_for(ts) for ts in timestamps}
         try:
-            # presigned URLs: 3 files per photo (mask/high/15)
-            files = []
-            for ts in timestamps:
-                blobs = batch_bytes[ts]
-                files.append({"filename": naming.mask_filename(ts),
-                              "timestamp": ts, "contentType": "image/png",
-                              "sizeBytes": len(blobs["mask"])})
-                files.append({"filename": naming.high_filename(ts),
-                              "timestamp": ts, "contentType": "image/png",
-                              "sizeBytes": len(blobs["high"])})
-                files.append({"filename": naming.repair15_filename(ts),
-                              "timestamp": ts, "contentType": "image/png",
-                              "sizeBytes": len(blobs["repair15"])})
-            url_by_name = {}
-            if files:   # an edits-only batch has nothing to upload
-                presigned = client.request_presigned(session_id, files)
-                url_by_name = {u["filename"]: u for u in presigned["urls"]}
+            # an edits-only batch has nothing to upload; a photo the server
+            # no longer has is dropped here (like a register `skipped` item)
+            url_by_name, timestamps, gone_at_presign = _presign(
+                client, session_id, timestamps, batch_bytes)
+            # recorded now: a later failure must not list them as failed
+            _merge(skipped_ts, gone_at_presign)
+            kept = set(timestamps)
+            batch_items = [it for it in batch if it["timestamp"] in kept]
 
             # PUT mask -> high -> 15 for each photo, then advance progress once.
             for i, ts in enumerate(timestamps, start=1):
@@ -155,9 +203,12 @@ def upload_session(client, *, session_id: int, items: list[dict],
                 extra["surface_updates"] = batch_surface
             if batch_deletes:
                 extra["deletes"] = batch_deletes
-            reg = client.register_annotations(
-                edit_batch_id=batch_edit_id, session_id=session_id,
-                items=batch, **extra)
+            if batch_items or extra:
+                reg = client.register_annotations(
+                    edit_batch_id=batch_edit_id, session_id=session_id,
+                    items=batch_items, **extra)
+            else:   # every photo was gone and nothing else to send
+                reg = None
             # v1.0.16: a photo the server no longer has is skipped, not an
             # error; such items are neither saved nor an anomaly.
             skipped = skipped_by_kind(reg)
@@ -166,14 +217,17 @@ def upload_session(client, *, session_id: int, items: list[dict],
             updated = reg.get("updatedPhotoCount") if isinstance(reg, dict) else None
             # updatedPhotoCount counts saved items + changed surfaces (each
             # photo once), so it can exceed the items but never fall short.
-            if updated is not None and updated < len(saved):
+            expected = set(saved)
+            if isinstance(reg, dict) and isinstance(reg.get(SURFACE_UPDATED_KEY), list):
+                expected |= set(timestamps_in(reg, SURFACE_UPDATED_KEY)) & set(sent_surface)
+            if updated is not None and updated < len(expected):
                 # Server accepted the request but persisted fewer than we sent.
                 vlog().warning(
                     "UPLOAD ANOMALY: server persisted %d of %d sent "
                     "(editBatchId=%s timestamps=%s)",
-                    updated, len(saved), batch_edit_id, saved)
+                    updated, len(expected), batch_edit_id, sorted(expected))
                 anomalies.append({"timestamps": saved,
-                                  "sent": len(saved), "updated": int(updated)})
+                                  "sent": len(expected), "updated": int(updated)})
                 uploaded += int(updated)
             else:
                 uploaded += len(saved)
@@ -183,6 +237,11 @@ def upload_session(client, *, session_id: int, items: list[dict],
             sent = set(sent_deletes)
             # a delete skipped for a missing photo is gone all the same;
             # unkinded skips (pre-release shape) only ever meant deletes
+            if skipped.get(None):
+                vlog().warning(
+                    "UPLOAD: server skipped entries without a kind "
+                    "(editBatchId=%s timestamps=%s); read as deletes",
+                    batch_edit_id, skipped[None])
             reported = (timestamps_in(reg, DELETED_KEY)
                         + skipped.get(SKIP_DELETES, []) + skipped.get(None, []))
             extras = [t for t in reported if t not in sent]

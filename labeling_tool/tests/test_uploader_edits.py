@@ -287,3 +287,125 @@ def test_an_older_server_without_surface_updated_keeps_the_sent_rule():
     # what it sent (the earlier contract), minus skipped surfaces
     res = _run(EditClient(), surface=[{"timestamp": 3, "surface": "wall"}])
     assert res["surface_timestamps"] == [3]
+
+
+# ---------------------------------------------------------------- photos gone before presign
+from labeling_tool.api.errors import ViewerApiError
+
+
+class PresignMissingClient(V1016Client):
+    """Like the live v1.0.16 server: presign for a deleted photo answers 404
+    PHOTO_NOT_FOUND naming the FIRST missing timestamp and issues no URLs."""
+
+    def __init__(self, missing=(), **kw):
+        super().__init__(missing=missing, **kw)
+
+    def request_presigned(self, session_id, files):
+        for f in files:
+            if f["timestamp"] in self.missing:
+                self.presigned_calls.append(files)
+                raise ViewerApiError("PHOTO_NOT_FOUND", "photo not found", 404,
+                                     {"timestamp": f["timestamp"]})
+        return super().request_presigned(session_id, files)
+
+
+def test_a_photo_missing_at_presign_is_dropped_and_the_rest_upload():
+    c = PresignMissingClient(missing={2})
+    res = _run(c, items=[_item(1), _item(2), _item(3)])
+    assert res["failed"] == []
+    assert res["skipped_timestamps"] == [2]
+    assert sorted(res["confirmed_timestamps"]) == [1, 3]
+    assert res["uploaded"] == 2
+    assert [it["timestamp"] for it in c.registers[0]["items"]] == [1, 3]
+    assert len(c.presigned_calls) == 2
+    assert {f["timestamp"] for f in c.presigned_calls[-1]} == {1, 3}
+    assert len(c.puts) == 6
+
+
+def test_every_photo_missing_at_presign_still_registers_the_edits():
+    c = PresignMissingClient(missing={1, 2})
+    res = _run(c, items=[_item(1), _item(2)],
+               surface=[{"timestamp": 7, "surface": "wall"}],
+               deletes=[{"timestamp": 9}])
+    assert res["failed"] == []
+    assert sorted(res["skipped_timestamps"]) == [1, 2]
+    assert len(c.registers) == 1
+    reg = c.registers[0]
+    assert reg["items"] == []
+    assert reg["surface_updates"] == [{"timestamp": 7, "surface": "wall"}]
+    assert reg["deletes"] == [{"timestamp": 9}]
+    assert res["surface_timestamps"] == [7] and res["deleted_timestamps"] == [9]
+    assert c.puts == []
+
+
+def test_every_photo_missing_with_no_edits_makes_no_register():
+    c = PresignMissingClient(missing={1})
+    res = _run(c, items=[_item(1)])
+    assert res["failed"] == [] and res["skipped_timestamps"] == [1]
+    assert c.registers == [] and res["uploaded"] == 0
+
+
+def test_another_presign_error_still_fails_the_batch():
+    class Broken(EditClient):
+        def request_presigned(self, session_id, files):
+            raise ViewerApiError("FORBIDDEN", "no", 403, {})
+    c = Broken()
+    res = _run(c, items=[_item(1)])
+    assert len(res["failed"]) == 1 and res["skipped_timestamps"] == []
+    assert c.registers == []
+
+
+def test_photo_not_found_for_a_timestamp_outside_the_batch_fails_the_batch():
+    class Odd(EditClient):
+        def request_presigned(self, session_id, files):
+            self.presigned_calls.append(files)
+            raise ViewerApiError("PHOTO_NOT_FOUND", "x", 404, {"timestamp": 555})
+    c = Odd()
+    res = _run(c, items=[_item(1)])
+    assert len(res["failed"]) == 1 and res["skipped_timestamps"] == []
+    assert len(c.presigned_calls) == 1
+
+
+# ---------------------------------------------------------------- review minors
+def test_anomaly_bound_counts_changed_surfaces_too():
+    class Short(V1016Client):
+        def register_annotations(self, **kw):
+            r = super().register_annotations(**kw)
+            r["updatedPhotoCount"] = 1      # saved {1} + surface {2} = 2
+            return r
+    res = _run(Short(), items=[_item(1)], surface=[{"timestamp": 2, "surface": "wall"}])
+    assert len(res["anomalies"]) == 1
+    assert res["confirmed_timestamps"] == []
+
+
+def test_anomaly_bound_ignores_surface_on_a_saved_photo():
+    class Exact(V1016Client):
+        def register_annotations(self, **kw):
+            r = super().register_annotations(**kw)
+            r["updatedPhotoCount"] = 1
+            return r
+    res = _run(Exact(), items=[_item(1)], surface=[{"timestamp": 1, "surface": "wall"}])
+    assert res["anomalies"] == [] and res["confirmed_timestamps"] == [1]
+
+
+def test_unkinded_skip_logs_a_warning(monkeypatch):
+    import labeling_tool.api.uploader as up
+    warnings = []
+
+    class Log:
+        def warning(self, msg, *a):
+            warnings.append(msg % a)
+
+        def exception(self, *a):
+            pass
+    monkeypatch.setattr(up, "vlog", lambda: Log())
+
+    class Bare(EditClient):
+        def register_annotations(self, **kw):
+            r = super().register_annotations(**kw)
+            r["skipped"] = [1000]
+            r["deleted"] = []
+            return r
+    res = _run(Bare(), deletes=_dels(1))
+    assert res["deleted_timestamps"] == [1000]
+    assert any("without a kind" in w for w in warnings)
