@@ -41,10 +41,9 @@ if TYPE_CHECKING:
 _GROUP_MARGINS = (10, 14, 10, 10)
 _GROUP_SPACING = 6
 
-# The image-list column: its width range while expanded (the real minimum
-# is whatever its content needs -- the navigation row, mostly -- which may
-# be more than this floor), its width when collapsed to the strip holding
-# the expand button, and the shortcut that toggles it (in the tooltips).
+# The image-list column: its width range while expanded, its width when
+# collapsed to the strip holding the expand button, and the shortcut that
+# toggles it (in the tooltips).
 LIST_COLUMN_MIN_WIDTH = 200
 LIST_COLUMN_MAX_WIDTH = 640
 LIST_COLUMN_STRIP_WIDTH = 24
@@ -73,6 +72,14 @@ _SECONDARY_COLOR = QColor(140, 140, 140)
 _SECONDARY_SELECTED_COLOR = QColor(215, 225, 245)   # readable on the blue highlight
 _SELECTED_TEXT_COLOR = QColor(255, 255, 255)        # QListWidget::item:selected
 _PART_GAP = 10
+
+
+def elide_file_name(metrics: QFontMetrics, name: str, width: int) -> str:
+    """A file name cut on the LEFT to fit `width`: photos of one job share
+    their prefix and differ in the numeric tail ("…hed_104.jpg")."""
+    if metrics.horizontalAdvance(name) <= width:
+        return name
+    return metrics.elidedText(name, Qt.ElideLeft, max(width, 0))
 
 
 def _tinted(pixmap: QPixmap, colour: QColor) -> QPixmap:
@@ -268,7 +275,7 @@ class TwoPartItemDelegate(QStyledItemDelegate):
             painter.setFont(name_font)
             painter.setPen(text_colour)
             name_room = max(rest.width() - label_width - _PART_GAP, 0)
-            elided = painter.fontMetrics().elidedText(secondary, Qt.ElideMiddle, name_room)
+            elided = elide_file_name(painter.fontMetrics(), secondary, name_room)
             painter.drawText(rest, Qt.AlignLeft | Qt.AlignVCenter, elided)
             painter.setFont(small)
             label_x = rest.left() + painter.fontMetrics().horizontalAdvance(elided) + _PART_GAP
@@ -279,8 +286,7 @@ class TwoPartItemDelegate(QStyledItemDelegate):
             painter.setFont(small)
             painter.setPen(_SECONDARY_SELECTED_COLOR if selected
                            else _SECONDARY_COLOR)
-            elided = painter.fontMetrics().elidedText(
-                secondary, Qt.ElideMiddle, max(rest.width(), 0))
+            elided = elide_file_name(painter.fontMetrics(), secondary, rest.width())
             painter.drawText(rest, Qt.AlignLeft | Qt.AlignVCenter, elided)
 
         if self.delete_width:
@@ -326,6 +332,32 @@ class ElidedLabel(QLabel):
     def _elide(self) -> None:
         super().setText(self.fontMetrics().elidedText(
             self._full, Qt.ElideRight, max(self.width(), 0)))
+
+
+class ClickableStrip(QFrame):
+    """The collapsed image-list column: the whole strip is one button
+    (pointing-hand cursor, hover background) that emits clicked()."""
+
+    clicked = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setAttribute(Qt.WA_Hover, True)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            event.accept()               # so the release comes here too
+            return
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self.rect().contains(event.pos()):
+            self.clicked.emit()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
 
 class ListHeader(QWidget):
@@ -390,18 +422,21 @@ def _checkable(button: QPushButton, height: int = 32) -> QPushButton:
 
 
 def build_job_info_row(window: "MainWindow") -> QWidget:
-    """The list column's collapse button, then the job id, inspection name
-    and photo count on one line, and the shortcut-help button.
+    """Two lines: the list column's collapse button, the job id and photo
+    count, and the shortcut-help button; under them the inspection name
+    (elided at the right, full text in the tooltip).
     The text comes from window._refresh_job_info()."""
-    row = QWidget()
-    lay = QHBoxLayout(row)
-    lay.setContentsMargins(0, 0, 0, 0)
+    block = QWidget()
+    outer = QVBoxLayout(block)
+    outer.setContentsMargins(0, 0, 0, 0)
+    outer.setSpacing(0)
+    row = QHBoxLayout()
+    row.setContentsMargins(0, 0, 0, 0)
     window._btn_list_collapse = QToolButton()
     window._btn_list_collapse.setObjectName("listCollapse")
     window._btn_list_collapse.setIcon(icons.icon("chevron-left"))
     window._btn_list_collapse.setAutoRaise(True)
     window._btn_list_collapse.clicked.connect(window._collapse_list_column)
-    lay.addWidget(window._btn_list_collapse)
     window._lbl_job_info = ElidedLabel()
     window._lbl_job_info.setObjectName("jobInfoLine")
     window._btn_help = QToolButton()
@@ -409,10 +444,18 @@ def build_job_info_row(window: "MainWindow") -> QWidget:
     window._btn_help.setAutoRaise(True)
     window._btn_help.setToolTip(window.tr_("group_hint"))
     window._btn_help.clicked.connect(window._show_help)
-    lay.addWidget(window._lbl_job_info, 1)
-    lay.addWidget(window._btn_help)
+    row.addWidget(window._btn_list_collapse)
+    row.addWidget(window._lbl_job_info, 1)
+    row.addWidget(window._btn_help)
+    outer.addLayout(row)
+    window._lbl_job_name = ElidedLabel()
+    window._lbl_job_name.setObjectName("jobNameLine")
+    # under the job id: indented past the collapse button
+    window._lbl_job_name.setContentsMargins(
+        window._btn_list_collapse.sizeHint().width() + row.spacing(), 0, 0, 0)
+    outer.addWidget(window._lbl_job_name)
     window._refresh_job_info()
-    return row
+    return block
 
 
 def build_list_group(window: "MainWindow") -> QGroupBox:
@@ -434,18 +477,20 @@ def build_list_group(window: "MainWindow") -> QGroupBox:
     gl.addWidget(window.file_list, 1)
     gl.addSpacing(_GROUP_SPACING + 2)
 
-    # In a widget of its own so the stylesheet can tighten these buttons:
-    # all three on one line fit the list column's default width.
     nav = QWidget()
     nav.setObjectName("navRow")
     nav_row = QHBoxLayout(nav)
     nav_row.setContentsMargins(0, 0, 0, 0)
     nav_row.setSpacing(4)
-    window.btn_prev = QPushButton(window.tr_("btn_prev"))
+    # previous / next are icon-only (their tooltips name them and the key),
+    # so the row fits the column's default width in every language
+    window.btn_prev = QPushButton()
     window.btn_prev.setIcon(icons.icon("chevron-left"))
-    window.btn_next = QPushButton(window.tr_("btn_next"))
+    window.btn_next = QPushButton()
     window.btn_next.setIcon(icons.icon("chevron-right"))
-    window.btn_next.setLayoutDirection(Qt.RightToLeft)   # chevron after the text
+    window.btn_next.setLayoutDirection(Qt.RightToLeft)
+    for btn in (window.btn_prev, window.btn_next):
+        btn.setObjectName("navIconButton")
     window.btn_save = QPushButton(window.tr_("btn_save"))
     window.btn_save.setIcon(icons.icon("save", primary=True))
     window.btn_save.setObjectName("primaryAction")
@@ -454,7 +499,7 @@ def build_list_group(window: "MainWindow") -> QGroupBox:
     window.btn_save.clicked.connect(window._on_brush_save)
     nav_row.addWidget(window.btn_prev)
     nav_row.addWidget(window.btn_next)
-    nav_row.addWidget(window.btn_save)
+    nav_row.addWidget(window.btn_save, 1)
     gl.addWidget(nav)
     window._refresh_list_header()
     return window._grp_list
@@ -781,20 +826,29 @@ def build_list_column(window: "MainWindow") -> QWidget:
     body = QWidget()
     body_layout = QVBoxLayout(body)
     body_layout.setSpacing(8)
-    body_layout.setContentsMargins(8, 8, 6, 6)
+    body_layout.setContentsMargins(6, 8, 4, 6)
     body_layout.addWidget(build_job_info_row(window))
     body_layout.addWidget(build_list_group(window), stretch=1)
     outer.addWidget(body)
 
-    strip = QWidget()
+    strip = ClickableStrip()
+    strip.setObjectName("listStrip")
+    strip.clicked.connect(window._expand_list_column)
     strip_layout = QVBoxLayout(strip)
     strip_layout.setContentsMargins(0, 8, 0, 0)
+    strip_layout.setSpacing(6)
     window._btn_list_expand = QToolButton()
     window._btn_list_expand.setObjectName("listExpand")
-    window._btn_list_expand.setIcon(icons.icon("chevron-right"))
+    window._btn_list_expand.setIcon(icons.icon("chevron-right", primary=True))
+    window._btn_list_expand.setIconSize(QSize(16, 16))
     window._btn_list_expand.setAutoRaise(True)
+    window._btn_list_expand.setCursor(Qt.PointingHandCursor)
     window._btn_list_expand.clicked.connect(window._expand_list_column)
+    window._lbl_list_strip_icon = QLabel()
+    window._lbl_list_strip_icon.setPixmap(icons.icon("list", primary=True).pixmap(16, 16))
+    window._lbl_list_strip_icon.setAlignment(Qt.AlignHCenter)
     strip_layout.addWidget(window._btn_list_expand, 0, Qt.AlignHCenter)
+    strip_layout.addWidget(window._lbl_list_strip_icon, 0, Qt.AlignHCenter)
     strip_layout.addStretch(1)
     strip.setVisible(False)
     outer.addWidget(strip)
@@ -802,7 +856,7 @@ def build_list_column(window: "MainWindow") -> QWidget:
     window._list_column = column
     window._list_column_body = body
     window._list_column_strip = strip
-    # no explicit minimum: the splitter keeps the content's minimum size
+    column.setMinimumWidth(LIST_COLUMN_MIN_WIDTH)
     column.setMaximumWidth(LIST_COLUMN_MAX_WIDTH)
     return column
 

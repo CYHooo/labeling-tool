@@ -179,7 +179,10 @@ STYLESHEET = """
         QLabel#toolHint { color: #9ea3aa; }
         QFrame#toolRule { color: #3a4048; }
         QPushButton#compactButton { padding: 2px 10px; min-height: 18px; }
-        QWidget#navRow QPushButton { padding: 6px 5px; }
+        QPushButton#navIconButton { padding: 6px 8px; }
+        QFrame#listStrip { background-color: #1f2329; border: none; }
+        QFrame#listStrip:hover { background-color: #2c313a; }
+        QLabel#jobNameLine { color: #9ea3aa; }
         /* 촬영면 row: narrow buttons so the row fits the 340 px panel; a value
            changed here is amber, like the hand-measured scale */
         QPushButton#surfaceButton { padding: 2px 4px; min-height: 20px; }

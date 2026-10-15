@@ -49,14 +49,34 @@ def _make_window(tmp_path, monkeypatch, *, inspection_name: str | None = "교량
 
 
 # ---------------------------------------------------------------- job info
-def test_job_info_is_one_line_with_a_help_button(tmp_path, monkeypatch):
+def test_job_info_is_two_lines_with_a_help_button(tmp_path, monkeypatch):
+    # line 1: job id and photo count (collapse button left, "?" right);
+    # line 2: the inspection name, elided at the right, full text as tooltip
     win = _make_window(tmp_path, monkeypatch)
     try:
-        expected = i18n.tr("job_info_line", job=45, name="교량 정기점검",
-                           count=i18n.tr("photo_count", n=2))
-        assert win._lbl_job_info.full_text() == expected
-        assert win._lbl_job_info.toolTip() == expected
+        head = i18n.tr("job_info_head", job=45, count=i18n.tr("photo_count", n=2))
+        assert win._lbl_job_info.full_text() == head
+        assert win._lbl_job_name.full_text() == "교량 정기점검"
+        assert win._lbl_job_name.toolTip() == "교량 정기점검"
         assert not win._btn_help.icon().isNull()
+
+        def top(w):
+            return w.mapTo(win, w.rect().topLeft())
+        assert top(win._lbl_job_name).y() > top(win._lbl_job_info).y()
+        assert abs(top(win._btn_help).y() - top(win._lbl_job_info).y()) <= 8
+        assert top(win._btn_list_collapse).x() < top(win._lbl_job_info).x() < top(win._btn_help).x()
+    finally:
+        win.close()
+
+
+def test_a_long_inspection_name_is_elided_at_the_right(tmp_path, monkeypatch):
+    name = "아주 긴 점검 이름 " * 12
+    win = _make_window(tmp_path, monkeypatch, inspection_name=name)
+    try:
+        _settle()
+        shown = win._lbl_job_name.text()
+        assert shown.endswith("…") and name.startswith(shown[:-1])
+        assert win._lbl_job_name.toolTip() == name
     finally:
         win.close()
 
@@ -64,7 +84,7 @@ def test_job_info_is_one_line_with_a_help_button(tmp_path, monkeypatch):
 def test_job_info_without_a_name_shows_a_dash(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch, inspection_name=None)
     try:
-        assert " · — · " in win._lbl_job_info.full_text()
+        assert win._lbl_job_name.full_text() == "—"
     finally:
         win.close()
 
@@ -162,15 +182,17 @@ def test_the_viewer_window_shows_the_surface_column_trash_and_row(tmp_path, monk
 def test_one_navigation_row_with_a_single_save(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch)
     try:
-        assert win.btn_prev.text() == i18n.tr("btn_prev") == "이전 사진"
-        assert win.btn_next.text() == i18n.tr("btn_next") == "다음 사진"
+        # previous / next are icon-only; their tooltips name them and the key
+        assert win.btn_prev.text() == "" and win.btn_next.text() == ""
+        assert win.btn_prev.toolTip() == "이전 사진 (A)"
+        assert win.btn_next.toolTip() == "다음 사진 (D)"
+        assert win.btn_save.text() == i18n.tr("btn_save")
         assert not hasattr(win, "_btn_brush_save")
         saves = [b for b in win.findChildren(QPushButton)
                  if b.isVisible() and b.text() == i18n.tr("btn_save")]
         assert saves == [win.btn_save]
         y = {b.mapTo(win, b.rect().topLeft()).y() for b in (win.btn_prev, win.btn_next, win.btn_save)}
         assert len(y) == 1                                   # same row
-        assert "A" in win.btn_prev.toolTip() and "D" in win.btn_next.toolTip()
         assert "S" in win.btn_save.toolTip()
     finally:
         win.close()
@@ -298,10 +320,10 @@ def test_panel_text_follows_the_language(tmp_path, monkeypatch):
             assert win._grp_display.title() == i18n.tr("group_display")
             assert win._tool_picker.toolText(BRUSH) == i18n.tr("tool_brush")
             assert win._list_header.labels()[1] == i18n.tr("list_col_file")
-            assert win.btn_prev.text() == i18n.tr("btn_prev")
+            assert win.btn_prev.toolTip() == i18n.tr(
+                "tip_named_shortcut", name=i18n.tr("btn_prev"), shortcut="A")
             assert win._lbl_job_info.full_text() == i18n.tr(
-                "job_info_line", job=45, name="교량 정기점검",
-                count=i18n.tr("photo_count", n=2))
+                "job_info_head", job=45, count=i18n.tr("photo_count", n=2))
     finally:
         win.close()
 
@@ -2342,9 +2364,7 @@ def test_the_list_has_its_own_column_left_of_the_canvas(tmp_path, monkeypatch):
             assert not tools_panel.isAncestorOf(w), w
         for w in (win._grp_tools, win._grp_display, win._surface_row, win.btn_upload):
             assert tools_panel.isAncestorOf(w), w
-        # 280 px, unless the content (one navigation row) needs more
-        expected = max(280, win._list_column.minimumSizeHint().width())
-        assert abs(_list_width(win) - expected) <= 2
+        assert _list_width(win) == 280
     finally:
         win.close()
 
@@ -2372,7 +2392,7 @@ def test_the_list_column_fits_its_narrowest_width_in_every_language(tmp_path, mo
             i18n.set_language(code)
             win._splitter.setSizes([0, 10_000, 360])     # as narrow as it goes
             _settle()
-            assert column.width() >= ui_builder.LIST_COLUMN_MIN_WIDTH, code
+            assert column.width() == ui_builder.LIST_COLUMN_MIN_WIDTH == 200, code
             assert win._list_column_body.minimumSizeHint().width() <= column.width(), code
             assert win._lbl_job_info.width() > 0, code
             for btn in (win.btn_prev, win.btn_next, win.btn_save):
@@ -2497,4 +2517,90 @@ def test_the_collapse_tooltips_follow_the_language(tmp_path, monkeypatch):
             assert "L" in win._btn_list_collapse.toolTip()
     finally:
         i18n.set_language("ko")
+        win.close()
+
+
+def test_the_nav_row_fits_the_default_width_in_every_language(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        for code in ("ko", "en", "zh"):
+            i18n.set_language(code)
+            _settle()
+            assert _list_width(win) == 280, code
+            for btn in (win.btn_prev, win.btn_next, win.btn_save):
+                assert btn.width() >= btn.minimumSizeHint().width(), (code, btn.toolTip())
+    finally:
+        i18n.set_language("ko")
+        win.close()
+
+
+def test_clicking_anywhere_on_the_strip_expands_the_list(tmp_path, monkeypatch):
+    from PyQt5.QtCore import QPoint, Qt
+    from PyQt5.QtTest import QTest
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        win._collapse_list_column()
+        _settle()
+        strip = win._list_column_strip
+        assert strip.cursor().shape() == Qt.PointingHandCursor
+        assert strip.toolTip() == i18n.tr("list_expand_tip", shortcut="L")
+        assert not win._lbl_list_strip_icon.pixmap().isNull()      # a visible list icon
+        QTest.mouseClick(strip, Qt.LeftButton, pos=QPoint(strip.width() // 2,
+                                                          strip.height() - 20))
+        _settle()
+        assert _list_width(win) == 280
+        assert win.file_list.isVisible()
+    finally:
+        win.close()
+
+
+def test_the_list_handle_is_disabled_while_collapsed(tmp_path, monkeypatch):
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        handle = win._splitter.handle(1)
+        assert handle.isEnabled()
+        win._collapse_list_column()
+        _settle()
+        assert not handle.isEnabled()
+        win._expand_list_column()
+        _settle()
+        assert handle.isEnabled()
+    finally:
+        win.close()
+
+
+def test_only_a_drag_of_the_list_handle_changes_the_saved_width(tmp_path, monkeypatch):
+    from labeling_tool.core import settings
+    home = tmp_path / "settings"
+    win = _make_window(tmp_path, monkeypatch, settings_home=home)
+    try:
+        win._splitter.moveSplitter(330, 1)
+        _settle()
+        assert win._list_width == 330
+        sizes = win._splitter.sizes()
+        win._splitter.moveSplitter(sizes[0] + sizes[1] - 40, 2)    # the tool-panel handle
+        _settle()
+        assert win._list_width == 330
+        win._collapse_list_column()
+        _settle()
+        assert win._list_width == 330
+        win._expand_list_column()
+        _settle()
+        assert _list_width(win) == 330
+    finally:
+        win.close()
+    assert settings.get_list_column_width(home) == 330
+
+
+def test_a_restored_width_is_capped_to_a_third_of_the_window(tmp_path, monkeypatch):
+    from labeling_tool.core import settings
+    home = tmp_path / "settings"
+    settings.set_list_column_state(600, False, home)
+    win = _make_window(tmp_path, monkeypatch, settings_home=home)
+    try:
+        _settle()
+        assert win._list_width == 1400 // 3
+        # (the canvas's 600 px minimum and the tool panel may leave a bit less)
+        assert 400 <= _list_width(win) <= 1400 // 3
+    finally:
         win.close()
