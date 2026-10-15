@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -v \"^remote: *$\")",
+      "Bash(git fetch *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(.venv/bin/python -c \"import yaml; yaml.safe_load\\(open\\('.github/workflows/build-windows.yml'\\)\\); print\\('yaml ok'\\)\")",
+      "Bash(git tag *)",
+      "Bash(git ls-remote *)",
+      "Bash(awk '{print $2}')",
+      "Bash(git switch *)",
+      "Bash(git merge *)",
+      "Bash(gh run *)",
+      "Bash(git -c commit.gpgsign=false commit -q -m 'ci: install the Qt libraries at build time, check availability in a container *)",
+      "Bash(gh workflow *)",
+      "Bash(git commit *)",
+      "Bash(QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests labeling_tool/tests annotation_tool/tests -q -p no:cacheprovider)",
+      "Bash(python3 -c ' *)",
+      "Bash(git checkout *)",
+      "Bash(python3 -)",
+      "Bash(python3 -c \"import yaml; yaml.safe_load\\(open\\('.github/workflows/release.yml'\\)\\); print\\('yaml ok'\\)\")",
+      "Bash(gh release *)",
+      "Bash(QT_QPA_PLATFORM=offscreen timeout 600 .venv/bin/python -m pytest tests labeling_tool/tests annotation_tool/tests -q -p no:cacheprovider)",
+      "Bash(.venv/bin/python -)",
+      "Bash(rm -r .superpowers/sdd/2026-10-13-user-classes)",
+      "Bash(sed *)",
+      "Bash(rm -r .superpowers/sdd/2026-10-14-surface-and-delete)",
+      "Bash(QT_QPA_PLATFORM=offscreen timeout 110 .venv/bin/python -m pytest tests labeling_tool/tests annotation_tool/tests -q -p no:cacheprovider)"
+    ]
+  }
+}

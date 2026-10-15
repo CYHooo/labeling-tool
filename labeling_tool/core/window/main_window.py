@@ -1153,6 +1153,13 @@ class MainWindow(QMainWindow):
         if notice:
             self.status.showMessage(notice)
 
+    def _has_unconfirmed_edits(self) -> bool:
+        """True when _confirm_pending_edits would add an edit: a SAM
+        selection, or repair-area points enough for a box."""
+        c = self.canvas
+        clicks = c.bbox_interaction.in_progress_clicks
+        return c.has_sam_preview() or (len(clicks) >= 2 and c.bbox_padding_px > 0)
+
     def _confirm_pending_edits(self) -> str | None:
         """Moving to another photo (or closing) confirms what was left
         unconfirmed -- a SAM selection, repair-area points -- so it is saved

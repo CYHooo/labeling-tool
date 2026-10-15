@@ -60,3 +60,36 @@ def _ui_settings_in_tmp(tmp_path, monkeypatch):
     Tests that need a particular home patch _settings_home again."""
     from labeling_tool.core import i18n
     monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path / "ui-settings-home")
+
+
+@pytest.fixture(autouse=True)
+def close_prompts(monkeypatch):
+    """Closing a labeling window with photos not uploaded asks the user, and
+    a modal dialog would hang an offscreen run. Every test answers "close"
+    (and the upload-running notice records instead of showing); a test that
+    checks the prompt patches the methods again. The list records each ask
+    as ("ask", count) or ("busy", None); .real / .real_busy are the
+    unstubbed prompt and notice."""
+    from labeling_tool.ui.main_window import ViewerMainWindow
+    asked = _LogStarts()
+    asked.real = ViewerMainWindow._ask_close_unuploaded
+    asked.real_busy = ViewerMainWindow._tell_upload_running
+
+    def ask(_self, count):
+        asked.append(("ask", count))
+        return "close"
+
+    monkeypatch.setattr(ViewerMainWindow, "_ask_close_unuploaded", ask)
+    monkeypatch.setattr(ViewerMainWindow, "_tell_upload_running",
+                        lambda _self: asked.append(("busy", None)))
+    yield asked
+    # A test that left a (fake) upload "running" had its close refused; a
+    # window still visible afterwards would make later tests think a
+    # labeling session is open (update/ui._session_in_progress).
+    from PyQt5.QtWidgets import QApplication
+    app = QApplication.instance()
+    for w in (app.topLevelWidgets() if app is not None else ()):
+        if isinstance(w, ViewerMainWindow) and w.isVisible():
+            w._upload_worker = None
+            w._close_after_upload = False
+            w.close()
