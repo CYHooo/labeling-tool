@@ -106,6 +106,7 @@ STRINGS = {
     "delete_confirm_cancel": "취소",
     "upload_deleted_summary": "삭제 {n}장",
     "upload_surface_summary": "촬영면 변경 {n}장",
+    "upload_skipped_summary": "서버에 없는 사진 {n}장은 건너뜀 (작업을 다시 가져오세요)",
     "photo_refresh_failed":  "사진 번호를 새로 받지 못했습니다. 작업을 다시 가져오면 맞춰집니다.",
     "measure_dialog_title":  "수동 축척",
     "measure_dialog_label":  "측정한 선분의 실제 길이 (cm):",

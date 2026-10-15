@@ -101,6 +101,7 @@ STRINGS = {
     "delete_confirm_cancel": "取消",
     "upload_deleted_summary": "已删除 {n} 张",
     "upload_surface_summary": "拍摄面已修改 {n} 张",
+    "upload_skipped_summary": "服务器上已没有的照片 {n} 张已跳过（请重新获取作业）",
     "photo_refresh_failed":  "未能刷新照片编号，重新获取作业即可更新。",
     "measure_dialog_title":  "手动比例尺",
     "measure_dialog_label":  "测量线段的实际长度 (cm):",

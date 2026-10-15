@@ -15,7 +15,8 @@ from __future__ import annotations
 from typing import Callable
 
 from labeling_tool.api.edit_fields import (
-    DELETED_KEY, EDIT_LIST_LIMIT, SKIPPED_KEY, timestamps_in)
+    DELETED_KEY, EDIT_LIST_LIMIT, SKIP_DELETES, SKIP_ITEMS, SKIP_SURFACE,
+    SURFACE_UPDATED_KEY, skipped_by_kind, timestamps_in)
 
 from labeling_tool.session import naming
 from labeling_tool.logging_setup import vlog
@@ -73,8 +74,11 @@ def upload_session(client, *, session_id: int, items: list[dict],
 
     Returns {"uploaded": int, "failed": [...], "anomalies": [...],
              "confirmed_timestamps": [...], "deleted_timestamps": [...],
-             "surface_timestamps": [...]}. deleted_timestamps merges the
-    server's `deleted` and `skipped` (both mean the photo is gone). A failed
+             "surface_timestamps": [...], "skipped_timestamps": [...]}.
+    deleted_timestamps merges the server's `deleted` and the `skipped` deletes
+    (both mean the photo is gone). surface_timestamps follows the server's
+    `surfaceUpdated` (v1.0.16). skipped_timestamps lists mask / surface edits
+    for photos the server no longer has (deleted by someone else). A failed
     entry also lists the batch's "surface_timestamps" / "delete_timestamps".
 
     A batch where the server's updatedPhotoCount is LESS than the photos sent
@@ -88,6 +92,7 @@ def upload_session(client, *, session_id: int, items: list[dict],
     confirmed: list[int] = []
     deleted_ts: list[int] = []
     surface_ts: list[int] = []
+    skipped_ts: list[int] = []   # items / surfaces for photos the server lacks
     surface_updates = list(surface_updates)
     deletes = list(deletes)
     total = len(items)
@@ -153,24 +158,33 @@ def upload_session(client, *, session_id: int, items: list[dict],
             reg = client.register_annotations(
                 edit_batch_id=batch_edit_id, session_id=session_id,
                 items=batch, **extra)
+            # v1.0.16: a photo the server no longer has is skipped, not an
+            # error; such items are neither saved nor an anomaly.
+            skipped = skipped_by_kind(reg)
+            gone_items = set(skipped.get(SKIP_ITEMS, ())) & set(timestamps)
+            saved = [ts for ts in timestamps if ts not in gone_items]
             updated = reg.get("updatedPhotoCount") if isinstance(reg, dict) else None
-            if updated is not None and updated < len(batch):
+            # updatedPhotoCount counts saved items + changed surfaces (each
+            # photo once), so it can exceed the items but never fall short.
+            if updated is not None and updated < len(saved):
                 # Server accepted the request but persisted fewer than we sent.
                 vlog().warning(
                     "UPLOAD ANOMALY: server persisted %d of %d sent "
                     "(editBatchId=%s timestamps=%s)",
-                    updated, len(batch), batch_edit_id, timestamps)
-                anomalies.append({"timestamps": timestamps,
-                                  "sent": len(batch), "updated": int(updated)})
+                    updated, len(saved), batch_edit_id, saved)
+                anomalies.append({"timestamps": saved,
+                                  "sent": len(saved), "updated": int(updated)})
                 uploaded += int(updated)
             else:
-                uploaded += len(batch)
-                confirmed.extend(timestamps)   # fully persisted -> safe to mark synced
+                uploaded += len(saved)
+                confirmed.extend(saved)   # fully persisted -> safe to mark synced
             # Last step of the batch: nothing below can raise, so a timestamp
             # is never in both deleted_ts and this batch's failed entry.
             sent = set(sent_deletes)
+            # a delete skipped for a missing photo is gone all the same;
+            # unkinded skips (pre-release shape) only ever meant deletes
             reported = (timestamps_in(reg, DELETED_KEY)
-                        + timestamps_in(reg, SKIPPED_KEY))
+                        + skipped.get(SKIP_DELETES, []) + skipped.get(None, []))
             extras = [t for t in reported if t not in sent]
             if extras:
                 vlog().warning(
@@ -178,7 +192,13 @@ def upload_session(client, *, session_id: int, items: list[dict],
                     "(editBatchId=%s timestamps=%s); ignored",
                     batch_edit_id, extras)
             _merge(deleted_ts, [t for t in reported if t in sent])
-            surface_ts.extend(sent_surface)
+            gone_surface = set(skipped.get(SKIP_SURFACE, ()))
+            if isinstance(reg, dict) and isinstance(reg.get(SURFACE_UPDATED_KEY), list):
+                changed = set(timestamps_in(reg, SURFACE_UPDATED_KEY))
+                surface_ts.extend(t for t in sent_surface if t in changed)
+            else:   # a server before v1.0.16: the batch succeeding confirms it
+                surface_ts.extend(t for t in sent_surface if t not in gone_surface)
+            _merge(skipped_ts, sorted(gone_items | (gone_surface & set(sent_surface))))
         except Exception as e:  # noqa: BLE001 - report per-batch, keep going
             details = getattr(e, "details", None)
             vlog().exception(
@@ -195,4 +215,5 @@ def upload_session(client, *, session_id: int, items: list[dict],
 
     return {"uploaded": uploaded, "failed": failed,
             "anomalies": anomalies, "confirmed_timestamps": confirmed,
-            "deleted_timestamps": deleted_ts, "surface_timestamps": surface_ts}
+            "deleted_timestamps": deleted_ts, "surface_timestamps": surface_ts,
+            "skipped_timestamps": skipped_ts}

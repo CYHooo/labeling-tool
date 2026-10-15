@@ -641,9 +641,11 @@ class ViewerMainWindow(CoreMainWindow):
             self._refresh_list_colors()
 
         n_deleted, n_surface = self._apply_upload_edits(result)
+        n_skipped = len(result.get("skipped_timestamps") or ())
         summary = " · ".join(
             ([self.tr_("upload_deleted_summary", n=n_deleted)] if n_deleted else [])
-            + ([self.tr_("upload_surface_summary", n=n_surface)] if n_surface else []))
+            + ([self.tr_("upload_surface_summary", n=n_surface)] if n_surface else [])
+            + ([self.tr_("upload_skipped_summary", n=n_skipped)] if n_skipped else []))
         if n_deleted or n_surface:
             self._start_photo_refresh()
 

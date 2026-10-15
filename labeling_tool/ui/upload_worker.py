@@ -133,7 +133,8 @@ class UploadWorker(QThread):
                                 "timestamps": [], "batch_id": self._batch_id,
                                 "unknown_classes": self.unknown_classes,
                                 "deleted_timestamps": [],
-                                "surface_timestamps": []})
+                                "surface_timestamps": [],
+                                "skipped_timestamps": []})
                 return
             result = upload_session(
                 self._client, session_id=self._session_id, items=items,
@@ -168,6 +169,11 @@ class UploadWorker(QThread):
         decide which photos are truly confirmed. Never raises (a verify failure
         must not abort a completed upload)."""
         from labeling_tool.api.verify import verify_registered, write_verify_csv
+        # photos the server skipped (deleted by someone else) cannot read back
+        gone = set(result.get("skipped_timestamps") or ())
+        items = [it for it in items if it["timestamp"] not in gone]
+        if not items:
+            return
         try:
             verdicts = verify_registered(self._client, self._session_id, items)
         except Exception as e:  # noqa: BLE001 - network/parse; keep upload result

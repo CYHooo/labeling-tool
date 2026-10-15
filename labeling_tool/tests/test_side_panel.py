@@ -2604,3 +2604,30 @@ def test_a_restored_width_is_capped_to_a_third_of_the_window(tmp_path, monkeypat
         assert 400 <= _list_width(win) <= 1400 // 3
     finally:
         win.close()
+
+
+def test_photos_skipped_by_the_server_are_reported_and_kept(tmp_path, monkeypatch):
+    # v1.0.16: someone else deleted photo 2; our edit for it was skipped. The
+    # photo stays on this PC (nothing deleted locally) and the user is told.
+    win = _three(tmp_path, monkeypatch)
+    try:
+        shown = _capture_info(monkeypatch)
+        win._finish_upload(_result(timestamps=[1], uploaded=1, skipped_timestamps=[2]))
+        skipped = i18n.tr("upload_skipped_summary", n=1)
+        assert skipped in win.status.currentMessage()
+        assert _THREE[1] in win.image_files and _THREE[1] in win._manifest.photos
+    finally:
+        win.close()
+
+
+def test_the_worker_does_not_verify_photos_the_server_skipped(tmp_path, monkeypatch):
+    from labeling_tool.ui import upload_worker as UW
+    seen = []
+    monkeypatch.setattr("labeling_tool.api.verify.verify_registered",
+                        lambda client, sid, items: seen.extend(i["timestamp"] for i in items) or [])
+    w = UW.UploadWorker.__new__(UW.UploadWorker)
+    w._client, w._session_id = object(), 1
+    w._labeling_dir = str(tmp_path / "Labeling")
+    w._verify_upload([{"timestamp": 1}, {"timestamp": 2}],
+                     {"skipped_timestamps": [2]})
+    assert seen == [1]

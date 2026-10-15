@@ -218,3 +218,72 @@ def test_post_register_failure_is_not_in_both_lists():
     assert len(r["failed"]) == 1
     assert r["failed"][0]["delete_timestamps"] == [1000]
     assert r["deleted_timestamps"] == []
+
+
+# ---------------------------------------------------------------- v1.0.16 server shape
+class V1016Client(EditClient):
+    """Answers like the deployed v1.0.16 server: surfaceUpdated lists the
+    surfaces actually changed, skipped is [{kind, timestamp, reason}], and
+    updatedPhotoCount counts saved items + changed surfaces (no duplicates)."""
+
+    def __init__(self, missing=(), **kw):
+        super().__init__(**kw)
+        self.missing = set(missing)
+
+    def register_annotations(self, *, edit_batch_id, session_id, items,
+                             surface_updates=None, deletes=None):
+        self.registers.append({"id": edit_batch_id, "items": items,
+                               "surface_updates": surface_updates,
+                               "deletes": deletes})
+        skipped = []
+        saved, changed, deleted = set(), [], []
+        for kind, rows in (("items", items), ("surfaceUpdates", surface_updates or []),
+                           ("deletes", deletes or [])):
+            for r in rows:
+                ts = r["timestamp"]
+                if ts in self.missing:
+                    skipped.append({"kind": kind, "timestamp": ts,
+                                    "reason": "PHOTO_NOT_FOUND"})
+                elif kind == "items":
+                    saved.add(ts)
+                elif kind == "surfaceUpdates":
+                    changed.append(ts)
+                else:
+                    deleted.append(ts)
+        return {"sessionId": session_id, "status": "saved",
+                "updatedPhotoCount": len(saved | set(changed)),
+                "surfaceUpdated": changed, "deleted": deleted, "skipped": skipped}
+
+
+def test_surface_changes_count_only_when_the_server_lists_them():
+    c = V1016Client(missing={2})
+    res = _run(c, surface=[{"timestamp": 1, "surface": "wall"},
+                           {"timestamp": 2, "surface": "floor"}])
+    assert res["surface_timestamps"] == [1]
+    assert res["skipped_timestamps"] == [2]
+    assert res["failed"] == []
+
+
+def test_only_skipped_deletes_count_as_deleted():
+    # a photo someone else deleted: our mask edit is skipped, the photo is
+    # NOT reported as deleted (its local files must stay), but it is listed
+    c = V1016Client(missing={5, 9})
+    res = _run(c, items=[_item(5), _item(6)], deletes=[{"timestamp": 9}])
+    assert res["deleted_timestamps"] == [9]
+    assert sorted(res["skipped_timestamps"]) == [5]
+    assert res["confirmed_timestamps"] == [6]       # 5 was not saved
+    assert res["anomalies"] == []                   # skipped is not an anomaly
+
+
+def test_a_photo_with_mask_and_surface_counts_once():
+    c = V1016Client()
+    res = _run(c, items=[_item(1)], surface=[{"timestamp": 1, "surface": "wall"}])
+    assert res["confirmed_timestamps"] == [1] and res["anomalies"] == []
+    assert res["surface_timestamps"] == [1]
+
+
+def test_an_older_server_without_surface_updated_keeps_the_sent_rule():
+    # EditClient answers without "surfaceUpdated": a successful batch confirms
+    # what it sent (the earlier contract), minus skipped surfaces
+    res = _run(EditClient(), surface=[{"timestamp": 3, "surface": "wall"}])
+    assert res["surface_timestamps"] == [3]

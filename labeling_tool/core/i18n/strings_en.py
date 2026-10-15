@@ -101,6 +101,7 @@ STRINGS = {
     "delete_confirm_cancel": "Cancel",
     "upload_deleted_summary": "{n} deleted",
     "upload_surface_summary": "{n} surfaces changed",
+    "upload_skipped_summary": "Skipped, no longer on the server: {n} (fetch the job again)",
     "photo_refresh_failed":  "Could not refresh photo numbers; fetching the job again updates them.",
     "measure_dialog_title":  "Manual Scale",
     "measure_dialog_label":  "Real length of the measured segment (cm):",
