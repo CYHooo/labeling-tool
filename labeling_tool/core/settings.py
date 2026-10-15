@@ -9,6 +9,7 @@ over a preference.
 from __future__ import annotations
 
 import json
+import math
 import os
 import tempfile
 from pathlib import Path
@@ -17,6 +18,8 @@ from labeling_tool.core.app_paths import user_data_home
 
 SETTINGS_NAME = "ui-settings.json"
 DEFAULT_LANGUAGE = "ko"
+# The labeling window's image-list column (left of the canvas).
+DEFAULT_LIST_WIDTH = 280
 
 
 def _path(home: Path | None) -> Path:
@@ -68,4 +71,31 @@ def get_language(home: Path | None = None) -> str:
 def set_language_setting(code: str, home: Path | None = None) -> None:
     data = load_settings(home)
     data["lang"] = code
+    save_settings(data, home)
+
+
+def get_list_column_width(home: Path | None = None) -> int:
+    """The image-list column's last width in px; DEFAULT_LIST_WIDTH when
+    missing or not a positive whole number (the window clamps it to its
+    own min / max)."""
+    value = load_settings(home).get("list_width")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return DEFAULT_LIST_WIDTH
+    if not math.isfinite(value) or value <= 0:
+        return DEFAULT_LIST_WIDTH
+    return int(value)
+
+
+def get_list_column_collapsed(home: Path | None = None) -> bool:
+    """Whether the image-list column was collapsed; only a real JSON true
+    counts."""
+    return load_settings(home).get("list_collapsed") is True
+
+
+def set_list_column_state(width: int, collapsed: bool, home: Path | None = None) -> None:
+    """Remember the image-list column's width and collapsed state, keeping
+    every other key (the language) as it is."""
+    data = load_settings(home)
+    data["list_width"] = int(width)
+    data["list_collapsed"] = bool(collapsed)
     save_settings(data, home)
