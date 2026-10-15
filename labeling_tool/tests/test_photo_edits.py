@@ -44,16 +44,23 @@ def test_set_surface_rejects_unknown_values():
         E.set_surface(_e(), "slope")
 
 
-def test_toggle_delete_and_pending():
+def test_toggle_delete_flips_the_dormant_mark():
     e = _e()
-    assert not E.has_pending_edit(e)
-    assert E.toggle_delete(e) is True and E.has_pending_edit(e)
-    assert E.toggle_delete(e) is False and not E.has_pending_edit(e)
+    assert E.toggle_delete(e) is True and e.delete_pending
+    assert E.toggle_delete(e) is False and not e.delete_pending
 
 
-def test_upload_lists_skip_deleted_photos_and_sort():
+def test_a_delete_mark_alone_is_not_a_pending_edit():
+    # Deleting photos was taken out of the tool (2026-10-15): a mark left in
+    # an old manifest changes nothing; a surface change still counts.
+    assert not E.has_pending_edit(_e(delete_pending=True))
+    assert E.has_pending_edit(_e(surface_edit="wall", delete_pending=True))
+
+
+def test_upload_lists_ignore_the_delete_mark_for_surfaces_and_sort():
     a = _e(3, surface="wall", surface_edit="floor")
     b = _e(1, surface="wall", surface_edit="ceiling", delete_pending=True)
     c = _e(2, delete_pending=True)
-    assert E.surface_updates([a, b, c]) == [{"timestamp": 3, "surface": "floor"}]
+    assert E.surface_updates([a, b, c]) == [{"timestamp": 1, "surface": "ceiling"},
+                                            {"timestamp": 3, "surface": "floor"}]
     assert E.deletes([a, b, c]) == [{"timestamp": 1}, {"timestamp": 2}]

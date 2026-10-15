@@ -166,14 +166,20 @@ def test_the_surface_row_is_built_but_hidden_in_the_base_window(tmp_path, monkey
         win.close()
 
 
-def test_the_viewer_window_shows_the_surface_column_trash_and_row(tmp_path, monkeypatch):
+def test_the_viewer_window_shows_the_surface_column_and_row_but_no_trash(tmp_path, monkeypatch):
+    # Deleting photos was taken out (2026-10-15): no trash column, nothing
+    # listens for a trash click.
     win = _make_window(tmp_path, monkeypatch)
     try:
         delegate = win.file_list.itemDelegate()
         assert win._surface_row.isVisible()
-        assert delegate.delete_width == 22
+        assert delegate.delete_width == 0
+        assert delegate.receivers(delegate.delete_clicked) == 0
         assert delegate.surface_width > 0
         assert win._list_header.surface_label() == i18n.tr("list_col_surface")
+        number, file = win._list_header.labels()
+        assert (number, file) == (i18n.tr("list_col_number"), i18n.tr("list_col_file"))
+        assert not hasattr(win, "_on_delete_clicked")
     finally:
         win.close()
 
@@ -1714,25 +1720,14 @@ def test_the_surface_column_fits_every_language(tmp_path, monkeypatch):
         win.close()
 
 
-def test_the_trash_button_marks_a_photo_for_deletion_and_back(tmp_path, monkeypatch):
+def test_a_leftover_delete_mark_shows_nothing(tmp_path, monkeypatch):
+    # A manifest marked during development testing: no "삭제 예정", no ●.
     win = _make_window(tmp_path, monkeypatch)
     try:
-        win.file_list.setCurrentRow(1)
-        _settle()
-        assert win.current_idx == 1
-        win.file_list.itemDelegate().delete_clicked.emit(0)
-        entry = win._manifest.get(_FILES[0])
-        assert entry.delete_pending
-        assert Manifest.load(win._ws.manifest_path).get(_FILES[0]).delete_pending
-        assert win.file_list.item(0).data(ui_builder.DELETE_PENDING_ROLE)
-        assert _mark(win, 0) == "pending"
-        assert win.current_idx == 1
-        win.file_list.itemDelegate().delete_clicked.emit(0)
-        assert not entry.delete_pending
-        assert not Manifest.load(win._ws.manifest_path).get(_FILES[0]).delete_pending
+        win._manifest.get(_FILES[0]).delete_pending = True
+        win._refresh_list_colors()
         assert not win.file_list.item(0).data(ui_builder.DELETE_PENDING_ROLE)
         assert _mark(win, 0) is None
-        assert win.current_idx == 1
     finally:
         win.close()
 
@@ -1812,10 +1807,8 @@ def test_a_failed_manifest_write_is_reported_not_raised(tmp_path, monkeypatch):
         def broken(_path):
             raise OSError("disk full")
         monkeypatch.setattr(win._manifest, "save", broken)
-        win._on_delete_clicked(0)
-        assert win._manifest.get(_FILES[0]).delete_pending
-        assert "disk full" in win.status.currentMessage()
         win._on_surface_chosen("floor")
+        assert win._manifest.get(_FILES[0]).surface_edit == "floor"
         assert "disk full" in win.status.currentMessage()
     finally:
         win.close()
@@ -1859,24 +1852,28 @@ def _fake_worker(monkeypatch):
     return made
 
 
-def test_upload_with_only_deletes_asks_first(tmp_path, monkeypatch):
-    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+def _no_dialog(monkeypatch):
+    """Fail on any message box that would ask the user something."""
+    monkeypatch.setattr(QMessageBox, "exec_",
+                        lambda *a, **k: _unexpected("no dialog expected"))
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: _unexpected("no question expected"))
+
+
+def test_a_leftover_delete_mark_alone_sends_nothing_and_asks_nothing(tmp_path, monkeypatch):
+    shown = []
     win = _make_window(tmp_path, monkeypatch)
     try:
         win._client = object()
         made = _fake_worker(monkeypatch)
-        asked = []
-        monkeypatch.setattr(win, "_confirm_deletes", lambda d: asked.append(d) or False)
-        win._on_delete_clicked(1)
+        _no_dialog(monkeypatch)
+        monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: shown.append(a))
+        win._manifest.get(_FILES[1]).delete_pending = True
         win._on_upload()
-        assert asked == [[{"timestamp": 2}]]
-        assert made == []                                  # cancelled: nothing sent
-        monkeypatch.setattr(win, "_confirm_deletes", lambda d: True)
-        win._on_upload()
-        assert len(made) == 1
-        assert made[0].kwargs["specs"] == []
-        assert made[0].kwargs["deletes"] == [{"timestamp": 2}]
-        assert list(made[0].kwargs["surface_updates"]) == []
+        assert made == []
+        assert win.status.currentMessage() == i18n.tr("vmw_status_no_edits")
+        assert len(shown) == 1
+        assert win._manifest.get(_FILES[1]).delete_pending   # left as it was
     finally:
         win.close()
 
@@ -1886,8 +1883,7 @@ def test_upload_with_only_a_surface_change_sends_it(tmp_path, monkeypatch):
     try:
         win._client = object()
         made = _fake_worker(monkeypatch)
-        monkeypatch.setattr(win, "_confirm_deletes",
-                            lambda d: _unexpected("no delete to confirm"))
+        _no_dialog(monkeypatch)
         win._on_surface_chosen("floor")
         win._on_upload()
         assert len(made) == 1
@@ -1902,22 +1898,26 @@ def _unexpected(msg):
     raise AssertionError(msg)
 
 
-def test_a_photo_marked_for_deletion_is_not_uploaded_as_an_edit(tmp_path, monkeypatch):
+def test_a_leftover_delete_mark_still_uploads_the_photos_edits(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch)
     try:
         win._client = object()
         made = _fake_worker(monkeypatch)
-        monkeypatch.setattr(win, "_confirm_deletes", lambda d: True)
+        _no_dialog(monkeypatch)
         _stroke(win)                                       # photo 1 edited ...
         win._save_all_artifacts(silent=True)
+        win._on_surface_chosen("floor")                    # ... and its surface
         win.file_list.setCurrentRow(1)
         _settle()
-        _stroke(win)                                       # ... and photo 2
+        _stroke(win)                                       # photo 2 edited
         win._save_all_artifacts(silent=True)
-        win._on_delete_clicked(0)                          # photo 1 goes
+        win._manifest.get(_FILES[0]).delete_pending = True
+        win._refresh_list_colors()
+        assert _mark(win, 0) == "pending"                  # for its edits
         win._on_upload()
-        assert [s["filename"] for s in made[0].kwargs["specs"]] == [_FILES[1]]
-        assert made[0].kwargs["deletes"] == [{"timestamp": 1}]
+        assert [s["filename"] for s in made[0].kwargs["specs"]] == list(_FILES)
+        assert made[0].kwargs["surface_updates"] == [{"timestamp": 1, "surface": "floor"}]
+        assert list(made[0].kwargs["deletes"]) == []
     finally:
         win.close()
 
@@ -1941,52 +1941,23 @@ def test_a_range_view_uploads_only_the_listed_photos_edits(tmp_path, monkeypatch
     try:
         win._client = object()
         made = _fake_worker(monkeypatch)
-        monkeypatch.setattr(win, "_confirm_deletes", lambda d: True)
         outside = win._manifest.get(_SIX[0])               # not listed
-        outside.delete_pending = True
         outside.surface_edit = "wall"
-        win._on_delete_clicked(0)                          # _SIX[1], ts 2
+        listed = win._manifest.get(_SIX[1])                # ts 2, listed
+        listed.surface_edit = "floor"
+        listed.delete_pending = True                       # leftover: ignored
         win._on_upload()
-        assert made[0].kwargs["deletes"] == [{"timestamp": 2}]
-        assert made[0].kwargs["surface_updates"] == []
+        assert made[0].kwargs["surface_updates"] == [{"timestamp": 2, "surface": "floor"}]
+        assert list(made[0].kwargs["deletes"]) == []
     finally:
         win.close()
 
 
-def test_the_delete_confirmation_lists_numbers_and_has_two_buttons(tmp_path, monkeypatch):
-    win = _make_window(tmp_path, monkeypatch, files=tuple(f"p{n:02d}.jpg" for n in range(1, 24)))
-    try:
-        dels = [{"timestamp": n} for n in range(1, 24)]
-        box, ok = win._build_delete_confirm(dels)
-        try:
-            text = box.text()
-            assert text.startswith(i18n.tr("delete_confirm_msg", count=23, numbers="")
-                                   .split("\n")[0])
-            assert "45-1, 45-2" in text and "45-20" in text and "45-21" not in text
-            assert i18n.tr("delete_confirm_more", n=3) in text
-            assert box.windowTitle() == i18n.tr("delete_confirm_title")
-            texts = sorted(b.text() for b in box.buttons())
-            assert texts == sorted([i18n.tr("delete_confirm_ok"),
-                                    i18n.tr("delete_confirm_cancel")])
-            assert ok.text() == i18n.tr("delete_confirm_ok")
-            assert box.defaultButton() is not ok           # Enter does not delete
-        finally:
-            box.deleteLater()
-    finally:
-        win.close()
-
-
-def test_confirm_deletes_returns_the_choice(tmp_path, monkeypatch):
+def test_the_window_has_no_delete_confirmation(tmp_path, monkeypatch):
     win = _make_window(tmp_path, monkeypatch)
     try:
-        for choose_ok in (True, False):
-            def fake_exec(box, _choose=choose_ok):
-                target = next(b for b in box.buttons()
-                              if (b.text() == i18n.tr("delete_confirm_ok")) == _choose)
-                target.click()
-                return 0
-            monkeypatch.setattr(QMessageBox, "exec_", fake_exec)
-            assert win._confirm_deletes([{"timestamp": 1}]) is choose_ok
+        assert not hasattr(win, "_confirm_deletes")
+        assert not hasattr(win, "_build_delete_confirm")
     finally:
         win.close()
 
@@ -2018,8 +1989,7 @@ _THREE = ("stitched_100.jpg", "stitched_200.jpg", "stitched_300.jpg")
 
 def _result(**kw):
     out = {"timestamps": [], "failed": [], "uploaded": 0, "anomalies": [],
-           "verify_failures": [], "batch_id": "b", "deleted_timestamps": [],
-           "surface_timestamps": []}
+           "verify_failures": [], "batch_id": "b", "surface_timestamps": []}
     out.update(kw)
     return out
 
@@ -2033,21 +2003,19 @@ def _current(win):
     return win.image_files[win.current_idx] if win.current_idx >= 0 else None
 
 
-def test_a_deleted_current_photo_gives_way_to_the_next(tmp_path, monkeypatch):
+def test_deleted_timestamps_in_a_result_remove_nothing(tmp_path, monkeypatch):
+    # Nothing sends deletes any more; even if a result listed one, the photo,
+    # its files and its row stay.
     win = _three(tmp_path, monkeypatch)
     try:
         win.file_list.setCurrentRow(1)
         _settle()
-        win._manifest.get(_THREE[1]).delete_pending = True
-        win._finish_upload(_result(deleted_timestamps=[2]))
-        assert not (win._ws.origin_dir / _THREE[1]).exists()
-        assert sorted(win._manifest.photos) == [_THREE[0], _THREE[2]]
-        assert sorted(Manifest.load(win._ws.manifest_path).photos) == [_THREE[0], _THREE[2]]
-        assert win.file_list.count() == 2 and win.image_files == [_THREE[0], _THREE[2]]
-        assert _current(win) == _THREE[2]
-        assert win.file_list.currentRow() == 1
-        assert win.status.currentMessage() != i18n.tr("vmw_status_no_items")
-        assert i18n.tr("upload_deleted_summary", n=1) in win.status.currentMessage()
+        win._finish_upload(_result(timestamps=[1], uploaded=1, deleted_timestamps=[2]))
+        assert (win._ws.origin_dir / _THREE[1]).exists()
+        assert sorted(win._manifest.photos) == list(_THREE)
+        assert win.image_files == list(_THREE)
+        assert _current(win) == _THREE[1]
+        assert win.status.currentMessage() == i18n.tr("vmw_status_done", count=1)
     finally:
         win.close()
 
@@ -2063,9 +2031,10 @@ def test_an_edits_only_upload_reports_the_edits_not_zero_photos(tmp_path, monkey
     win = _three(tmp_path, monkeypatch)
     try:
         shown = _capture_info(monkeypatch)
-        win._manifest.get(_THREE[1]).delete_pending = True
-        win._finish_upload(_result(deleted_timestamps=[2]))
-        summary = i18n.tr("upload_deleted_summary", n=1)
+        monkeypatch.setattr(win, "_start_photo_refresh", lambda: None)
+        win._manifest.get(_THREE[1]).surface_edit = "wall"
+        win._finish_upload(_result(surface_timestamps=[2]))
+        summary = i18n.tr("upload_surface_summary", n=1)
         expected = i18n.tr("vmw_status_done_edits", summary=summary)
         assert win.status.currentMessage() == expected
         assert shown == [(i18n.tr("vmw_done_title"), expected)]
@@ -2077,49 +2046,14 @@ def test_a_mixed_upload_keeps_the_photo_count_and_adds_the_edits(tmp_path, monke
     win = _three(tmp_path, monkeypatch)
     try:
         shown = _capture_info(monkeypatch)
-        win._finish_upload(_result(timestamps=[1], uploaded=1, deleted_timestamps=[3]))
-        summary = i18n.tr("upload_deleted_summary", n=1)
+        monkeypatch.setattr(win, "_start_photo_refresh", lambda: None)
+        win._manifest.get(_THREE[2]).surface_edit = "wall"
+        win._finish_upload(_result(timestamps=[1], uploaded=1, surface_timestamps=[3]))
+        summary = i18n.tr("upload_surface_summary", n=1)
         assert win.status.currentMessage() == (
             i18n.tr("vmw_status_done", count=1) + " · " + summary)
         assert shown == [(i18n.tr("vmw_done_title"),
                           i18n.tr("vmw_done_msg", count=1, report_line="") + "\n" + summary)]
-    finally:
-        win.close()
-
-
-def test_a_deleted_last_photo_gives_way_to_the_previous(tmp_path, monkeypatch):
-    win = _three(tmp_path, monkeypatch)
-    try:
-        win.file_list.setCurrentRow(2)
-        _settle()
-        win._finish_upload(_result(deleted_timestamps=[3]))
-        assert _current(win) == _THREE[1]
-    finally:
-        win.close()
-
-
-def test_deleting_another_photo_keeps_the_current_one_and_its_edit(tmp_path, monkeypatch):
-    win = _three(tmp_path, monkeypatch)
-    try:
-        _stroke(win)                                       # unsaved, on photo 1
-        win._finish_upload(_result(deleted_timestamps=[3]))
-        assert _current(win) == _THREE[0]
-        assert win._edited.get(_THREE[0])                  # the canvas was not reloaded
-        assert win.image_files == [_THREE[0], _THREE[1]]
-    finally:
-        win.close()
-
-
-def test_a_failed_delete_stays_marked(tmp_path, monkeypatch):
-    win = _three(tmp_path, monkeypatch)
-    try:
-        win._manifest.get(_THREE[1]).delete_pending = True
-        win._finish_upload(_result(failed=[{"timestamps": [], "error": "boom",
-                                            "surface_timestamps": [],
-                                            "delete_timestamps": [2]}]))
-        assert win._manifest.get(_THREE[1]).delete_pending
-        assert (win._ws.origin_dir / _THREE[1]).exists()
-        assert win.file_list.count() == 3
     finally:
         win.close()
 
@@ -2180,74 +2114,19 @@ def test_a_surface_taken_back_during_the_upload_stays_pending(tmp_path, monkeypa
         win.close()
 
 
-def test_a_delete_confirmed_by_the_server_goes_even_if_unmarked_meanwhile(tmp_path, monkeypatch):
-    win = _three(tmp_path, monkeypatch)
-    try:
-        win._on_delete_clicked(1)
-        win._on_delete_clicked(1)                          # unmarked during the upload
-        win._finish_upload(_result(deleted_timestamps=[2]))
-        assert _THREE[1] not in win._manifest.photos
-        assert not (win._ws.origin_dir / _THREE[1]).exists()
-    finally:
-        win.close()
-
-
-def test_a_range_view_keeps_the_rest_of_its_photos_after_a_delete(tmp_path, monkeypatch):
-    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
-    win = _range_window(tmp_path, monkeypatch)
-    try:
-        win._finish_upload(_result(deleted_timestamps=[3]))
-        assert _rows(win) == [_SIX[1], _SIX[3]]
-        assert _SIX[2] not in win._focus.filenames
-        assert win._lbl_range.text() == i18n.tr("list_range_label", a=2, b=4, n=2)
-        win._toggle_range_view()                           # show all
-        assert len(_rows(win)) == 5
-        win._toggle_range_view()                           # back to the range
-        assert _rows(win) == [_SIX[1], _SIX[3]]
-    finally:
-        win.close()
-
-
-def test_a_range_emptied_by_deletes_shows_every_photo(tmp_path, monkeypatch):
-    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
-    win = _range_window(tmp_path, monkeypatch)
-    try:
-        win._finish_upload(_result(deleted_timestamps=[2, 3, 4]))
-        assert _rows(win) == [_SIX[0], _SIX[4], _SIX[5]]
-        assert win._focus is None and not win._range_bar.isVisibleTo(win)
-        assert _current(win) == _SIX[0]
-    finally:
-        win.close()
-
-
-def test_deleting_every_photo_clears_the_canvas(tmp_path, monkeypatch):
-    win = _three(tmp_path, monkeypatch)
-    try:
-        win._finish_upload(_result(deleted_timestamps=[1, 2, 3]))
-        _settle()
-        assert win.image_files == [] and win.file_list.count() == 0
-        assert win.current_idx == -1
-        assert win.canvas._pixmap is None
-        assert not win.btn_upload.isEnabled()
-        assert win._manifest.photos == {}
-        win.go_next()
-        win.go_prev()                                      # nothing to show, no error
-    finally:
-        win.close()
-
-
 def test_refreshed_numbers_show_and_the_current_photo_stays(tmp_path, monkeypatch):
     win = _three(tmp_path, monkeypatch)
     try:
         win.file_list.setCurrentRow(2)
         _settle()
-        win._finish_upload(_result(deleted_timestamps=[2]))
-        assert win.file_list.item(1).text() == "45-3"
+        assert win.file_list.item(1).text() == "45-2"
         win._on_photo_refresh_done([{"timestamp": 1, "reportPhotoNum": 1},
+                                    {"timestamp": 2, "reportPhotoNum": 5},
                                     {"timestamp": 3, "reportPhotoNum": 2,
                                      "surface": "wall"}])
-        assert win.file_list.item(1).text() == "45-2"
-        assert _surface(win, 1) == i18n.tr("surface_wall")
+        assert win.file_list.item(1).text() == "45-5"
+        assert win.file_list.item(2).text() == "45-2"
+        assert _surface(win, 2) == i18n.tr("surface_wall")
         assert Manifest.load(win._ws.manifest_path).get(_THREE[2]).report_photo_num == 2
         assert _current(win) == _THREE[2]
     finally:
@@ -2264,7 +2143,7 @@ def test_a_failed_refresh_is_reported(tmp_path, monkeypatch):
         win.close()
 
 
-def test_a_delete_starts_the_refresh_in_the_background(tmp_path, monkeypatch):
+def test_a_surface_change_starts_the_refresh_in_the_background(tmp_path, monkeypatch):
     from PyQt5.QtCore import QThreadPool
     win = _three(tmp_path, monkeypatch)
     try:
@@ -2273,10 +2152,12 @@ def test_a_delete_starts_the_refresh_in_the_background(tmp_path, monkeypatch):
 
             def list_photos(self, session_id, *, offset=0, limit=100, **_kw):
                 photos = [{"timestamp": 1, "reportPhotoNum": 1},
-                          {"timestamp": 3, "reportPhotoNum": 7}]
-                return {"photos": photos[offset:offset + limit], "total": 2}
+                          {"timestamp": 2, "reportPhotoNum": 7},
+                          {"timestamp": 3, "reportPhotoNum": 3}]
+                return {"photos": photos[offset:offset + limit], "total": 3}
         win._client = Client()
-        win._finish_upload(_result(deleted_timestamps=[2]))
+        win._manifest.get(_THREE[1]).surface_edit = "wall"
+        win._finish_upload(_result(surface_timestamps=[2]))
         QThreadPool.globalInstance().waitForDone(5000)
         _settle()
         assert win.file_list.item(1).text() == "45-7"
@@ -2291,7 +2172,10 @@ def test_an_upload_with_nothing_applied_starts_no_refresh(tmp_path, monkeypatch)
         monkeypatch.setattr(win, "_start_photo_refresh", lambda: started.append(1))
         win._finish_upload(_result(timestamps=[1], uploaded=1))
         assert started == []
-        win._finish_upload(_result(deleted_timestamps=[2]))
+        win._finish_upload(_result(deleted_timestamps=[2]))   # never sent: ignored
+        assert started == []
+        win._manifest.get(_THREE[1]).surface_edit = "wall"
+        win._finish_upload(_result(surface_timestamps=[2]))
         assert started == [1]
     finally:
         win.close()
@@ -2656,7 +2540,7 @@ def test_a_skipped_photo_is_marked_not_on_the_server(tmp_path, monkeypatch):
         win.close()
 
 
-def test_a_missing_photo_hides_its_delete_mark(tmp_path, monkeypatch):
+def test_a_missing_photo_with_a_leftover_delete_mark_shows_only_missing(tmp_path, monkeypatch):
     win = _three(tmp_path, monkeypatch)
     try:
         entry = win._manifest.get(_THREE[1])
@@ -2664,6 +2548,7 @@ def test_a_missing_photo_hides_its_delete_mark(tmp_path, monkeypatch):
         entry.server_missing = True
         win._refresh_list_row(1)
         assert not win.file_list.item(1).data(ui_builder.DELETE_PENDING_ROLE)
+        assert win.file_list.item(1).data(ui_builder.SERVER_MISSING_ROLE) is True
     finally:
         win.close()
 
@@ -2687,7 +2572,6 @@ def test_missing_photos_are_left_out_of_the_next_upload(tmp_path, monkeypatch):
     try:
         win._client = object()
         made = _fake_worker(monkeypatch)
-        monkeypatch.setattr(win, "_confirm_deletes", lambda d: True)
         _stroke(win)                                       # photo 1 edited
         win._save_all_artifacts(silent=True)
         win.file_list.setCurrentRow(1)
@@ -2695,7 +2579,6 @@ def test_missing_photos_are_left_out_of_the_next_upload(tmp_path, monkeypatch):
         _stroke(win)                                       # photo 2 edited
         win._save_all_artifacts(silent=True)
         win._on_surface_chosen("floor")                    # photo 2 surface
-        win._on_delete_clicked(0)                          # photo 1 delete
         for fn in _FILES[:2]:
             win._manifest.get(fn).server_missing = True
         monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)

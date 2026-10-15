@@ -341,3 +341,29 @@ def test_the_missing_label_takes_the_delete_label_slot(monkeypatch):
         assert i18n.tr("server_missing_label") in drawn
     finally:
         view.close()
+
+
+def test_the_missing_label_shows_without_a_trash_column(monkeypatch):
+    # The Viewer list has no trash column since deleting photos was taken
+    # out (2026-10-15); "서버에 없음" must still be drawn.
+    drawn = []
+    real = ui_builder.layout_pending_row
+
+    def spy(nm, lm, name, label, width):
+        drawn.append(label)
+        return real(nm, lm, name, label, width)
+    monkeypatch.setattr(ui_builder, "layout_pending_row", spy)
+    view = _list(rows=(("45-1", "stitched_100.jpg", "벽", False, True),))
+    try:
+        delegate = view.itemDelegate()
+        delegate.surface_width = 30
+        assert delegate.delete_width == 0
+        view.item(0).setData(ui_builder.SERVER_MISSING_ROLE, True)
+        view.setCurrentRow(-1)
+        view.clearSelection()
+        view.viewport().repaint()
+        _settle()
+        assert drawn == [i18n.tr("server_missing_label")]   # never "삭제 예정"
+        assert _red_pixels(view, 0) == 0
+    finally:
+        view.close()
