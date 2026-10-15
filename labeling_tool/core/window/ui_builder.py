@@ -84,7 +84,7 @@ def elide_file_name(metrics: QFontMetrics, name: str, width: int) -> str:
 
 def layout_pending_row(name_metrics: QFontMetrics, label_metrics: QFontMetrics,
                        name: str, label: str, width: int) -> tuple[str, int]:
-    """(name to draw, x of the "삭제 예정" label) for a row marked for
+    """(name to draw, x of the delete_pending_label text) for a row marked for
     deletion. The label always wins: when the name has no room for more
     than "…" it is left out, so the label never slides under the trash
     button."""
