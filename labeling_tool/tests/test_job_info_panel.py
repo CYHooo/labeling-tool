@@ -186,3 +186,24 @@ def test_file_names_are_elided_on_the_left_keeping_the_number(tmp_path, monkeypa
         assert ui_builder.elide_file_name(metrics, name, 10_000) == name
     finally:
         win.close()
+
+
+def test_a_narrow_pending_row_keeps_the_whole_delete_label(tmp_path, monkeypatch):
+    # At the list column's default width the struck-through name has no
+    # room left: it is dropped instead of pushing "삭제 예정" under the trash
+    # button.
+    from PyQt5.QtGui import QFontMetrics
+    win = _make_window(tmp_path, monkeypatch)
+    try:
+        metrics = QFontMetrics(win.file_list.font())
+        label = i18n.tr("delete_pending_label")
+        label_w = metrics.horizontalAdvance(label)
+        name, label_x = ui_builder.layout_pending_row(
+            metrics, metrics, "stitched_104.jpg", label, label_w + 12)
+        assert name == "" and label_x == 0
+        name, label_x = ui_builder.layout_pending_row(
+            metrics, metrics, "stitched_104.jpg", label, 10_000)
+        assert name == "stitched_104.jpg"
+        assert label_x == metrics.horizontalAdvance(name) + ui_builder._PART_GAP
+    finally:
+        win.close()

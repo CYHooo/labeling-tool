@@ -82,6 +82,19 @@ def elide_file_name(metrics: QFontMetrics, name: str, width: int) -> str:
     return metrics.elidedText(name, Qt.ElideLeft, max(width, 0))
 
 
+def layout_pending_row(name_metrics: QFontMetrics, label_metrics: QFontMetrics,
+                       name: str, label: str, width: int) -> tuple[str, int]:
+    """(name to draw, x of the "삭제 예정" label) for a row marked for
+    deletion. The label always wins: when the name has no room for more
+    than "…" it is left out, so the label never slides under the trash
+    button."""
+    room = width - label_metrics.horizontalAdvance(label) - _PART_GAP
+    shown = elide_file_name(name_metrics, name, max(room, 0))
+    if not shown or shown == "…":
+        return "", 0
+    return shown, name_metrics.horizontalAdvance(shown) + _PART_GAP
+
+
 def _tinted(pixmap: QPixmap, colour: QColor) -> QPixmap:
     """The pixmap's shape filled with one colour (for the red trash icon)."""
     result = QPixmap(pixmap)
@@ -269,16 +282,15 @@ class TwoPartItemDelegate(QStyledItemDelegate):
             small.setPixelSize(max(option.font.pixelSize() - 2, 8))
         if pending:
             label = i18n.tr("delete_pending_label")
-            label_width = QFontMetrics(small).horizontalAdvance(label)
             name_font = QFont(small)
             name_font.setStrikeOut(True)
             painter.setFont(name_font)
             painter.setPen(text_colour)
-            name_room = max(rest.width() - label_width - _PART_GAP, 0)
-            elided = elide_file_name(painter.fontMetrics(), secondary, name_room)
+            elided, label_offset = layout_pending_row(
+                painter.fontMetrics(), QFontMetrics(small), secondary, label, rest.width())
             painter.drawText(rest, Qt.AlignLeft | Qt.AlignVCenter, elided)
             painter.setFont(small)
-            label_x = rest.left() + painter.fontMetrics().horizontalAdvance(elided) + _PART_GAP
+            label_x = rest.left() + label_offset
             painter.drawText(QRect(label_x, rest.top(), max(rest.right() - label_x + 1, 0),
                                    rest.height()),
                              Qt.AlignLeft | Qt.AlignVCenter, label)
