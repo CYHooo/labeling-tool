@@ -1,6 +1,12 @@
 """Local, not-yet-uploaded photo edits kept on the manifest entry: a changed
-surface (floor / wall / ceiling) and a pending delete. The tool never works
-out a surface itself; it shows the server's value or the user's choice."""
+surface (floor / wall / ceiling). The tool never works out a surface itself;
+it shows the server's value or the user's choice.
+
+Deleting photos was taken out of the tool (2026-10-15). The delete mark
+(PhotoEntry.delete_pending) and toggle_delete() / deletes() stay as dormant
+support only: nothing in the window sets or sends the mark, and a mark left
+in an old manifest neither counts as a pending edit nor holds back the
+photo's surface change."""
 
 from __future__ import annotations
 
@@ -36,19 +42,21 @@ def toggle_delete(entry) -> bool:
 
 
 def has_pending_edit(entry) -> bool:
-    return entry.surface_edit is not None or bool(entry.delete_pending)
+    """A local change still to upload (the dormant delete mark is not one)."""
+    return entry.surface_edit is not None
 
 
 def surface_updates(entries) -> list[dict]:
     """Surface changes to send; a photo the server no longer has sends none."""
     return [{"timestamp": int(e.timestamp), "surface": e.surface_edit}
             for e in sorted(entries, key=lambda e: e.timestamp)
-            if e.surface_edit is not None and not e.delete_pending
+            if e.surface_edit is not None
             and not getattr(e, "server_missing", False)]
 
 
 def deletes(entries) -> list[dict]:
-    """Deletes to send; a photo the server no longer has sends none."""
+    """Deletes to send; a photo the server no longer has sends none.
+    Dormant: the window no longer sends deletes."""
     return [{"timestamp": int(e.timestamp)}
             for e in sorted(entries, key=lambda e: e.timestamp)
             if e.delete_pending and not getattr(e, "server_missing", False)]
