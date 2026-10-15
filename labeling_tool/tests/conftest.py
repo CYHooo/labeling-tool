@@ -80,4 +80,14 @@ def close_prompts(monkeypatch):
     monkeypatch.setattr(ViewerMainWindow, "_ask_close_unuploaded", ask)
     monkeypatch.setattr(ViewerMainWindow, "_tell_upload_running",
                         lambda _self: asked.append(("busy", None)))
-    return asked
+    yield asked
+    # A test that left a (fake) upload "running" had its close refused; a
+    # window still visible afterwards would make later tests think a
+    # labeling session is open (update/ui._session_in_progress).
+    from PyQt5.QtWidgets import QApplication
+    app = QApplication.instance()
+    for w in (app.topLevelWidgets() if app is not None else ()):
+        if isinstance(w, ViewerMainWindow) and w.isVisible():
+            w._upload_worker = None
+            w._close_after_upload = False
+            w.close()
