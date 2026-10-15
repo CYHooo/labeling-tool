@@ -3,8 +3,9 @@
 register-annotations dedupes by editBatchId (same id -> 200, NO DB reprocessing),
 so EACH batch must get its own id, or every batch after the first is silently
 dropped (its highlight/15/metrics never reach the DB while the S3 files still
-upload). Each batch uses ``<edit_batch_id>-<batch_index>``: distinct per batch
-so all batches register, yet stable per batch so a retry stays idempotent.
+upload). Each item batch uses ``<edit_batch_id>-<batch_index>`` and each
+delete batch ``<edit_batch_id>-d<batch_index>``: distinct per batch so all
+batches register, yet stable per batch so a retry stays idempotent.
 
 Per v1.0.8 each photo uploads three files: mask -> high -> 15 (3 PUTs),
 then the batch is registered with maskS3Key/highlightS3Key/repair15S3Key.
@@ -105,6 +106,29 @@ def _presign(client, session_id, timestamps, batch_bytes):
     return {}, remaining, dropped
 
 
+def _confirmed_deletes(reg, sent_deletes, batch_edit_id) -> list[int]:
+    """The deletes a register response confirms, among those it was sent.
+    A delete skipped for a missing photo is gone all the same; unkinded
+    skips (pre-release shape) only ever meant deletes. Timestamps the
+    call never sent are logged and ignored."""
+    skipped = skipped_by_kind(reg)
+    if skipped.get(None):
+        vlog().warning(
+            "UPLOAD: server skipped entries without a kind "
+            "(editBatchId=%s timestamps=%s); read as deletes",
+            batch_edit_id, skipped[None])
+    reported = (timestamps_in(reg, DELETED_KEY)
+                + skipped.get(SKIP_DELETES, []) + skipped.get(None, []))
+    sent = set(sent_deletes)
+    extras = [t for t in reported if t not in sent]
+    if extras:
+        vlog().warning(
+            "UPLOAD: server reported deletes this batch never sent "
+            "(editBatchId=%s timestamps=%s); ignored",
+            batch_edit_id, extras)
+    return [t for t in reported if t in sent]
+
+
 def upload_session(client, *, session_id: int, items: list[dict],
                    bytes_for: BytesFn,
                    edit_batch_id: str,
@@ -117,14 +141,17 @@ def upload_session(client, *, session_id: int, items: list[dict],
     progress(done, total) fires once per photo (after its 3 PUTs) so the caller
     can drive a determinate bar; total is the full item count.
 
-    surface_updates / deletes ride along in the same register calls: batch i
-    carries chunk i of items (33), of surface_updates (100) and of deletes
-    (100). A batch with no items skips presigned / PUT and only registers.
+    Deletes go FIRST, in their own register calls of up to 100 (items=[],
+    no surfaceUpdates, no presigned / PUT), ids "<edit_batch_id>-d<i>"; they
+    do not move the progress bar, and a failed one does not stop the rest.
+    Then the item batches: batch i carries chunk i of items (33) and of
+    surface_updates (100), id "<edit_batch_id>-<i>"; a batch with no items
+    skips presigned / PUT and only registers its surfaces.
     Caller contract: a delete is done ONLY if its timestamp is in
-    deleted_timestamps (and only timestamps this batch actually sent count);
+    deleted_timestamps (and only timestamps that call actually sent count);
     everything sent but not confirmed stays pending, and a timestamp is never
     in both deleted_timestamps and a failed entry.
-    Retry stays idempotent: batch i always gets the id "<edit_batch_id>-<i>".
+    Retry stays idempotent: every batch keeps its id across retries.
 
     Returns {"uploaded": int, "failed": [...], "anomalies": [...],
              "confirmed_timestamps": [...], "deleted_timestamps": [...],
@@ -135,8 +162,9 @@ def upload_session(client, *, session_id: int, items: list[dict],
     for photos the server no longer has (deleted by someone else): those
     register `skipped`, and items presign rejects with PHOTO_NOT_FOUND (they
     are dropped and the rest of the batch goes on; with no item left, the
-    batch registers only its surface updates / deletes). A failed
-    entry also lists the batch's "surface_timestamps" / "delete_timestamps".
+    batch registers only its surface updates). A failed entry also lists the
+    batch's "surface_timestamps" / "delete_timestamps" (a delete batch's
+    entry has no "timestamps").
 
     A batch where the server's updatedPhotoCount is LESS than the photos sent
     (e.g. a silent server-side dedupe/partial write) is recorded in "anomalies"
@@ -155,18 +183,35 @@ def upload_session(client, *, session_id: int, items: list[dict],
     total = len(items)
     base = 0   # items in batches already finished (success or failure)
 
-    has_edits = bool(items or surface_updates or deletes)
+    # Phase 1: deletes first, in their own register calls (no items, no
+    # surfaces, no presign / PUT). A failed delete batch leaves its deletes
+    # pending and does not stop the item batches.
+    for idx in range(_ceil_div(len(deletes), EDIT_LIST_LIMIT)):
+        batch_deletes = _nth(deletes, EDIT_LIST_LIMIT, idx)
+        sent_deletes = [d["timestamp"] for d in batch_deletes]
+        batch_edit_id = f"{edit_batch_id}-d{idx}"
+        try:
+            reg = client.register_annotations(
+                edit_batch_id=batch_edit_id, session_id=session_id,
+                items=[], deletes=batch_deletes)
+            _merge(deleted_ts, _confirmed_deletes(reg, sent_deletes, batch_edit_id))
+        except Exception as e:  # noqa: BLE001 - report per-batch, keep going
+            details = getattr(e, "details", None)
+            vlog().exception(
+                "UPLOAD DELETE BATCH FAILED timestamps=%s: %s%s",
+                sent_deletes, e, f" details={details}" if details else "")
+            failed.append({"timestamps": [], "error": str(e),
+                           "surface_timestamps": [],
+                           "delete_timestamps": sent_deletes})
+
+    # Phase 2: item batches (33 photos), surface chunk i riding in batch i.
     batch_count = max(_ceil_div(len(items), BATCH_LIMIT),
-                      _ceil_div(len(surface_updates), EDIT_LIST_LIMIT),
-                      _ceil_div(len(deletes), EDIT_LIST_LIMIT),
-                      1 if has_edits else 0)
+                      _ceil_div(len(surface_updates), EDIT_LIST_LIMIT))
 
     for idx in range(batch_count):
         batch = _nth(items, BATCH_LIMIT, idx)
         batch_surface = _nth(surface_updates, EDIT_LIST_LIMIT, idx)
-        batch_deletes = _nth(deletes, EDIT_LIST_LIMIT, idx)
         sent_surface = [u["timestamp"] for u in batch_surface]
-        sent_deletes = [d["timestamp"] for d in batch_deletes]
         # Distinct id per batch (stable for retries) — register dedupes by id,
         # so reusing one id would drop every batch after the first.
         batch_edit_id = f"{edit_batch_id}-{idx}"
@@ -201,8 +246,6 @@ def upload_session(client, *, session_id: int, items: list[dict],
             extra = {}   # only non-empty, so plain batches keep the old call
             if batch_surface:
                 extra["surface_updates"] = batch_surface
-            if batch_deletes:
-                extra["deletes"] = batch_deletes
             if batch_items or extra:
                 reg = client.register_annotations(
                     edit_batch_id=batch_edit_id, session_id=session_id,
@@ -232,25 +275,8 @@ def upload_session(client, *, session_id: int, items: list[dict],
             else:
                 uploaded += len(saved)
                 confirmed.extend(saved)   # fully persisted -> safe to mark synced
-            # Last step of the batch: nothing below can raise, so a timestamp
-            # is never in both deleted_ts and this batch's failed entry.
-            sent = set(sent_deletes)
-            # a delete skipped for a missing photo is gone all the same;
-            # unkinded skips (pre-release shape) only ever meant deletes
-            if skipped.get(None):
-                vlog().warning(
-                    "UPLOAD: server skipped entries without a kind "
-                    "(editBatchId=%s timestamps=%s); read as deletes",
-                    batch_edit_id, skipped[None])
-            reported = (timestamps_in(reg, DELETED_KEY)
-                        + skipped.get(SKIP_DELETES, []) + skipped.get(None, []))
-            extras = [t for t in reported if t not in sent]
-            if extras:
-                vlog().warning(
-                    "UPLOAD: server reported deletes this batch never sent "
-                    "(editBatchId=%s timestamps=%s); ignored",
-                    batch_edit_id, extras)
-            _merge(deleted_ts, [t for t in reported if t in sent])
+            # an item batch sends no deletes: any it reports are logged
+            _confirmed_deletes(reg, [], batch_edit_id)
             gone_surface = set(skipped.get(SKIP_SURFACE, ()))
             if isinstance(reg, dict) and isinstance(reg.get(SURFACE_UPDATED_KEY), list):
                 changed = set(timestamps_in(reg, SURFACE_UPDATED_KEY))
@@ -266,7 +292,7 @@ def upload_session(client, *, session_id: int, items: list[dict],
             failed.append({
                 "timestamps": timestamps, "error": str(e),
                 "surface_timestamps": sent_surface,
-                "delete_timestamps": sent_deletes})
+                "delete_timestamps": []})
         finally:
             base += len(batch)
             if progress is not None:

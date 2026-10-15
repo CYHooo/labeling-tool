@@ -77,19 +77,30 @@ def test_surface_only():
 
 
 def test_mixed_batches():
+    # deletes first, in their own calls; then the item batches
     c = EditClient()
     _run(c, items=[_item(i) for i in range(1, 41)], deletes=_dels(150))
-    assert len(c.registers) == 2
-    assert [len(x["items"]) for x in c.registers] == [33, 7]
-    assert [len(x["deletes"]) for x in c.registers] == [100, 50]
-    assert [x["id"] for x in c.registers] == ["b-0", "b-1"]
+    assert len(c.registers) == 4
+    assert [len(x["items"]) for x in c.registers] == [0, 0, 33, 7]
+    assert [len(x["deletes"] or []) for x in c.registers] == [100, 50, 0, 0]
+    assert [x["id"] for x in c.registers] == ["b-d0", "b-d1", "b-0", "b-1"]
 
 
 def test_more_edit_batches_than_item_batches():
     c = EditClient()
     _run(c, items=[_item(1)], deletes=_dels(250))
-    assert [len(x["items"]) for x in c.registers] == [1, 0, 0]
+    assert [len(x["items"]) for x in c.registers] == [0, 0, 0, 1]
+    assert [len(x["deletes"] or []) for x in c.registers] == [100, 100, 50, 0]
     assert len(c.presigned_calls) == 1
+
+
+def test_more_surface_batches_than_item_batches():
+    c = EditClient()
+    surface = [{"timestamp": 500 + i, "surface": "wall"} for i in range(150)]
+    _run(c, items=[_item(1)], surface=surface)
+    assert [x["id"] for x in c.registers] == ["b-0", "b-1"]
+    assert [len(x["items"]) for x in c.registers] == [1, 0]
+    assert [len(x["surface_updates"]) for x in c.registers] == [100, 50]
 
 
 def test_skipped_and_object_formats_count_as_deleted():
@@ -182,7 +193,7 @@ def test_worker_uploads_edits_without_items(tmp_path):
     c = EditClient()
     res = _run_worker(tmp_path, c, deletes=_dels(2),
                       surface_updates=[{"timestamp": 5, "surface": "floor"}])
-    assert len(c.registers) == 1
+    assert [x["id"] for x in c.registers] == ["b-d0", "b-0"]
     assert res[0]["deleted_timestamps"] == [1000, 1001]
     assert res[0]["surface_timestamps"] == [5]
     assert res[0]["failed"] == []
@@ -215,9 +226,11 @@ def test_post_register_failure_is_not_in_both_lists():
             r["updatedPhotoCount"] = "many"
             return r
     r = _run(BadCount(), items=[_item(1)], deletes=_dels(1))
+    # the delete went first in its own call; the item batch failed after
     assert len(r["failed"]) == 1
-    assert r["failed"][0]["delete_timestamps"] == [1000]
-    assert r["deleted_timestamps"] == []
+    assert r["failed"][0]["timestamps"] == [1]
+    assert r["failed"][0]["delete_timestamps"] == []
+    assert r["deleted_timestamps"] == [1000]
 
 
 # ---------------------------------------------------------------- v1.0.16 server shape
@@ -329,11 +342,12 @@ def test_every_photo_missing_at_presign_still_registers_the_edits():
                deletes=[{"timestamp": 9}])
     assert res["failed"] == []
     assert sorted(res["skipped_timestamps"]) == [1, 2]
-    assert len(c.registers) == 1
-    reg = c.registers[0]
+    assert len(c.registers) == 2                     # the delete, then the edits
+    assert c.registers[0]["deletes"] == [{"timestamp": 9}]
+    reg = c.registers[1]
     assert reg["items"] == []
     assert reg["surface_updates"] == [{"timestamp": 7, "surface": "wall"}]
-    assert reg["deletes"] == [{"timestamp": 9}]
+    assert reg["deletes"] is None
     assert res["surface_timestamps"] == [7] and res["deleted_timestamps"] == [9]
     assert c.puts == []
 
@@ -409,3 +423,47 @@ def test_unkinded_skip_logs_a_warning(monkeypatch):
     res = _run(Bare(), deletes=_dels(1))
     assert res["deleted_timestamps"] == [1000]
     assert any("without a kind" in w for w in warnings)
+
+
+# ---------------------------------------------------------------- deletes first
+def test_deletes_go_first_in_their_own_register_calls():
+    events = []
+
+    class Ordered(EditClient):
+        def request_presigned(self, session_id, files):
+            events.append("presign")
+            return super().request_presigned(session_id, files)
+
+        def register_annotations(self, **kw):
+            events.append(kw["edit_batch_id"])
+            return super().register_annotations(**kw)
+    c = Ordered()
+    r = _run(c, items=[_item(i) for i in range(1, 41)], deletes=_dels(150),
+             surface=[{"timestamp": 7, "surface": "floor"}])
+    assert events == ["b-d0", "b-d1", "presign", "b-0", "presign", "b-1"]
+    d0, d1, i0, i1 = c.registers
+    assert (d0["items"], len(d0["deletes"]), d0["surface_updates"]) == ([], 100, None)
+    assert (d1["items"], len(d1["deletes"]), d1["surface_updates"]) == ([], 50, None)
+    assert i0["deletes"] is None and i1["deletes"] is None
+    assert i0["surface_updates"] == [{"timestamp": 7, "surface": "floor"}]
+    assert [len(x["items"]) for x in (i0, i1)] == [33, 7]
+    assert r["deleted_timestamps"] == [d["timestamp"] for d in _dels(150)]
+
+
+def test_a_failed_delete_batch_does_not_stop_the_items():
+    c = EditClient(fail_call=0)
+    r = _run(c, items=[_item(1)], deletes=_dels(2))
+    assert len(r["failed"]) == 1
+    assert r["failed"][0]["delete_timestamps"] == [1000, 1001]
+    assert r["failed"][0]["timestamps"] == []
+    assert r["deleted_timestamps"] == []
+    assert r["confirmed_timestamps"] == [1]
+
+
+def test_delete_batches_do_not_move_the_progress_bar():
+    seen = []
+    upload_session(EditClient(), session_id=1, items=[_item(1)], bytes_for=_bytes,
+                   edit_batch_id="b", progress=lambda d, t: seen.append((d, t)),
+                   deletes=_dels(150))
+    assert seen and all(t == 1 for _, t in seen)
+    assert seen[-1] == (1, 1)

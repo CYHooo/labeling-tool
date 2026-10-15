@@ -111,8 +111,13 @@
   - `items`：照旧，排除 `delete_pending` 的照片；仍按 33 张一批（每张 3 个文件，V2 上限 100）。
   - `surfaceUpdates`：`surface_edit` 非空且不删除的照片 `{"timestamp", "surface"}`。
   - `deletes`：`delete_pending` 的照片 `{"timestamp"}`。
-  - `surfaceUpdates` / `deletes` 按每批上限（暂定 100，等文档）切分，附在前几个 V4 请求里；没有 items 的批次
-    只带这两个列表（`items: []`）。每批 `editBatchId` = `<id>-<idx>`（现有规则），重试稳定。
+  - **删除先发**：`deletes` 每 100 条一个独立的 V4 请求（`items: []`，不带 `surfaceUpdates`，不调 presigned /
+    不 PUT），`editBatchId` = `<id>-d<idx>`，重试稳定；不推进上传进度条；某个删除批失败不影响后面的批次
+    （其删除保持待上传）。
+  - 然后是图片批：第 i 批带第 i 段 items（33 张）和第 i 段 `surfaceUpdates`（100 条）；拍摄面比图片批多时
+    追加只带 `surfaceUpdates` 的批次（`items: []`）。`editBatchId` = `<id>-<idx>`（现有规则），重试稳定。
+  - presigned 对已被他人删除的照片返回 404 `PHOTO_NOT_FOUND`（`details.timestamp`，整个请求被拒）：
+    去掉该照片记为 skipped，用剩下的照片重试；一张不剩时该批只登记拍摄面。
 - 响应处理：
   - `items` 的确认规则不变（`updatedPhotoCount`）。
   - `deleted` + `skipped` 里的 timestamp → 本地删除（见 §6）。
