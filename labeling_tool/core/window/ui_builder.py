@@ -1,11 +1,13 @@
-"""Builders for the labeling window's right-side panel.
+"""Builders for the labeling window's two side columns.
 
 Each builder receives the MainWindow instance, creates its widgets,
 attaches them as attributes on the window, wires signal connections, and
-returns the widget so build_side_panel can lay them out:
+returns the widget so build_list_column / build_side_panel can lay them out.
 
-    job line (job id, inspection name, photo count; a "?" help button)
+Left column (build_list_column), collapsible to a thin strip:
+    job line (collapse button, job id, inspection name, photo count; "?")
     image list with a column header, then previous / next photo / save
+Right panel (build_side_panel):
     edit tools: 2x2 tool picker (the selected tool = the mode), its how-to
     and options; then display toggles and the scale
     pinned bottom: the Viewer window's upload button
@@ -38,6 +40,15 @@ if TYPE_CHECKING:
 # reads as one consistent stack instead of each group using ad-hoc margins.
 _GROUP_MARGINS = (10, 14, 10, 10)
 _GROUP_SPACING = 6
+
+# The image-list column: its width range while expanded (the real minimum
+# is whatever its content needs -- the navigation row, mostly -- which may
+# be more than this floor), its width when collapsed to the strip holding
+# the expand button, and the shortcut that toggles it (in the tooltips).
+LIST_COLUMN_MIN_WIDTH = 200
+LIST_COLUMN_MAX_WIDTH = 640
+LIST_COLUMN_STRIP_WIDTH = 24
+LIST_COLUMN_SHORTCUT = "L"
 
 # Item data role holding the dim second part of an image-list row (the file
 # name behind the "<job>-<photo>" id). Empty/None -> the row is one part only.
@@ -379,12 +390,18 @@ def _checkable(button: QPushButton, height: int = 32) -> QPushButton:
 
 
 def build_job_info_row(window: "MainWindow") -> QWidget:
-    """Job id, inspection name and photo count on one line, and the
-    shortcut-help button.
+    """The list column's collapse button, then the job id, inspection name
+    and photo count on one line, and the shortcut-help button.
     The text comes from window._refresh_job_info()."""
     row = QWidget()
     lay = QHBoxLayout(row)
-    lay.setContentsMargins(4, 0, 0, 0)
+    lay.setContentsMargins(0, 0, 0, 0)
+    window._btn_list_collapse = QToolButton()
+    window._btn_list_collapse.setObjectName("listCollapse")
+    window._btn_list_collapse.setIcon(icons.icon("chevron-left"))
+    window._btn_list_collapse.setAutoRaise(True)
+    window._btn_list_collapse.clicked.connect(window._collapse_list_column)
+    lay.addWidget(window._btn_list_collapse)
     window._lbl_job_info = ElidedLabel()
     window._lbl_job_info.setObjectName("jobInfoLine")
     window._btn_help = QToolButton()
@@ -407,17 +424,23 @@ def build_list_group(window: "MainWindow") -> QGroupBox:
     window.file_list = QListWidget()
     window.file_list.setItemDelegate(TwoPartItemDelegate(window.file_list))
     window.file_list.currentRowChanged.connect(window._on_list_row_changed)
-    # About four rows: on a short screen the list gives way to the tools
-    # instead of pushing the panel into scrolling.
+    # About four rows; the list has its own column, so it never competes
+    # with the tools for height.
     window.file_list.setMinimumHeight(120)
-    # and no preferred height of its own: it takes whatever is left
+    # and no preferred height of its own: it takes the column's spare height
     window.file_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
     window._list_header = ListHeader(window.file_list)
     gl.addWidget(window._list_header)
     gl.addWidget(window.file_list, 1)
     gl.addSpacing(_GROUP_SPACING + 2)
 
-    nav_row = QHBoxLayout()
+    # In a widget of its own so the stylesheet can tighten these buttons:
+    # all three on one line fit the list column's default width.
+    nav = QWidget()
+    nav.setObjectName("navRow")
+    nav_row = QHBoxLayout(nav)
+    nav_row.setContentsMargins(0, 0, 0, 0)
+    nav_row.setSpacing(4)
     window.btn_prev = QPushButton(window.tr_("btn_prev"))
     window.btn_prev.setIcon(icons.icon("chevron-left"))
     window.btn_next = QPushButton(window.tr_("btn_next"))
@@ -432,7 +455,7 @@ def build_list_group(window: "MainWindow") -> QGroupBox:
     nav_row.addWidget(window.btn_prev)
     nav_row.addWidget(window.btn_next)
     nav_row.addWidget(window.btn_save)
-    gl.addLayout(nav_row)
+    gl.addWidget(nav)
     window._refresh_list_header()
     return window._grp_list
 
@@ -702,7 +725,7 @@ def build_tools_group(window: "MainWindow") -> QGroupBox:
         window._tool_picker.add_tool(window.tr_(key), page)
     window._tool_picker.currentChanged.connect(window._on_tool_changed)
     gt.addWidget(window._tool_picker)
-    # Only as tall as its contents: the image list takes the spare height.
+    # Only as tall as its contents: the panel's spare height stays below.
     window._grp_tools.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
     return window._grp_tools
 
@@ -744,19 +767,59 @@ def build_display_group(window: "MainWindow") -> QGroupBox:
     return window._grp_display
 
 
+def build_list_column(window: "MainWindow") -> QWidget:
+    """The left column: job line and image list + navigation, or, while
+    collapsed, a strip with only the expand button. MainWindow switches
+    between the two (_collapse_list_column / _expand_list_column) and
+    keeps the column's width."""
+    column = QWidget()
+    column.setObjectName("listColumn")
+    outer = QHBoxLayout(column)
+    outer.setContentsMargins(0, 0, 0, 0)
+    outer.setSpacing(0)
+
+    body = QWidget()
+    body_layout = QVBoxLayout(body)
+    body_layout.setSpacing(8)
+    body_layout.setContentsMargins(8, 8, 6, 6)
+    body_layout.addWidget(build_job_info_row(window))
+    body_layout.addWidget(build_list_group(window), stretch=1)
+    outer.addWidget(body)
+
+    strip = QWidget()
+    strip_layout = QVBoxLayout(strip)
+    strip_layout.setContentsMargins(0, 8, 0, 0)
+    window._btn_list_expand = QToolButton()
+    window._btn_list_expand.setObjectName("listExpand")
+    window._btn_list_expand.setIcon(icons.icon("chevron-right"))
+    window._btn_list_expand.setAutoRaise(True)
+    window._btn_list_expand.clicked.connect(window._expand_list_column)
+    strip_layout.addWidget(window._btn_list_expand, 0, Qt.AlignHCenter)
+    strip_layout.addStretch(1)
+    strip.setVisible(False)
+    outer.addWidget(strip)
+
+    window._list_column = column
+    window._list_column_body = body
+    window._list_column_strip = strip
+    # no explicit minimum: the splitter keeps the content's minimum size
+    column.setMaximumWidth(LIST_COLUMN_MAX_WIDTH)
+    return column
+
+
 def build_side_panel(window: "MainWindow") -> QWidget:
-    """The right-side panel: job line, image list + navigation and the tools
-    scroll together; window._panel_bottom_layout (for the upload button)
-    stays pinned underneath."""
+    """The right-side panel: the tool and display groups packed at the top
+    of a scroll area (the spare height stays below them);
+    window._panel_bottom_layout (for the upload button) stays pinned
+    underneath."""
     panel = QWidget()
     panel.setObjectName("sidePanel")
     panel_layout = QVBoxLayout(panel)
     panel_layout.setSpacing(8)
     panel_layout.setContentsMargins(10, 8, 10, 6)
-    panel_layout.addWidget(build_job_info_row(window))
-    panel_layout.addWidget(build_list_group(window), stretch=1)
     panel_layout.addWidget(build_tools_group(window))
     panel_layout.addWidget(build_display_group(window))
+    panel_layout.addStretch(1)
     window._panel_layout = panel_layout
 
     panel_scroll = QScrollArea()

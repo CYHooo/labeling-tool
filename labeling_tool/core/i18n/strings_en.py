@@ -48,6 +48,8 @@ STRINGS = {
     "btn_show_range":     "Range only",
     "photo_count_part":   "Photos: {shown} / {total}",
     "group_list":         "Image List",
+    "list_collapse_tip":  "Collapse the image list (Shortcut: {shortcut})",
+    "list_expand_tip":    "Expand the image list (Shortcut: {shortcut})",
     "group_hint":         "Help / Usage",
     "btn_prev":           "Previous",
     "btn_next":           "Next",
@@ -60,7 +62,8 @@ STRINGS = {
         "Common  Ctrl+Z undo (unconfirmed points first) · Ctrl+Y redo\n"
         "Measure click the two ends of a known-length reference\n"
         "View    middle-drag / Ctrl+drag pan (View tool: left-drag) · wheel zoom\n"
-        "Nav     A / D prev/next · S / Ctrl+S save · auto-save on switch",
+        "Nav     A / D prev/next · S / Ctrl+S save · auto-save on switch\n"
+        "        L collapse/expand the image list",
     "ready":              "Ready",
     "loaded_n_images":    "Loaded {n} images",
     "warn_select_first":  "Please select Origin and Detected folders first",
