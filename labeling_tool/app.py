@@ -227,6 +227,7 @@ def main(argv: list[str] | None = None) -> int:
         if login.workspace is not None:
             # offline: a downloaded session was opened directly
             workspace, manifest = login.workspace, login.manifest
+            focus = getattr(login, "focus", None)  # its remembered range, if any
             break
 
         # online: creds entered -> fetch screen

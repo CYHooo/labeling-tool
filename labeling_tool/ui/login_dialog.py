@@ -39,6 +39,8 @@ from labeling_tool.ui.dialog_helpers import load_config, save_config, save_user_
 from labeling_tool.session.workspace import Workspace, DEFAULT_DATA_ROOT
 from labeling_tool.session.local_jobs import LocalJob, list_local_jobs
 from labeling_tool.session.manifest import Manifest
+from labeling_tool.session.focus import (
+    PhotoFocus, focus_from_manifest, restore_range_from_log)
 from labeling_tool.logging_setup import attach_session_log, vlog
 from labeling_tool.update.ui import check_for_updates
 from labeling_tool.update.version import read_build_info
@@ -129,6 +131,8 @@ class LoginDialog(QDialog):
         # downloaded-job outputs
         self.workspace: Workspace | None = None
         self.manifest: Manifest | None = None
+        # the job's remembered range fetch: the window opens on those photos
+        self.focus: PhotoFocus | None = None
         # keeps the manual update-check thread alive; see ui.py's own
         # module-level registry for the startup check's equivalent.
         self._update_thread = None
@@ -686,8 +690,16 @@ class LoginDialog(QDialog):
             self._save_settings(save_config, typed_base, key)
         if target and key:
             self.base, self.key = target, key
+        # A job fetched as a range reopens on that range; one fetched before
+        # ranges were kept takes it from its log once (saved for next time).
+        if restore_range_from_log(manifest, ws.session_dir):
+            try:
+                manifest.save(ws.manifest_path)
+            except OSError as exc:
+                vlog().warning("session %s: range not saved (%s)", job.session_id, exc)
         self.workspace = ws
         self.manifest = manifest
+        self.focus = focus_from_manifest(manifest)
         attach_session_log(ws.session_dir)
         vlog().info("=== session %s opened (local, upload=%s) ===",
                     job.session_id, self.base or "off")

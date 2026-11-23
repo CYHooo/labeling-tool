@@ -43,6 +43,16 @@ class Manifest:
     # server-side inspection name, shown in the local job list; None for
     # manifests written before it was recorded
     inspection_name: str | None = None
+    # The photo-number range of the last range fetch (범위 지정), so the job
+    # reopens on those photos; to 0 = to the last photo. None = whole job
+    # (and for manifests written before the range was kept).
+    focus_from: int | None = None
+    focus_to: int | None = None
+    # True when the range above is known: a manifest this version wrote
+    # (save always writes focusRange, null for a whole job) or one built by a
+    # fetch. False only for manifests from before ranges were kept -- the
+    # one case focus.restore_range_from_log may fill in.
+    focus_recorded: bool = True
 
     def add(self, entry: PhotoEntry) -> None:
         self.photos[entry.filename] = entry
@@ -99,6 +109,8 @@ class Manifest:
             "base": self.base,
             "fetchedAt": self.fetched_at,
             "inspectionName": self.inspection_name,
+            "focusRange": ({"fromNum": self.focus_from, "toNum": self.focus_to or 0}
+                           if self.focus_from is not None else None),
             "photos": {fn: asdict(e) for fn, e in self.photos.items()},
         }
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -112,6 +124,11 @@ class Manifest:
             fetched_at=data.get("fetchedAt"),
             inspection_name=data.get("inspectionName"),
         )
+        mf.focus_recorded = "focusRange" in data
+        rng = data.get("focusRange")
+        if isinstance(rng, dict) and isinstance(rng.get("fromNum"), int):
+            mf.focus_from = rng["fromNum"]
+            mf.focus_to = rng.get("toNum") if isinstance(rng.get("toNum"), int) else 0
         for fn, d in data.get("photos", {}).items():
             mf.photos[fn] = PhotoEntry(**d)
         return mf
