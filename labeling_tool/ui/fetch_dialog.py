@@ -21,7 +21,8 @@ from labeling_tool.ui.dialog_helpers import save_config
 from labeling_tool.session.workspace import Workspace
 from labeling_tool.session.manifest import Manifest, PhotoEntry
 from labeling_tool.session import naming
-from labeling_tool.session.focus import PhotoFocus
+from labeling_tool.session.focus import (
+    PhotoFocus, focus_from_manifest, restore_range_from_log)
 from labeling_tool.logging_setup import attach_session_log, vlog
 
 
@@ -249,10 +250,23 @@ class FetchDialog(QDialog):
                                        path=ws.manifest_path, exc=load_error))
                 return
             if choice == "open":
+                # A range typed here applies (and is remembered) without a
+                # download; 사진 전체 keeps the range the job already has.
+                if (from_num, to_num) != (0, 0):
+                    previous.focus_from, previous.focus_to = from_num, to_num
+                    changed = True
+                else:
+                    changed = restore_range_from_log(previous, ws.session_dir)
+                if changed:
+                    try:
+                        previous.save(ws.manifest_path)
+                    except OSError as exc:
+                        vlog().warning("session %s: range not saved (%s)", sid, exc)
                 attach_session_log(ws.session_dir)
                 vlog().info("=== session %s opened from fetch (already on this PC) ===", sid)
                 save_config(self.base, self.key)
                 self.workspace, self.manifest = ws, previous
+                self.focus = focus_from_manifest(previous)
                 self.accept()
                 return
         ws.ensure()
@@ -302,6 +316,9 @@ class FetchDialog(QDialog):
 
         if previous is not None:
             manifest.keep_from(previous)
+        if (from_num, to_num) != (0, 0):
+            # remembered so the job reopens on these photos (see focus.py)
+            manifest.focus_from, manifest.focus_to = from_num, to_num
         manifest.save(ws.manifest_path)
         save_config(self.base, self.key)
 
