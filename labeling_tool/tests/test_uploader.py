@@ -39,6 +39,56 @@ def _bytes(ts):
             "repair15": f"r{ts}".encode()}
 
 
+class MovedPathClient(FakeClient):
+    """A server that moved its S3 layout: presign hands out keys under a new
+    prefix, and register must record exactly those keys (the PUT went there)."""
+
+    def __init__(self, with_key=True):
+        super().__init__()
+        self.with_key = with_key
+        self.registered_items = []
+
+    def request_presigned(self, session_id, files):
+        urls = []
+        for f in files:
+            u = {"filename": f["filename"],
+                 "presignedUrl": f"https://s3/v2/{f['filename']}",
+                 "cacheControl": "max-age=0, must-revalidate"}
+            if self.with_key:
+                u["s3Key"] = f"v2/sessions/{session_id}/viewer/{f['filename']}"
+            urls.append(u)
+        return {"urls": urls}
+
+    def register_annotations(self, *, edit_batch_id, session_id, items):
+        self.registered_items.extend(items)
+        return super().register_annotations(
+            edit_batch_id=edit_batch_id, session_id=session_id, items=items)
+
+
+def test_registers_the_s3_keys_the_server_handed_out():
+    """Regression: register sent locally built results/{sid}/masks/... keys
+    while the PUT went to the server's (moved) path, so the server recorded
+    keys that point at nothing."""
+    client = MovedPathClient()
+    items = [_item(7)]
+    upload_session(client, session_id=43, items=items,
+                   bytes_for=_bytes, edit_batch_id="b")
+    (reg,) = client.registered_items
+    assert reg["maskS3Key"] == "v2/sessions/43/viewer/mask_7.png"
+    assert reg["highlightS3Key"] == "v2/sessions/43/viewer/high_7.png"
+    assert reg["repair15S3Key"] == "v2/sessions/43/viewer/15_7.png"
+    assert items[0]["maskS3Key"] == "results/43/masks/mask_7.png"   # caller's copy untouched
+
+
+def test_keeps_built_keys_when_the_server_gives_none():
+    client = MovedPathClient(with_key=False)
+    upload_session(client, session_id=43, items=[_item(7)],
+                   bytes_for=_bytes, edit_batch_id="b")
+    (reg,) = client.registered_items
+    assert reg["maskS3Key"] == "results/43/masks/mask_7.png"
+    assert reg["repair15S3Key"] == "results/43/masks/15_7.png"
+
+
 def test_uploads_single_batch_in_order():
     client = FakeClient()
     items = [_item(1), _item(2)]

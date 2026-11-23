@@ -69,6 +69,27 @@ def _files_for(timestamps, batch_bytes) -> list[dict]:
     return files
 
 
+_ITEM_KEY_FOR = (("maskS3Key", naming.mask_filename),
+                 ("highlightS3Key", naming.high_filename),
+                 ("repair15S3Key", naming.repair15_filename))
+
+
+def _with_server_keys(item: dict, url_by_name: dict) -> dict:
+    """A copy of `item` whose S3 keys are the ones presign returned.
+
+    The PUT goes to the server's presignedUrl, so the object lands wherever
+    the server decides; registering locally built keys would record a path
+    the file is not at once the server moves its layout. A presign entry
+    without s3Key keeps the built key."""
+    out = dict(item)
+    ts = item["timestamp"]
+    for key, filename_for in _ITEM_KEY_FOR:
+        server_key = (url_by_name.get(filename_for(ts)) or {}).get("s3Key")
+        if server_key:
+            out[key] = server_key
+    return out
+
+
 def _missing_photo(exc, timestamps) -> int | None:
     """The timestamp a presign PHOTO_NOT_FOUND names, if it is one of
     `timestamps`; None for any other error."""
@@ -226,7 +247,8 @@ def upload_session(client, *, session_id: int, items: list[dict],
             # recorded now: a later failure must not list them as failed
             _merge(skipped_ts, gone_at_presign)
             kept = set(timestamps)
-            batch_items = [it for it in batch if it["timestamp"] in kept]
+            batch_items = [_with_server_keys(it, url_by_name)
+                           for it in batch if it["timestamp"] in kept]
 
             # PUT mask -> high -> 15 for each photo, then advance progress once.
             for i, ts in enumerate(timestamps, start=1):
