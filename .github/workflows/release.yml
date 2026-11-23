@@ -295,6 +295,10 @@ jobs:
           name: LM_LabelingTool-${{ env.LT_VERSION }}
           path: out/*
           compression-level: 0
+          # Only this run's release job reads it; the release assets are the
+          # lasting copy. The default 90 days filled the account's artifact
+          # quota (178 GB) and blocked v0.2.21's upload.
+          retention-days: 3
 
       # Diagnostics only. Kept out of the artifact above because the release
       # job publishes everything named LM_LabelingTool-*.
@@ -302,6 +306,7 @@ jobs:
         with:
           name: runtime-manifest-${{ env.LT_VERSION }}
           path: diag/runtime-manifest.txt
+          retention-days: 30   # small; kept for diffing two runs' runtime ids
 
   build-linux:
     # See the top-of-file comment: pinned to the OLDER of our two supported
@@ -317,6 +322,19 @@ jobs:
           # No fetch-tags: on a tag push it makes checkout fetch the tag twice
           # ("Cannot fetch both <sha> and refs/tags/<tag>"); the steps that
           # read the annotation fetch the real tag themselves.
+
+      # v0.2.21's first run died with "No space left on device" while pip
+      # unpacked the torch + CUDA wheels: runner image 20261111 left less free
+      # disk than 20261002 had, with the same packages. Drop preinstalled
+      # toolchains this job never uses. Runner-only: the app is built in the
+      # pinned image, so this cannot move the runtime id. hostedtoolcache is
+      # kept except CodeQL -- setup-python installs into it.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
 
       # The runner's Python only runs the packaging helpers (notes, deb,
       # reuse, checksums); the app itself is built in the pinned image below.
@@ -710,6 +728,7 @@ jobs:
           name: LM_LabelingTool-Linux-${{ env.LT_VERSION }}
           path: out/*
           compression-level: 0
+          retention-days: 3    # see the Windows artifact
 
       # Diagnostics only. Kept out of the artifact above because the release
       # job publishes everything named LM_LabelingTool-*.
@@ -717,6 +736,7 @@ jobs:
         with:
           name: runtime-manifest-linux-${{ env.LT_VERSION }}
           path: diag/runtime-manifest-linux.txt
+          retention-days: 30   # small; kept for diffing two runs' runtime ids
 
   release:
     needs: [build-windows, build-linux]
