@@ -48,6 +48,11 @@ class Manifest:
     # (and for manifests written before the range was kept).
     focus_from: int | None = None
     focus_to: int | None = None
+    # True when the range above is known: a manifest this version wrote
+    # (save always writes focusRange, null for a whole job) or one built by a
+    # fetch. False only for manifests from before ranges were kept -- the
+    # one case focus.restore_range_from_log may fill in.
+    focus_recorded: bool = True
 
     def add(self, entry: PhotoEntry) -> None:
         self.photos[entry.filename] = entry
@@ -119,6 +124,7 @@ class Manifest:
             fetched_at=data.get("fetchedAt"),
             inspection_name=data.get("inspectionName"),
         )
+        mf.focus_recorded = "focusRange" in data
         rng = data.get("focusRange")
         if isinstance(rng, dict) and isinstance(rng.get("fromNum"), int):
             mf.focus_from = rng["fromNum"]

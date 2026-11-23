@@ -17,14 +17,24 @@ from labeling_tool.session.manifest import Manifest, PhotoEntry
 _app = QApplication.instance() or QApplication([])
 
 
-def _manifest(nums, base="https://x", focus=None):
+def _manifest(nums, base="https://x", focus=None, legacy=False):
+    """legacy=True: as loaded from a manifest written before ranges were kept."""
     mf = Manifest(session_id=95, base=base)
     for n in nums:
         mf.add(PhotoEntry(filename=naming.stitched_filename(1000 + n), timestamp=1000 + n,
                           photo_id=n, report_photo_num=n, px_per_cm=1.0))
     if focus is not None:
         mf.focus_from, mf.focus_to = focus
+    mf.focus_recorded = not legacy
     return mf
+
+
+def _save_legacy(mf, path):
+    """Write `mf` the way a pre-range version did: no focusRange key."""
+    mf.save(path)
+    data = json.loads(path.read_text())
+    data.pop("focusRange")
+    path.write_text(json.dumps(data))
 
 
 def _names(nums):
@@ -42,12 +52,12 @@ def test_manifest_keeps_the_fetched_range(tmp_path):
 
 def test_a_manifest_written_before_the_range_was_kept_loads_without_one(tmp_path):
     path = tmp_path / "manifest.json"
-    _manifest([1, 2]).save(path)
-    data = json.loads(path.read_text())
-    data.pop("focusRange", None)                       # an older manifest
-    path.write_text(json.dumps(data))
+    _save_legacy(_manifest([1, 2]), path)              # an older manifest
     back = Manifest.load(path)
     assert back.focus_from is None and focus_from_manifest(back) is None
+    assert back.focus_recorded is False                # the log may fill it in once
+    back.save(path)
+    assert Manifest.load(path).focus_recorded is True  # ...and only once
 
 
 def test_focus_from_manifest_lists_the_range_in_photo_order():
@@ -78,7 +88,7 @@ _LOG = """15:04:17.745 INFO  === session 95 fetch start (base=https://x fromNum=
 def test_an_old_job_takes_the_range_of_its_last_fetch_from_the_log(tmp_path):
     from labeling_tool.session.focus import restore_range_from_log
     (tmp_path / "vapi.log").write_text(_LOG, encoding="utf-8")
-    mf = _manifest([1, 278, 300, 639, 700])
+    mf = _manifest([1, 278, 300, 639, 700], legacy=True)
     assert restore_range_from_log(mf, tmp_path) is True
     assert (mf.focus_from, mf.focus_to) == (278, 639)
     assert list(focus_from_manifest(mf).filenames) == _names([278, 300, 639])
@@ -87,18 +97,43 @@ def test_an_old_job_takes_the_range_of_its_last_fetch_from_the_log(tmp_path):
 def test_the_log_never_overrides_a_kept_range_or_a_whole_job_fetch(tmp_path):
     from labeling_tool.session.focus import restore_range_from_log
     (tmp_path / "vapi.log").write_text(_LOG, encoding="utf-8")
-    kept = _manifest([1, 2], focus=(1, 1))
+    kept = _manifest([1, 2], focus=(1, 1), legacy=True)
     assert restore_range_from_log(kept, tmp_path) is False
     assert (kept.focus_from, kept.focus_to) == (1, 1)
-    whole = _LOG + "18:00:00.000 INFO  === session 95 fetch start (base=https://x fromNum=0 toNum=0) ===\n"
+    whole = (_LOG + "18:00:00.000 INFO  === session 95 fetch start (base=https://x fromNum=0 toNum=0) ===\n"
+             "18:05:00.000 INFO  download done: 1002 ok, 0 failed\n")
     (tmp_path / "vapi.log").write_text(whole, encoding="utf-8")
-    mf = _manifest([1, 2])
+    mf = _manifest([1, 2], legacy=True)
+    assert restore_range_from_log(mf, tmp_path) is False and mf.focus_from is None
+
+
+def test_a_range_fetch_that_never_finished_is_not_taken(tmp_path):
+    """Review finding: "fetch start" is logged before the download, so a
+    fetch that failed (network, empty range) leaves a range that never
+    applied; the last COMPLETED fetch counts."""
+    from labeling_tool.session.focus import restore_range_from_log
+    failed = _LOG + "19:00:00.000 INFO  === session 95 fetch start (base=https://x fromNum=1 toNum=100) ===\n"
+    (tmp_path / "vapi.log").write_text(failed, encoding="utf-8")
+    mf = _manifest([1, 278, 300], legacy=True)
+    assert restore_range_from_log(mf, tmp_path) is True
+    assert (mf.focus_from, mf.focus_to) == (278, 639)
+
+
+def test_a_manifest_saved_by_this_version_never_reads_the_log(tmp_path):
+    """A whole-job manifest written now has focusRange: null -- the log must
+    not turn it into a range (only manifests from before ranges were kept)."""
+    from labeling_tool.session.focus import restore_range_from_log
+    path = tmp_path / "manifest.json"
+    _manifest([1, 278, 300]).save(path)
+    assert json.loads(path.read_text())["focusRange"] is None
+    (tmp_path / "vapi.log").write_text(_LOG, encoding="utf-8")
+    mf = Manifest.load(path)
     assert restore_range_from_log(mf, tmp_path) is False and mf.focus_from is None
 
 
 def test_no_log_or_an_unreadable_one_changes_nothing(tmp_path):
     from labeling_tool.session.focus import restore_range_from_log
-    mf = _manifest([1, 2])
+    mf = _manifest([1, 2], legacy=True)
     assert restore_range_from_log(mf, tmp_path) is False            # no vapi.log
     (tmp_path / "vapi.log").write_bytes(b"\xff\xfe garbage")
     assert restore_range_from_log(mf, tmp_path) is False
@@ -111,7 +146,8 @@ def test_opening_an_old_local_job_restores_and_saves_the_logged_range(monkeypatc
     monkeypatch.setattr(ld, "DEFAULT_DATA_ROOT", tmp_path)
     monkeypatch.setattr(ld, "attach_session_log", lambda *a: None)
     job = tmp_path / "session_95"
-    _manifest([1, 2, 278, 279, 640]).save(job / "manifest.json")     # no focusRange
+    job.mkdir()
+    _save_legacy(_manifest([1, 2, 278, 279, 640]), job / "manifest.json")
     (job / "vapi.log").write_text(_LOG, encoding="utf-8")
     dlg = ld.LoginDialog()
     try:
