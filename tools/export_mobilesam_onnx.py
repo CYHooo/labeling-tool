@@ -21,7 +21,9 @@ from mobile_sam import sam_model_registry
 from mobile_sam.utils.onnx import SamOnnxModel
 
 _CKPT_URL = "https://github.com/ChaoningZhang/MobileSAM/raw/master/weights/mobile_sam.pt"
-_OUT_DIR = Path(__file__).resolve().parent.parent / "models" / "sam"
+# Where the app loads them from (core/sam/predictor.py, packaging spec);
+# tools/ sits at the repo root since d70c41c, so not parent.parent/models.
+_OUT_DIR = Path(__file__).resolve().parent.parent / "labeling_tool" / "models" / "sam"
 
 
 def _ensure_checkpoint(path: Path) -> Path:

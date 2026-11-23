@@ -264,7 +264,10 @@ class FetchDialog(QDialog):
 
         try:
             all_photos = self._fetch_all_photos(self.client, sid)
-        except ViewerApiError as e:
+        except (ViewerApiError, OSError) as e:
+            # OSError covers every requests error (unresolvable or retired
+            # domain, refused, timeout): escaping this slot would abort the app.
+            vlog().warning("session %s fetch failed: %s", sid, e)
             QMessageBox.critical(self, tr("fetch_failed_title"), str(e))
             return
         photos = filter_photos_by_range(all_photos, from_num, to_num)

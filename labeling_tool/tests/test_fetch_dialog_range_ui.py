@@ -1,9 +1,11 @@
 """The fetch screen speaks the user's terms: 작업 ID, all photos by default,
 or one photo-number range -- no sessionId / fromNum / toNum."""
 import pytest
+import requests
 from PyQt5.QtWidgets import QAbstractButton, QApplication, QLabel, QMessageBox
 
 from labeling_tool.core import i18n
+from labeling_tool.session.workspace import Workspace
 from labeling_tool.ui import fetch_dialog as fd
 
 _app = QApplication.instance() or QApplication([])
@@ -75,6 +77,12 @@ def test_unknown_photo_count_defaults_the_range_to_the_end(monkeypatch, tmp_path
     monkeypatch.setattr(i18n, "_settings_home", lambda: tmp_path / "settings")
     monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
     i18n.set_language("ko")
+    # Patched on the class BEFORE the dialog exists: its signals bind the
+    # method at construction, so patching the instance afterwards let Enter
+    # run the real fetch (network + the repo's data folder).
+    fetched = []
+    monkeypatch.setattr(fd.FetchDialog, "_on_fetch",
+                        lambda self: fetched.append(self._requested_range()))
     d = fd.FetchDialog(base="https://x", key="k")
 
     def down():
@@ -82,8 +90,6 @@ def test_unknown_photo_count_defaults_the_range_to_the_end(monkeypatch, tmp_path
 
     d.client.list_sessions = down
     d._load_sessions()
-    fetched = []
-    monkeypatch.setattr(d, "_on_fetch", lambda: fetched.append(d._requested_range()))
     try:
         d.rb_range.setChecked(True)
         d.sp_from.setValue(5)
@@ -96,8 +102,35 @@ def test_unknown_photo_count_defaults_the_range_to_the_end(monkeypatch, tmp_path
         assert d.cb_session.count() == 0                 # Enter did not add an item
         assert d._requested_range() == (5, 0)            # 5 ~ end
         assert d.sp_to.text() == i18n.tr("fetch_range_end")
+        assert fetched == [(5, 0)]                       # Enter fetched 5 ~ end
     finally:
         d.close()
+
+
+@pytest.mark.parametrize("exc", [
+    requests.ConnectionError("Failed to resolve 'old-domain.example'"),
+    requests.Timeout("read timed out"),
+])
+def test_unreachable_server_shows_a_message_instead_of_crashing(
+        dlg, monkeypatch, tmp_path, exc):
+    """Regression: only ViewerApiError was caught, so a server that cannot be
+    reached (e.g. a retired domain) raised out of the Qt slot and PyQt5
+    aborted the whole app."""
+    monkeypatch.setattr(fd.Workspace, "default", classmethod(
+        lambda cls, session_id: Workspace(root=tmp_path / "data",
+                                          session_id=session_id)))
+    shown = []
+    monkeypatch.setattr(QMessageBox, "critical",
+                        lambda *a, **k: shown.append((a[1], a[2])))
+
+    def unreachable(*a, **k):
+        raise exc
+
+    monkeypatch.setattr(dlg, "_fetch_all_photos", unreachable)
+    dlg.cb_session.setEditText("49")
+    dlg._on_fetch()                                      # must not raise
+    assert [title for title, _ in shown] == [i18n.tr("fetch_failed_title")]
+    assert dlg.workspace is None                         # nothing opened
 
 
 def test_reversed_range_message_has_its_own_title(dlg, monkeypatch):
